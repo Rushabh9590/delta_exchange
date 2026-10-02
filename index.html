@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Delta Exchange - Live Open Positions</title>
+  <title>Delta Exchange - Live Open Positions & Multi-Leg Trading Studio</title>
 
   <!-- Modern Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -20,20 +20,22 @@
       --bg-card: #182030;
       --bg-card-hover: #1f2a3e;
       --bg-card-elevated: #243048;
+      --bg-input: #0d131f;
 
       --border-subtle: rgba(255, 255, 255, 0.08);
-      --border-card: rgba(255, 255, 255, 0.1);
+      --border-card: rgba(255, 255, 255, 0.12);
+      --border-focus: #38bdf8;
 
       --text-primary: #f8fafc;
       --text-secondary: #94a3b8;
       --text-muted: #64748b;
 
       --accent-green: #00dc82;
-      --accent-green-glow: rgba(0, 220, 130, 0.2);
+      --accent-green-glow: rgba(0, 220, 130, 0.25);
       --accent-green-bg: rgba(0, 220, 130, 0.12);
 
       --accent-red: #f43f5e;
-      --accent-red-glow: rgba(244, 63, 94, 0.2);
+      --accent-red-glow: rgba(244, 63, 94, 0.25);
       --accent-red-bg: rgba(244, 63, 94, 0.12);
 
       --accent-blue: #38bdf8;
@@ -62,24 +64,24 @@
       color: var(--text-primary);
       font-family: var(--font-main);
       min-height: 100vh;
-      padding-bottom: 40px;
+      padding-bottom: 50px;
       -webkit-font-smoothing: antialiased;
     }
 
     /* Top Navbar */
     .navbar {
-      background: rgba(18, 24, 36, 0.9);
+      background: rgba(18, 24, 36, 0.95);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border-subtle);
       position: sticky;
       top: 0;
       z-index: 100;
-      padding: 12px 24px;
+      padding: 10px 24px;
     }
 
     .nav-container {
-      max-width: 1440px;
+      max-width: 1480px;
       margin: 0 auto;
       display: flex;
       justify-content: space-between;
@@ -90,33 +92,33 @@
     .brand-group {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .brand-logo {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 38px;
-      height: 38px;
+      width: 36px;
+      height: 36px;
       background: linear-gradient(135deg, #00dc82 0%, #0284c7 100%);
       border-radius: var(--radius-md);
       box-shadow: 0 2px 10px rgba(0, 220, 130, 0.3);
     }
 
     .brand-logo svg {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
       fill: #fff;
     }
 
     .brand-title {
-      font-size: 1.15rem;
+      font-size: 1.1rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     .brand-title .highlight {
@@ -127,8 +129,8 @@
     }
 
     .badge-env {
-      font-size: 0.72rem;
-      padding: 3px 8px;
+      font-size: 0.7rem;
+      padding: 2px 7px;
       border-radius: 20px;
       background: var(--accent-blue-bg);
       color: var(--accent-blue);
@@ -138,120 +140,144 @@
       text-transform: uppercase;
     }
 
-    .nav-controls {
+    /* Navigation Menu Tabs */
+    .nav-menu-tabs {
       display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    /* Live Stream Pill */
-    .live-status-pill {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(0, 220, 130, 0.08);
-      border: 1px solid rgba(0, 220, 130, 0.25);
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.03em;
-      color: var(--accent-green);
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent-green);
-      box-shadow: 0 0 10px var(--accent-green);
-      animation: pulse 1.8s infinite ease-in-out;
-    }
-
-    @keyframes pulse {
-
-      0%,
-      100% {
-        transform: scale(1);
-        opacity: 1;
-      }
-
-      50% {
-        transform: scale(1.4);
-        opacity: 0.4;
-      }
-    }
-
-    /* Currency Switcher (INR / USD) */
-    .currency-switch {
-      display: flex;
-      align-items: center;
       background: var(--bg-card);
-      border: 1px solid var(--border-card);
+      border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       padding: 3px;
-      position: relative;
+      gap: 4px;
     }
 
-    .curr-btn {
-      background: transparent;
+    .nav-tab-btn {
       border: none;
+      background: transparent;
       color: var(--text-secondary);
-      font-size: 0.8rem;
-      font-weight: 700;
-      padding: 5px 12px;
-      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 7px 16px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 4px;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      gap: 7px;
+      transition: all 0.2s ease;
     }
 
-    .curr-btn:hover {
+    .nav-tab-btn:hover {
       color: var(--text-primary);
+      background: var(--bg-card-hover);
+    }
+
+    .nav-tab-btn.active {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(0, 220, 130, 0.2) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .nav-tab-badge {
+      font-size: 0.68rem;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .live-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 0.73rem;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--accent-green);
+      box-shadow: 0 0 6px var(--accent-green);
+      animation: pulseDot 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.7; }
+    }
+
+    .currency-switch {
+      display: flex;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 2px;
+    }
+
+    .curr-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 0.78rem;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.2s ease;
     }
 
     .curr-btn.active {
-      background: linear-gradient(135deg, #0284c7, #0369a1);
-      color: #ffffff;
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+      background: var(--accent-blue);
+      color: #0b0e14;
+      box-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
     }
 
-    .curr-btn.active.curr-inr {
-      background: linear-gradient(135deg, #059669, #047857);
-      box-shadow: 0 2px 8px rgba(5, 150, 105, 0.4);
+    .curr-btn.curr-inr.active {
+      background: #f59e0b;
+      color: #0b0e14;
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.35);
     }
 
     .rate-badge {
-      font-size: 0.72rem;
-      color: var(--text-muted);
+      font-size: 0.76rem;
       font-family: var(--font-mono);
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 0 4px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 5px 10px;
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
     }
 
     .btn-refresh {
       background: var(--bg-card);
-      border: 1px solid var(--border-card);
+      border: 1px solid var(--border-subtle);
       color: var(--text-primary);
-      padding: 7px 12px;
+      padding: 6px 12px;
       border-radius: var(--radius-md);
-      font-size: 0.82rem;
-      font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
+      font-size: 0.8rem;
+      font-weight: 500;
       transition: all 0.2s ease;
     }
 
     .btn-refresh:hover {
       background: var(--bg-card-hover);
-      border-color: var(--accent-green);
-      box-shadow: 0 0 12px rgba(0, 220, 130, 0.2);
     }
 
     .btn-refresh.loading svg {
@@ -259,55 +285,72 @@
     }
 
     @keyframes spin {
-      100% {
-        transform: rotate(360deg);
-      }
+      100% { transform: rotate(360deg); }
     }
 
     /* Main Container */
     .main-container {
-      max-width: 1440px;
-      margin: 24px auto;
-      padding: 0 24px;
+      max-width: 1480px;
+      margin: 20px auto;
+      padding: 0 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
 
-    /* Metrics Grid */
+    /* Tab Page Views */
+    .tab-view {
+      display: none;
+      flex-direction: column;
+      gap: 20px;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .tab-view.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Key Metric Cards */
     .metrics-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 16px;
-      margin-bottom: 24px;
     }
 
     .metric-card {
       background: var(--bg-secondary);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-card);
       border-radius: var(--radius-lg);
-      padding: 20px;
-      position: relative;
-      overflow: hidden;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
       box-shadow: var(--shadow-card);
       transition: transform 0.2s ease, border-color 0.2s ease;
     }
 
     .metric-card:hover {
-      border-color: rgba(255, 255, 255, 0.15);
       transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
     .metric-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
     }
 
     .metric-title {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
       font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
 
     .metric-icon {
@@ -319,104 +362,76 @@
       justify-content: center;
     }
 
-    .icon-green {
-      background: var(--accent-green-bg);
-      color: var(--accent-green);
-    }
-
-    .icon-red {
-      background: var(--accent-red-bg);
-      color: var(--accent-red);
-    }
-
-    .icon-blue {
-      background: var(--accent-blue-bg);
-      color: var(--accent-blue);
-    }
-
-    .icon-purple {
-      background: var(--accent-purple-bg);
-      color: var(--accent-purple);
-    }
+    .icon-green { background: var(--accent-green-bg); color: var(--accent-green); }
+    .icon-blue { background: var(--accent-blue-bg); color: var(--accent-blue); }
+    .icon-purple { background: var(--accent-purple-bg); color: var(--accent-purple); }
 
     .metric-value {
-      font-family: var(--font-mono);
       font-size: 1.65rem;
-      font-weight: 700;
+      font-weight: 800;
+      font-family: var(--font-mono);
       letter-spacing: -0.02em;
-      margin-bottom: 4px;
-      transition: color 0.3s ease;
     }
 
     .metric-sub {
-      font-size: 0.8rem;
-      color: var(--text-secondary);
+      font-size: 0.78rem;
+      color: var(--text-muted);
       display: flex;
       align-items: center;
       gap: 6px;
     }
 
-    .text-green {
-      color: var(--accent-green);
-    }
+    .text-green { color: var(--accent-green) !important; }
+    .text-red { color: var(--accent-red) !important; }
+    .text-blue { color: var(--accent-blue) !important; }
+    .mono-num { font-family: var(--font-mono); }
 
-    .text-red {
-      color: var(--accent-red);
-    }
-
-    .text-blue {
-      color: var(--accent-blue);
-    }
-
-    /* Section & Table Container */
+    /* ========================================================================= */
+    /* ACTIVE OPEN POSITIONS TABLE (EXACT DUAL-CURRENCY STYLING)                */
+    /* ========================================================================= */
     .section-container {
       background: var(--bg-secondary);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-card);
       border-radius: var(--radius-lg);
-      padding: 22px;
+      padding: 20px 24px;
       box-shadow: var(--shadow-card);
     }
 
     .section-header {
       display: flex;
-      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
       gap: 16px;
-      margin-bottom: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 18px;
     }
 
     .section-title-group {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .section-title {
-      font-size: 1.2rem;
+      font-size: 1.15rem;
       font-weight: 700;
-      letter-spacing: -0.01em;
     }
 
     .count-pill {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      color: var(--accent-green);
-      font-size: 0.78rem;
+      font-size: 0.72rem;
       font-weight: 700;
-      padding: 2px 10px;
+      padding: 3px 8px;
       border-radius: 12px;
-      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+      letter-spacing: 0.04em;
     }
 
-    /* Filters and Search */
     .filter-toolbar {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     .search-box {
@@ -430,26 +445,22 @@
       left: 10px;
       width: 14px;
       height: 14px;
-      color: var(--text-muted);
-      pointer-events: none;
+      stroke: var(--text-muted);
     }
 
     .search-input {
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       color: var(--text-primary);
-      font-size: 0.82rem;
       padding: 7px 12px 7px 32px;
       border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      width: 210px;
       outline: none;
-      width: 200px;
-      transition: all 0.2s ease;
     }
 
     .search-input:focus {
-      border-color: var(--accent-green);
-      box-shadow: 0 0 10px rgba(0, 220, 130, 0.2);
-      width: 240px;
+      border-color: var(--border-focus);
     }
 
     .filter-tabs {
@@ -457,48 +468,44 @@
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 3px;
+      padding: 2px;
+      gap: 2px;
     }
 
     .tab-btn {
-      background: transparent;
       border: none;
+      background: transparent;
       color: var(--text-secondary);
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       font-weight: 600;
-      padding: 5px 12px;
-      border-radius: 6px;
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       transition: all 0.2s ease;
     }
 
-    .tab-btn:hover {
-      color: var(--text-primary);
-    }
-
     .tab-btn.active {
       background: var(--bg-card-elevated);
-      color: #fff;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      color: var(--text-primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     }
 
-    /* Table Styling */
     .table-responsive {
       overflow-x: auto;
-      margin-top: 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
     }
 
     table {
       width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 0.85rem;
+      border-collapse: collapse;
+      font-size: 0.84rem;
     }
 
     th {
-      background: rgba(18, 24, 36, 0.6);
+      background: var(--bg-card);
       color: var(--text-muted);
-      font-size: 0.74rem;
+      font-size: 0.73rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -509,21 +516,16 @@
     }
 
     td {
-      padding: 14px 14px;
+      padding: 13px 14px;
       border-bottom: 1px solid var(--border-subtle);
       vertical-align: middle;
       white-space: nowrap;
-    }
-
-    tbody tr {
-      transition: background-color 0.15s ease;
     }
 
     tbody tr:hover {
       background-color: var(--bg-card);
     }
 
-    /* Badges & Tags */
     .symbol-cell {
       display: flex;
       flex-direction: column;
@@ -539,12 +541,11 @@
     .symbol-name {
       font-weight: 700;
       color: var(--text-primary);
-      font-size: 0.92rem;
-      letter-spacing: -0.01em;
+      font-size: 0.9rem;
     }
 
     .symbol-desc {
-      font-size: 0.74rem;
+      font-size: 0.73rem;
       color: var(--text-muted);
     }
 
@@ -554,26 +555,11 @@
       padding: 2px 6px;
       border-radius: 4px;
       text-transform: uppercase;
-      letter-spacing: 0.02em;
     }
 
-    .badge-call {
-      background: var(--accent-green-bg);
-      color: var(--accent-green);
-      border: 1px solid rgba(0, 220, 130, 0.3);
-    }
-
-    .badge-put {
-      background: var(--accent-purple-bg);
-      color: var(--accent-purple);
-      border: 1px solid rgba(168, 85, 247, 0.3);
-    }
-
-    .badge-perp {
-      background: var(--accent-blue-bg);
-      color: var(--accent-blue);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-    }
+    .badge-call { background: var(--accent-green-bg); color: var(--accent-green); border: 1px solid rgba(0, 220, 130, 0.3); }
+    .badge-put { background: var(--accent-purple-bg); color: var(--accent-purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-perp { background: var(--accent-blue-bg); color: var(--accent-blue); border: 1px solid rgba(56, 189, 248, 0.3); }
 
     .side-badge {
       display: inline-flex;
@@ -583,37 +569,21 @@
       font-weight: 700;
       padding: 4px 8px;
       border-radius: var(--radius-sm);
-      letter-spacing: 0.03em;
     }
 
-    .side-long {
-      background: var(--accent-green-bg);
-      color: var(--accent-green);
-      border: 1px solid rgba(0, 220, 130, 0.3);
-    }
-
-    .side-short {
-      background: var(--accent-red-bg);
-      color: var(--accent-red);
-      border: 1px solid rgba(244, 63, 94, 0.3);
-    }
-
-    .mono-num {
-      font-family: var(--font-mono);
-      font-weight: 600;
-    }
+    .side-long { background: var(--accent-green-bg); color: var(--accent-green); border: 1px solid rgba(0, 220, 130, 0.3); }
+    .side-short { background: var(--accent-red-bg); color: var(--accent-red); border: 1px solid rgba(244, 63, 94, 0.3); }
 
     .sub-curr {
-      font-size: 0.72rem;
+      font-size: 0.75rem;
       color: var(--text-muted);
       font-family: var(--font-mono);
       margin-top: 2px;
     }
 
     .pnl-pill {
-      display: inline-flex;
+      display: flex;
       flex-direction: column;
-      align-items: flex-end;
       gap: 2px;
     }
 
@@ -624,11 +594,13 @@
     }
 
     .pnl-pct {
-      font-family: var(--font-mono);
+      display: inline-block;
       font-size: 0.72rem;
-      padding: 1px 6px;
+      font-weight: 700;
+      padding: 1px 5px;
       border-radius: 4px;
-      font-weight: 600;
+      width: fit-content;
+      font-family: var(--font-mono);
     }
 
     .pnl-pos-pct {
@@ -643,70 +615,664 @@
 
     .badge-mode {
       font-size: 0.72rem;
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-secondary);
-      padding: 2px 6px;
+      font-weight: 700;
+      padding: 3px 8px;
       border-radius: 4px;
-      text-transform: capitalize;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-row-squareoff {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: var(--accent-red);
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-row-squareoff:hover {
+      background: var(--accent-red);
+      color: #fff;
     }
 
     .btn-action-view {
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       color: var(--text-secondary);
-      padding: 4px 8px;
+      padding: 5px 9px;
       border-radius: var(--radius-sm);
-      font-size: 0.74rem;
       cursor: pointer;
+      font-size: 0.74rem;
+      font-weight: 600;
       transition: all 0.2s ease;
     }
 
     .btn-action-view:hover {
+      background: var(--bg-card-hover);
       color: var(--text-primary);
+    }
+
+    /* ========================================================================= */
+    /* MULTI-LEG TRADING STUDIO CARD                                             */
+    /* ========================================================================= */
+    .studio-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius-lg);
+      padding: 22px 24px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .studio-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .studio-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .studio-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .studio-badge {
+      background: linear-gradient(135deg, #a855f7 0%, #38bdf8 100%);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .preset-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .preset-label {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-right: 4px;
+    }
+
+    .preset-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .preset-btn:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .preset-btn.active {
+      background: rgba(56, 189, 248, 0.15);
       border-color: var(--accent-blue);
+      color: var(--accent-blue);
+      font-weight: 700;
+    }
+
+    .strategy-config-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 16px 20px;
+      border-radius: var(--radius-md);
+      align-items: flex-start;
+    }
+
+    @media (max-width: 1100px) {
+      .strategy-config-bar {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 650px) {
+      .strategy-config-bar {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .config-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .config-label {
+      font-size: 0.74rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .config-select, .config-input {
+      height: 38px;
+      box-sizing: border-box;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 0 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+      width: 100%;
+    }
+
+    .config-select:focus, .config-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    .field-sub-info {
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      margin-top: 2px;
+    }
+
+    .sub-info-pill {
+      font-size: 0.73rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    /* Live Underlying Spot/Futures Badge */
+    .live-spot-pill {
+      background: rgba(0, 220, 130, 0.12);
+      border: 1px solid rgba(0, 220, 130, 0.35);
+      color: var(--accent-green);
+      transition: all 0.25s ease;
+    }
+
+    .live-spot-pill.flash-up {
+      background: rgba(0, 220, 130, 0.4);
+      border-color: var(--accent-green);
+      color: #00dc82;
+      box-shadow: 0 0 10px rgba(0, 220, 130, 0.5);
+    }
+
+    .live-spot-pill.flash-down {
+      background: rgba(244, 63, 94, 0.4);
+      border-color: var(--accent-red);
+      color: #f43f5e;
+      box-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
+    }
+
+    .spot-pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulseGlow 1.5s infinite;
+    }
+
+    .spot-inr-val {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 0.70rem;
+    }
+
+    .atm-ref-pill {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent-blue);
+    }
+
+    .expiry-ref-pill {
+      background: rgba(168, 85, 247, 0.12);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: var(--accent-purple);
+    }
+
+    .lot-spec-pill {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--accent-blue);
+    }
+
+    .quick-lot-row {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .quick-lot-label {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-right: 2px;
+    }
+
+    .quick-lot-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-size: 0.68rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 2px 7px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .quick-lot-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    .legs-header-row {
+      display: grid;
+      grid-template-columns: 75px 95px 95px 120px 1.4fr 100px 110px 85px 38px;
+      gap: 10px;
+      padding: 8px 14px 2px;
+      color: var(--text-muted);
+      font-size: 0.70rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .legs-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .leg-row {
+      display: grid;
+      grid-template-columns: 75px 95px 95px 120px 1.4fr 100px 110px 85px 38px;
+      gap: 10px;
+      align-items: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      transition: all 0.2s ease;
+    }
+
+    .leg-row:hover {
+      border-color: rgba(255, 255, 255, 0.18);
       background: var(--bg-card-hover);
     }
 
-    /* Empty State */
-    .empty-state {
-      padding: 60px 20px;
+    .leg-badge-tag {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 6px 10px;
+      border-radius: 4px;
       text-align: center;
+    }
+
+    .side-toggle {
+      display: flex;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .side-toggle-btn {
+      flex: 1;
+      border: none;
+      background: var(--bg-input);
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 6px 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .side-toggle-btn.active-buy {
+      background: var(--accent-green);
+      color: #0b0e14;
+    }
+
+    .side-toggle-btn.active-sell {
+      background: var(--accent-red);
+      color: #fff;
+    }
+
+    /* Option Type (CE / PE) Toggle */
+    .opt-type-toggle {
+      display: flex;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .opt-type-btn {
+      flex: 1;
+      border: none;
+      background: var(--bg-input);
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      padding: 6px 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .opt-type-btn.active-ce {
+      background: rgba(16, 185, 129, 0.22);
+      color: var(--accent-green);
+      font-weight: 800;
+      border-right: 1px solid rgba(16, 185, 129, 0.35);
+    }
+
+    .opt-type-btn.active-pe {
+      background: rgba(168, 85, 247, 0.22);
+      color: var(--accent-purple);
+      font-weight: 800;
+      border-left: 1px solid rgba(168, 85, 247, 0.35);
+    }
+
+    .leg-strike-select {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 600;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 7px 8px;
+      border-radius: var(--radius-sm);
+      outline: none;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    .leg-strike-select:focus {
+      border-color: var(--border-focus);
+    }
+
+    .leg-symbol-input {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      outline: none;
+      width: 100%;
+    }
+
+    .leg-type-select {
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 7px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      outline: none;
+    }
+
+    .leg-price-input, .leg-size-input {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      outline: none;
+      width: 100%;
+    }
+
+    .leg-price-input:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-delete-leg {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      font-size: 1.1rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn-delete-leg:hover {
+      background: var(--accent-red-bg);
+      color: var(--accent-red);
+    }
+
+    /* Strategy Margin Requirement & Live Available Margin Bar */
+    .strategy-margin-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(24, 33, 50, 0.85) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-md);
+      padding: 12px 18px;
+      margin-top: 14px;
+      margin-bottom: 8px;
+    }
+
+    .margin-stat-group {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+    }
+
+    .margin-stat-box {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
+      gap: 4px;
     }
 
-    .empty-icon {
-      width: 54px;
-      height: 54px;
-      border-radius: 50%;
-      background: var(--bg-card);
+    .margin-stat-label {
+      font-size: 0.70rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
       display: flex;
       align-items: center;
-      justify-content: center;
-      color: var(--text-muted);
+      gap: 6px;
     }
 
-    .empty-title {
-      font-size: 1.1rem;
-      font-weight: 600;
+    .margin-stat-val {
+      font-family: var(--font-mono);
+      font-size: 1.05rem;
+      font-weight: 800;
       color: var(--text-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
     }
 
-    .empty-desc {
+    .margin-stat-val.req-val {
+      color: #38bdf8;
+    }
+
+    .margin-stat-val.avail-val {
+      color: var(--accent-green);
+    }
+
+    .margin-stat-alt {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .margin-health-badge {
+      font-size: 0.76rem;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .margin-health-badge.sufficient {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: var(--accent-green);
+    }
+
+    .margin-health-badge.insufficient {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      color: var(--accent-red);
+    }
+
+    .studio-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding-top: 10px;
+    }
+
+    .btn-add-leg {
+      background: var(--bg-card);
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+      color: var(--text-primary);
+      padding: 9px 18px;
+      border-radius: var(--radius-md);
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-add-leg:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    .studio-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-emergency-exit {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: var(--accent-red);
+      padding: 10px 18px;
+      border-radius: var(--radius-md);
       font-size: 0.85rem;
-      color: var(--text-muted);
-      max-width: 400px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
     }
 
-    /* Modal / Inspector */
+    .btn-emergency-exit:hover {
+      background: var(--accent-red);
+      color: #fff;
+      box-shadow: 0 4px 15px var(--accent-red-glow);
+    }
+
+    .btn-execute-multileg {
+      background: linear-gradient(135deg, #00dc82 0%, #0284c7 100%);
+      border: none;
+      color: #fff;
+      padding: 11px 26px;
+      border-radius: var(--radius-md);
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 20px rgba(0, 220, 130, 0.35);
+      transition: all 0.2s ease;
+    }
+
+    .btn-execute-multileg:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(0, 220, 130, 0.5);
+    }
+
+    /* Modals & Overlays */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0, 0, 0, 0.8);
       backdrop-filter: blur(8px);
       display: none;
       align-items: center;
@@ -724,11 +1290,11 @@
       border: 1px solid var(--border-card);
       border-radius: var(--radius-lg);
       width: 100%;
-      max-width: 700px;
+      max-width: 680px;
       max-height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8);
     }
 
     .modal-header {
@@ -749,8 +1315,7 @@
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 1.2rem;
-      padding: 4px;
+      font-size: 1.4rem;
       line-height: 1;
     }
 
@@ -761,8 +1326,6 @@
     .modal-body {
       padding: 20px;
       overflow-y: auto;
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
     }
 
     .code-block {
@@ -771,12 +1334,26 @@
       border-radius: var(--radius-md);
       padding: 14px;
       color: #38bdf8;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
       overflow-x: auto;
       white-space: pre-wrap;
-      word-break: break-all;
     }
 
-    /* Toast Notification */
+    .report-leg-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .report-leg-card.success { border-left: 4px solid var(--accent-green); }
+    .report-leg-card.failed { border-left: 4px solid var(--accent-red); }
+
     .toast-container {
       position: fixed;
       bottom: 24px;
@@ -791,31 +1368,47 @@
       background: var(--bg-card-elevated);
       border: 1px solid var(--border-card);
       color: var(--text-primary);
-      padding: 10px 16px;
+      padding: 12px 18px;
       border-radius: var(--radius-md);
-      font-size: 0.82rem;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+      font-size: 0.84rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
       display: flex;
       align-items: center;
       gap: 8px;
       animation: slideIn 0.3s ease;
     }
 
-    @keyframes slideIn {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
-      }
+    .toast.success { border-color: var(--accent-green); color: var(--accent-green); }
+    .toast.error { border-color: var(--accent-red); color: var(--accent-red); }
 
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
     }
 
-    /* Footer */
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
     .footer {
-      max-width: 1440px;
+      max-width: 1480px;
       margin: 24px auto 0;
       padding: 0 24px;
       display: flex;
@@ -825,35 +1418,297 @@
       font-size: 0.78rem;
     }
 
-    /* Responsive */
-    @media (max-width: 860px) {
+    /* ========================================================================= */
+    /* COMPREHENSIVE RESPONSIVE MOBILE & TABLET OPTIMIZATIONS                    */
+    /* ========================================================================= */
+    @media (max-width: 992px) {
+      .main-container {
+        padding: 16px;
+      }
       .nav-container {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
+        gap: 12px;
+      }
+      .brand-group {
+        justify-content: space-between;
+        width: 100%;
+      }
+      .nav-menu-tabs {
+        width: 100%;
+        display: flex;
+      }
+      .nav-tab-btn {
+        flex: 1;
+        justify-content: center;
+        text-align: center;
+      }
+      .nav-controls {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .strategy-config-bar {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .main-container {
+        padding: 12px 10px;
+        gap: 14px;
+      }
+
+      .navbar {
+        padding: 10px 12px;
+      }
+
+      /* Top Metrics Cards 2x2 Grid */
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .metric-card {
+        padding: 12px 14px;
+        gap: 6px;
+      }
+
+      .metric-title {
+        font-size: 0.70rem;
+      }
+
+      .metric-value {
+        font-size: 1.25rem;
+      }
+
+      .metric-sub {
+        font-size: 0.70rem;
+      }
+
+      /* Studio Header & Templates Swipe Bar */
+      .studio-card, .section-container {
+        padding: 14px 12px;
+        border-radius: var(--radius-md);
+      }
+
+      .studio-header {
+        flex-direction: column;
+        align-items: stretch;
         gap: 12px;
       }
 
-      .nav-controls {
-        width: 100%;
-        flex-wrap: wrap;
-        justify-content: space-between;
+      .preset-toolbar {
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 6px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .preset-toolbar::-webkit-scrollbar {
+        display: none;
       }
 
-      .metrics-grid {
+      /* Strategy 4-Field Config Bar to 2x2 Grid */
+      .strategy-config-bar {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .config-label {
+        font-size: 0.72rem;
+      }
+
+      .sub-info-pill {
+        font-size: 0.70rem;
+        padding: 3px 6px;
+      }
+
+      /* Mobile Option Leg Card Layout */
+      .legs-header-row {
+        display: none !important;
+      }
+
+      .legs-container {
+        gap: 12px;
+      }
+
+      .leg-row {
+        display: grid;
+        grid-template-columns: auto 1fr 1fr 34px;
+        grid-template-areas:
+          "badge side opt del"
+          "strike strike sym sym"
+          "type price size size";
+        gap: 8px;
+        padding: 12px;
+        background: var(--bg-card);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius-md);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      }
+
+      .leg-badge-tag {
+        grid-area: badge;
+        padding: 6px 8px;
+        font-size: 0.72rem;
+      }
+
+      .side-toggle {
+        grid-area: side;
+      }
+
+      .opt-type-toggle {
+        grid-area: opt;
+      }
+
+      .btn-delete-leg {
+        grid-area: del;
+        width: 32px;
+        height: 32px;
+        justify-self: end;
+      }
+
+      .leg-strike-select {
+        grid-area: strike;
+        font-size: 0.82rem;
+        padding: 8px 10px;
+      }
+
+      .leg-symbol-input {
+        grid-area: sym;
+        font-size: 0.80rem;
+        padding: 8px 10px;
+      }
+
+      .leg-type-select {
+        grid-area: type;
+        font-size: 0.80rem;
+        padding: 8px 6px;
+      }
+
+      .leg-price-input {
+        grid-area: price;
+        font-size: 0.82rem;
+        padding: 8px 8px;
+      }
+
+      .leg-size-input {
+        grid-area: size;
+        font-size: 0.82rem;
+        padding: 8px 8px;
+      }
+
+      /* Strategy Margin Requirement Bar Mobile */
+      .strategy-margin-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px 14px;
+      }
+
+      .margin-stat-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 16px;
+        width: 100%;
+      }
+
+      .margin-stat-box {
+        gap: 2px;
+      }
+
+      .margin-stat-label {
+        font-size: 0.68rem;
+      }
+
+      .margin-stat-val {
+        font-size: 0.95rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+      }
+
+      .margin-stat-alt {
+        font-size: 0.72rem;
+      }
+
+      .margin-health-container {
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .margin-health-badge {
+        width: 100%;
+        justify-content: center;
+        text-align: center;
+        padding: 6px 12px;
+      }
+
+      /* Studio Actions & Bottom Controls */
+      .studio-footer {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .btn-add-leg {
+        width: 100%;
+        justify-content: center;
+        padding: 11px;
+      }
+
+      .studio-actions {
+        width: 100%;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .btn-emergency-exit {
+        width: 100%;
+        justify-content: center;
+        padding: 11px;
+      }
+
+      .btn-execute-multileg {
+        width: 100%;
+        justify-content: center;
+        padding: 13px;
+        font-size: 0.95rem;
+      }
+
+      /* Toast Notification Mobile */
+      .toast-container {
+        left: 12px;
+        right: 12px;
+        bottom: 16px;
+      }
+
+      .toast {
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .footer {
+        flex-direction: column;
+        gap: 6px;
+        text-align: center;
+        padding: 0 10px 16px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .strategy-config-bar {
         grid-template-columns: 1fr;
       }
 
-      .section-header {
+      .margin-stat-group {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-menu-tabs {
         flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .filter-toolbar {
-        width: 100%;
-      }
-
-      .search-input {
-        width: 100%;
       }
     }
   </style>
@@ -861,7 +1716,7 @@
 
 <body>
 
-  <!-- Navigation Bar -->
+  <!-- Top Navbar -->
   <nav class="navbar">
     <div class="nav-container">
       <div class="brand-group">
@@ -874,19 +1729,37 @@
           <div class="brand-title">
             <span>DELTA</span> <span class="highlight">EXCHANGE</span>
           </div>
-          <div style="font-size: 0.72rem; color: var(--text-muted);">Live Positions & Risk Monitor</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Automation & Trading Suite</div>
         </div>
         <span class="badge-env" id="envBadge">India Prod</span>
       </div>
 
+      <!-- Navigation Menu Tabs -->
+      <div class="nav-menu-tabs">
+        <button class="nav-tab-btn active" id="tabNavPositions" onclick="switchNavTab('positions')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="9" y1="21" x2="9" y2="9"></line>
+          </svg>
+          <span>Live Margined Positions</span>
+          <span class="nav-tab-badge" id="navPosCount">0</span>
+        </button>
+
+        <button class="nav-tab-btn" id="tabNavStudio" onclick="switchNavTab('studio')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-green);">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span>Multi-Leg Trading Studio</span>
+        </button>
+      </div>
+
       <div class="nav-controls">
-        <!-- Live Stream Badge -->
         <div class="live-status-pill">
           <div class="status-dot"></div>
           <span id="connStatus">LIVE FEED</span>
         </div>
 
-        <!-- Currency Switcher (USD / INR) -->
         <div class="currency-switch">
           <button class="curr-btn active" id="btnCurrUSD" onclick="setCurrency('USD')">
             <span>$</span> <span>USD</span>
@@ -896,12 +1769,10 @@
           </button>
         </div>
 
-        <!-- Exchange rate indicator -->
         <div class="rate-badge" title="Live Delta Exchange USD/INR Conversion Rate">
           <span>1$ =</span> <span id="rateDisplay">₹85.00</span>
         </div>
 
-        <!-- Manual refresh button -->
         <button class="btn-refresh" id="btnRefresh" onclick="fetchDashboardData(true)" title="Force Refresh">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
             stroke-linecap="round" stroke-linejoin="round">
@@ -913,10 +1784,10 @@
     </div>
   </nav>
 
-  <!-- Main Content Area -->
+  <!-- Main Container -->
   <main class="main-container">
 
-    <!-- Top Key Metrics Cards -->
+    <!-- Top Key Metrics Cards (Visible Across Views) -->
     <div class="metrics-grid">
       <!-- Total Unrealized PnL -->
       <div class="metric-card">
@@ -932,7 +1803,7 @@
         </div>
         <div class="metric-value text-green" id="totalUnrealizedPnl">$0.00</div>
         <div class="metric-sub">
-          <span id="subPnlLabel">Alt Currency:</span>
+          <span>Alt Currency:</span>
           <span class="mono-num" id="totalUnrealizedPnlAlt" style="color: var(--text-primary);">₹0.00</span>
         </div>
       </div>
@@ -976,7 +1847,7 @@
         </div>
       </div>
 
-      <!-- Wallet Balance & Available Margin -->
+      <!-- Wallet Balance -->
       <div class="metric-card">
         <div class="metric-header">
           <span class="metric-title">Wallet Balance</span>
@@ -999,73 +1870,257 @@
       </div>
     </div>
 
-    <!-- Active Open Positions Table Section -->
-    <div class="section-container">
-      <div class="section-header">
-        <div class="section-title-group">
-          <h1 class="section-title">Live Margined Positions</h1>
-          <span class="count-pill" id="posBadge">0 ACTIVE</span>
-        </div>
-
-        <div class="filter-toolbar">
-          <!-- Search input -->
-          <div class="search-box">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-              stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input type="text" id="searchInput" class="search-input" placeholder="Search contract, strike..."
-              oninput="filterPositions()" />
+    <!-- ===================================================================== -->
+    <!-- VIEW 1: LIVE MARGINED POSITIONS                                       -->
+    <!-- ===================================================================== -->
+    <div class="tab-view active" id="viewPositions">
+      <div class="section-container">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h1 class="section-title">Live Margined Positions</h1>
+            <span class="count-pill" id="posBadge">0 ACTIVE</span>
           </div>
 
-          <!-- Filter tabs -->
-          <div class="filter-tabs">
-            <button class="tab-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
-            <button class="tab-btn" data-filter="options" onclick="setFilter('options', this)">Options</button>
-            <button class="tab-btn" data-filter="calls" onclick="setFilter('calls', this)">Calls</button>
-            <button class="tab-btn" data-filter="puts" onclick="setFilter('puts', this)">Puts</button>
-            <button class="tab-btn" data-filter="longs" onclick="setFilter('longs', this)">Longs</button>
-            <button class="tab-btn" data-filter="shorts" onclick="setFilter('shorts', this)">Shorts</button>
+          <div class="filter-toolbar">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="searchInput" class="search-input" placeholder="Search contract, strike..."
+                oninput="filterPositions()" />
+            </div>
+
+            <div class="filter-tabs">
+              <button class="tab-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+              <button class="tab-btn" data-filter="options" onclick="setFilter('options', this)">Options</button>
+              <button class="tab-btn" data-filter="calls" onclick="setFilter('calls', this)">Calls</button>
+              <button class="tab-btn" data-filter="puts" onclick="setFilter('puts', this)">Puts</button>
+              <button class="tab-btn" data-filter="longs" onclick="setFilter('longs', this)">Longs</button>
+              <button class="tab-btn" data-filter="shorts" onclick="setFilter('shorts', this)">Shorts</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Positions Table with Dual Currency Format -->
+        <div class="table-responsive">
+          <table id="positionsTable">
+            <thead>
+              <tr>
+                <th>Contract / Product</th>
+                <th>Side</th>
+                <th>Size / Contracts</th>
+                <th id="thEntryPrice">Entry Price (₹)</th>
+                <th id="thLtp">LTP / Market (₹)</th>
+                <th id="thMarkPrice">Mark Price (₹)</th>
+                <th id="thUnrealizedPnl">Unrealized PnL (₹)</th>
+                <th id="thRealizedPnl">Realized PnL (₹)</th>
+                <th id="thNotional">Notional (₹)</th>
+                <th>Margin Mode</th>
+                <th>1-Click Exit</th>
+                <th>Inspect</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTbody">
+              <!-- Dynamic rows injected here -->
+            </tbody>
+          </table>
+
+          <!-- Empty state placeholder -->
+          <div id="emptyState" class="empty-state" style="display: none;">
+            <div class="empty-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+            </div>
+            <div class="empty-title">No Open Positions Found</div>
+            <p class="empty-desc">You currently have no active open positions. Switch to Multi-Leg Studio to place trades in 1-click.</p>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Positions Table -->
-      <div class="table-responsive">
-        <table id="positionsTable">
-          <thead>
-            <tr>
-              <th>Contract / Product</th>
-              <th>Side</th>
-              <th>Size / Contracts</th>
-              <th id="thEntryPrice">Entry Price</th>
-              <th id="thLtp">LTP (Market)</th>
-              <th id="thMarkPrice">Mark Price</th>
-              <th id="thUnrealizedPnl">Unrealized PnL</th>
-              <th id="thRealizedPnl">Realized PnL</th>
-              <th id="thNotional">Notional Value</th>
-              <th>Margin</th>
-              <th>Inspect</th>
-            </tr>
-          </thead>
-          <tbody id="positionsTbody">
-            <!-- Dynamic rows injected here -->
-          </tbody>
-        </table>
-
-        <!-- Empty state placeholder -->
-        <div id="emptyState" class="empty-state" style="display: none;">
-          <div class="empty-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="8" y1="12" x2="16" y2="12"></line>
-            </svg>
+    <!-- ===================================================================== -->
+    <!-- VIEW 2: MULTI-LEG TRADING STUDIO                                      -->
+    <!-- ===================================================================== -->
+    <div class="tab-view" id="viewStudio">
+      <div class="studio-card">
+        <div class="studio-header">
+          <div class="studio-title-group">
+            <div class="studio-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-green);">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>Multi-Leg Trading Studio</span>
+            </div>
+            <span class="studio-badge">1-Click Execution</span>
           </div>
-          <div class="empty-title">No Open Positions Found</div>
-          <p class="empty-desc">You currently have no active open positions on Delta Exchange. New positions will appear
-            here live via API streaming.</p>
+
+          <!-- Strategy Presets -->
+          <div class="preset-toolbar">
+            <span class="preset-label">Templates:</span>
+            <button class="preset-btn active" onclick="applyStrategyPreset('custom', this)">Custom Builder</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('short_straddle', this)">Short Straddle</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('long_straddle', this)">Long Straddle</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('short_strangle', this)">Short Strangle</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('bull_call', this)">Bull Call Spread</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('bear_put', this)">Bear Put Spread</button>
+            <button class="preset-btn" onclick="applyStrategyPreset('iron_condor', this)">Iron Condor</button>
+          </div>
+        </div>
+
+        <!-- Asset & Expiry Selector Bar -->
+        <div class="strategy-config-bar">
+          <!-- Field 1: Underlying Asset -->
+          <div class="config-field">
+            <label class="config-label">Underlying Asset</label>
+            <select id="selUnderlying" class="config-select" onchange="onUnderlyingChange()">
+              <option value="BTC" selected>BTC (Bitcoin)</option>
+              <option value="ETH">ETH (Ethereum)</option>
+              <option value="SOL">SOL (Solana)</option>
+            </select>
+            <div class="field-sub-info">
+              <span id="spotPriceBadge" class="sub-info-pill live-spot-pill" title="Live Delta Exchange Options Underlying Spot Index Price">
+                <span class="spot-pulse-dot"></span>
+                <span id="spotPriceLabel">BTC Spot:</span>
+                <span id="spotPriceVal">$0.00</span>
+                <span id="spotPriceValInr" class="spot-inr-val">(₹0)</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Field 2: Expiry Date -->
+          <div class="config-field">
+            <label class="config-label">Expiry Date</label>
+            <select id="selExpiry" class="config-select" onchange="onExpiryChange()">
+              <option value="">Loading available expiries...</option>
+            </select>
+            <div class="field-sub-info">
+              <span class="sub-info-pill expiry-ref-pill" id="expiryCountHint">📅 Options Expiries</span>
+            </div>
+          </div>
+
+          <!-- Field 3: Default Strike / ATM -->
+          <div class="config-field">
+            <label class="config-label">Default Strike / ATM Ref</label>
+            <input type="number" id="inpAtmStrike" class="config-input mono-num" placeholder="e.g. 86400" onchange="recalculatePresetStrikes()" />
+            <div class="field-sub-info">
+              <span id="atmLabelRef" class="sub-info-pill atm-ref-pill">🎯 ATM Strike: --</span>
+            </div>
+          </div>
+
+          <!-- Field 4: Default Lots / Size -->
+          <div class="config-field">
+            <label class="config-label">Default Lots / Size</label>
+            <input type="number" id="inpDefaultSize" class="config-input mono-num" value="1" min="1" oninput="onSizeInputChange()" onchange="updateAllLegsSize()" />
+            <div class="field-sub-info" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+              <span class="sub-info-pill lot-spec-pill" id="lotContractSpec">💡 1 Lot = 0.001 BTC</span>
+              <div class="quick-lot-row">
+                <span class="quick-lot-label">Lots:</span>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(1)">1</button>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(5)">5</button>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(10)">10</button>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(25)">25</button>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(50)">50</button>
+                <button type="button" class="quick-lot-btn" onclick="setQuickLots(100)">100</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Legs Header & Builder -->
+        <div class="legs-header-row">
+          <div>Leg #</div>
+          <div>Side</div>
+          <div>Option</div>
+          <div>Strike Price</div>
+          <div>Contract Symbol</div>
+          <div>Order Type</div>
+          <div>Limit Price ($)</div>
+          <div>Size / Lots</div>
+          <div style="text-align: center;">Del</div>
+        </div>
+        <div class="legs-container" id="legsListContainer">
+          <!-- Dynamic Leg Rows Inserted Here -->
+        </div>
+
+        <!-- Strategy Margin Requirement & Available Margin Summary Bar -->
+        <div class="strategy-margin-bar" id="strategyMarginBar">
+          <div class="margin-stat-group">
+            <!-- Stat 1: Required Margin -->
+            <div class="margin-stat-box">
+              <span class="margin-stat-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                Required Margin (Est.)
+              </span>
+              <div class="margin-stat-val req-val">
+                <span id="txtRequiredMarginUSD">$0.00</span>
+                <span class="margin-stat-alt" id="txtRequiredMarginAlt">(₹0)</span>
+              </div>
+            </div>
+
+            <!-- Stat 2: Available Margin -->
+            <div class="margin-stat-box">
+              <span class="margin-stat-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                Available Margin
+              </span>
+              <div class="margin-stat-val avail-val">
+                <span id="txtAvailableMarginUSD">$0.00</span>
+                <span class="margin-stat-alt" id="txtAvailableMarginAlt">(₹0)</span>
+              </div>
+            </div>
+
+            <!-- Stat 3: Total Strategy Notional -->
+            <div class="margin-stat-box">
+              <span class="margin-stat-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                Total Notional
+              </span>
+              <div class="margin-stat-val">
+                <span id="txtStrategyNotionalUSD">$0.00</span>
+                <span class="margin-stat-alt" id="txtStrategyNotionalAlt">(₹0)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Margin Health Status -->
+          <div class="margin-health-container">
+            <span id="marginHealthBadge" class="margin-health-badge sufficient">
+              <span>●</span>
+              <span id="marginHealthText">Margin Available</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Studio Footer & 1-Click Action Controls -->
+        <div class="studio-footer">
+          <button class="btn-add-leg" onclick="addNewLegRow()">
+            <span>+ Add New Leg</span>
+          </button>
+
+          <div class="studio-actions">
+            <!-- Emergency Square Off All -->
+            <button class="btn-emergency-exit" onclick="confirmSquareOffAll()" title="Close all open positions at market">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon>
+                <line x1="15" y1="9" x2="9" y2="15"></line>
+                <line x1="9" y1="9" x2="15" y2="15"></line>
+              </svg>
+              <span>Square-Off All Positions</span>
+            </button>
+
+            <!-- 1-Click Multi-Leg Execute -->
+            <button class="btn-execute-multileg" id="btnExecuteMultiLeg" onclick="executeMultiLegTrade()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>Execute All Legs (1-Click)</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1083,7 +2138,7 @@
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title" id="modalSymbolTitle">Position Details</div>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <button class="modal-close" onclick="closeModal('detailModal')">&times;</button>
       </div>
       <div class="modal-body">
         <div style="margin-bottom: 12px; color: var(--text-secondary);">Raw Delta Exchange API Position Payload:</div>
@@ -1098,95 +2153,98 @@
   <!-- Dashboard JavaScript Application Logic -->
   <script>
     let currentPositions = [];
-    let currentSummary = {};
     let currentWallet = {};
+    let currentSummary = {};
+    let selectedCurrency = 'INR';
+    let usdToInrRate = 85.0;
     let currentFilter = 'all';
     let isFetching = false;
-    let selectedCurrency = localStorage.getItem('delta_currency') || 'USD'; // 'USD' or 'INR'
-    let usdToInrRate = 85.0; // Live exchange rate from API
 
-    // Set & switch currency
+    // Navigation state
+    let activeNavTab = 'positions';
+
+    function switchNavTab(tabName) {
+      activeNavTab = tabName;
+      document.getElementById('tabNavPositions').classList.toggle('active', tabName === 'positions');
+      document.getElementById('tabNavStudio').classList.toggle('active', tabName === 'studio');
+
+      document.getElementById('viewPositions').classList.toggle('active', tabName === 'positions');
+      document.getElementById('viewStudio').classList.toggle('active', tabName === 'studio');
+    }
+
+    // Multi-Leg Studio State
+    let availableExpiries = [];
+    let activePreset = 'custom';
+    let legRows = [];
+
+    // Helper formatters
+    function formatMoney(valInUSD, currency = selectedCurrency, minDec = 2, maxDec = 4) {
+      if (valInUSD === null || valInUSD === undefined || isNaN(valInUSD)) valInUSD = 0;
+      const numUSD = Number(valInUSD);
+      const isNeg = numUSD < 0;
+      const absUSD = Math.abs(numUSD);
+
+      if (currency === 'INR') {
+        const inrVal = absUSD * usdToInrRate;
+        const formatted = inrVal.toLocaleString('en-IN', {
+          minimumFractionDigits: minDec,
+          maximumFractionDigits: maxDec
+        });
+        return (isNeg ? '-₹' : '₹') + formatted;
+      } else {
+        const formatted = absUSD.toLocaleString('en-US', {
+          minimumFractionDigits: minDec,
+          maximumFractionDigits: maxDec
+        });
+        return (isNeg ? '-$' : '$') + formatted;
+      }
+    }
+
+    function formatAltMoney(valInUSD) {
+      const altCurr = selectedCurrency === 'INR' ? 'USD' : 'INR';
+      return formatMoney(valInUSD, altCurr, 2, 2);
+    }
+
+    function formatNumber(val, decimals = 2) {
+      if (val === null || val === undefined || isNaN(val)) return '0';
+      return Number(val).toLocaleString('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+
     function setCurrency(curr) {
       selectedCurrency = curr;
-      localStorage.setItem('delta_currency', curr);
+      document.getElementById('btnCurrUSD').classList.toggle('active', curr === 'USD');
+      document.getElementById('btnCurrINR').classList.toggle('active', curr === 'INR');
 
-      const btnUSD = document.getElementById('btnCurrUSD');
-      const btnINR = document.getElementById('btnCurrINR');
+      const prefix = curr === 'INR' ? '₹' : '$';
+      document.getElementById('thEntryPrice').textContent = `Entry Price (${prefix})`;
+      document.getElementById('thLtp').textContent = `LTP / Market (${prefix})`;
+      document.getElementById('thMarkPrice').textContent = `Mark Price (${prefix})`;
+      document.getElementById('thUnrealizedPnl').textContent = `Unrealized PnL (${prefix})`;
+      document.getElementById('thRealizedPnl').textContent = `Realized PnL (${prefix})`;
+      document.getElementById('thNotional').textContent = `Notional (${prefix})`;
 
-      if (curr === 'USD') {
-        btnUSD.classList.add('active');
-        btnINR.classList.remove('active');
-      } else {
-        btnINR.classList.add('active');
-        btnUSD.classList.remove('active');
-      }
-
-      updateTableHeaders();
       renderDashboardValues();
-    }
-
-    // Format currency helpers
-    function formatMoney(usdValue, inrValue = null, minDec = 2, maxDec = 4) {
-      if (usdValue === null || usdValue === undefined || isNaN(usdValue)) {
-        return selectedCurrency === 'INR' ? '₹0.00' : '$0.00';
+      renderPositionsTable();
+      if (typeof updateUnderlyingPriceAndLotDisplay === 'function') {
+        updateUnderlyingPriceAndLotDisplay();
       }
-
-      const isINR = selectedCurrency === 'INR';
-      const targetVal = isINR ? (inrValue !== null && inrValue !== undefined ? inrValue : (usdValue * usdToInrRate)) : usdValue;
-      const absVal = Math.abs(targetVal);
-      const symbol = isINR ? '₹' : '$';
-      const sign = targetVal < 0 ? '-' : '';
-
-      const dec = absVal < 1 && absVal > 0 ? maxDec : minDec;
-      const locale = isINR ? 'en-IN' : 'en-US';
-
-      return sign + symbol + absVal.toLocaleString(locale, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+      if (typeof updateStrategyMarginRequirement === 'function') {
+        updateStrategyMarginRequirement();
+      }
     }
 
-    function formatAltMoney(usdValue, inrValue = null, minDec = 2, maxDec = 2) {
-      if (usdValue === null || usdValue === undefined || isNaN(usdValue)) return '';
-      const showINR = selectedCurrency === 'USD'; // Show INR as alt when USD is selected
-      const targetVal = showINR ? (inrValue !== null && inrValue !== undefined ? inrValue : (usdValue * usdToInrRate)) : usdValue;
-      const absVal = Math.abs(targetVal);
-      const symbol = showINR ? '₹' : '$';
-      const sign = targetVal < 0 ? '-' : '';
-      const locale = showINR ? 'en-IN' : 'en-US';
-
-      return sign + symbol + absVal.toLocaleString(locale, { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
-    }
-
-    function formatNumber(num, dec = 4) {
-      if (num === null || num === undefined || isNaN(num)) return '0';
-      return Number(num).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec });
-    }
-
-    function updateTableHeaders() {
-      const sym = selectedCurrency === 'INR' ? '(₹)' : '($)';
-      document.getElementById('thEntryPrice').textContent = `Entry Price ${sym}`;
-      document.getElementById('thLtp').textContent = `LTP / Market ${sym}`;
-      document.getElementById('thMarkPrice').textContent = `Mark Price ${sym}`;
-      document.getElementById('thUnrealizedPnl').textContent = `Unrealized PnL ${sym}`;
-      document.getElementById('thRealizedPnl').textContent = `Realized PnL ${sym}`;
-      document.getElementById('thNotional').textContent = `Notional ${sym}`;
-    }
-
-    function showToast(msg, type = 'info') {
+    function showToast(message, type = 'normal') {
       const container = document.getElementById('toastContainer');
       const toast = document.createElement('div');
-      toast.className = 'toast';
-      toast.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="12"></line>
-          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-        </svg>
-        <span>${msg}</span>
-      `;
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
       container.appendChild(toast);
       setTimeout(() => {
         toast.style.opacity = '0';
-        toast.style.transform = 'translateY(10px)';
-        toast.style.transition = 'all 0.3s ease';
+        toast.style.transition = 'opacity 0.3s ease';
         setTimeout(() => toast.remove(), 300);
       }, 3500);
     }
@@ -1209,7 +2267,6 @@
           return;
         }
 
-        // Environment Badge & Live Exchange rate
         if (data.environment) {
           document.getElementById('envBadge').textContent = data.environment;
         }
@@ -1218,27 +2275,21 @@
           document.getElementById('rateDisplay').textContent = `₹${usdToInrRate.toFixed(2)}`;
         }
 
-        // Live connection indicator
         document.getElementById('connStatus').textContent = 'LIVE FEED';
         document.getElementById('connStatus').style.color = 'var(--accent-green)';
 
-        // Store state
         currentSummary = data.summary || {};
         currentWallet = data.wallet || {};
         currentPositions = data.positions || [];
 
-        // Render UI
         renderDashboardValues();
+        renderPositionsTable();
 
-        // Update timestamp
         const now = new Date();
         document.getElementById('lastUpdatedTime').textContent = `Last sync: ${now.toLocaleTimeString()}`;
 
-        if (manual) {
-          showToast('Live dashboard refreshed');
-        }
+        if (manual) showToast('Live dashboard refreshed');
       } catch (err) {
-        console.error('Fetch error:', err);
         document.getElementById('connStatus').textContent = 'RETRYING...';
         document.getElementById('connStatus').style.color = 'var(--accent-red)';
       } finally {
@@ -1247,70 +2298,66 @@
       }
     }
 
-    // Rerender all values according to selected currency
     function renderDashboardValues() {
       const w = currentWallet || {};
       const s = currentSummary || {};
 
-      // Wallet Balance
       const usdBal = w.usd_balance || 0;
       const inrBal = w.inr_balance || (usdBal * usdToInrRate);
       const usdAvail = w.usd_available || 0;
       const inrAvail = w.inr_available || (usdAvail * usdToInrRate);
 
-      document.getElementById('walletBalanceMain').textContent = formatMoney(usdBal, inrBal, 2, 2);
-      document.getElementById('walletAvailMain').textContent = formatMoney(usdAvail, inrAvail, 2, 2);
-      document.getElementById('walletAltMain').textContent = formatAltMoney(usdBal, inrBal, 2, 2);
+      const mainBal = selectedCurrency === 'INR' ? inrBal : usdBal;
+      const mainAvail = selectedCurrency === 'INR' ? inrAvail : usdAvail;
+      const altBal = selectedCurrency === 'INR' ? usdBal : inrBal;
+      const altCurr = selectedCurrency === 'INR' ? 'USD' : 'INR';
 
-      // Unrealized PnL
+      document.getElementById('walletBalanceMain').textContent = (selectedCurrency === 'INR' ? '₹' : '$') + mainBal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('walletAvailMain').textContent = (selectedCurrency === 'INR' ? '₹' : '$') + mainAvail.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('walletAltMain').textContent = (altCurr === 'INR' ? '₹' : '$') + altBal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
       const uPnlUsd = s.total_unrealized_pnl || 0;
       const uPnlInr = uPnlUsd * usdToInrRate;
-      const uPnlEl = document.getElementById('totalUnrealizedPnl');
-      uPnlEl.textContent = formatMoney(uPnlUsd, uPnlInr, 2, 4);
-      uPnlEl.className = 'metric-value ' + (uPnlUsd >= 0 ? 'text-green' : 'text-red');
-      document.getElementById('totalUnrealizedPnlAlt').textContent = formatAltMoney(uPnlUsd, uPnlInr, 2, 2);
+      const mainUPnl = selectedCurrency === 'INR' ? uPnlInr : uPnlUsd;
+      const altUPnl = selectedCurrency === 'INR' ? uPnlUsd : uPnlInr;
 
-      // Realized PnL
+      const elUPnl = document.getElementById('totalUnrealizedPnl');
+      elUPnl.textContent = formatMoney(uPnlUsd, selectedCurrency, 2, 2);
+      elUPnl.className = `metric-value ${uPnlUsd > 0 ? 'text-green' : (uPnlUsd < 0 ? 'text-red' : '')}`;
+      document.getElementById('totalUnrealizedPnlAlt').textContent = formatAltMoney(uPnlUsd);
+
       const rPnlUsd = s.total_realized_pnl || 0;
-      const rPnlInr = rPnlUsd * usdToInrRate;
-      const rPnlEl = document.getElementById('totalRealizedPnl');
-      rPnlEl.textContent = formatMoney(rPnlUsd, rPnlInr, 2, 4);
-      rPnlEl.className = 'metric-value ' + (rPnlUsd >= 0 ? 'text-green' : 'text-red');
-      document.getElementById('totalRealizedPnlAlt').textContent = formatAltMoney(rPnlUsd, rPnlInr, 2, 2);
+      const elRPnl = document.getElementById('totalRealizedPnl');
+      elRPnl.textContent = formatMoney(rPnlUsd, selectedCurrency, 2, 2);
+      elRPnl.className = `metric-value ${rPnlUsd > 0 ? 'text-green' : (rPnlUsd < 0 ? 'text-red' : 'text-blue')}`;
+      document.getElementById('totalRealizedPnlAlt').textContent = formatAltMoney(rPnlUsd);
 
-      // Open Positions Count
-      document.getElementById('openPositionsCount').textContent = s.total_open_positions || 0;
+      const count = s.total_open_positions || 0;
+      document.getElementById('openPositionsCount').textContent = count;
+      document.getElementById('navPosCount').textContent = count;
       document.getElementById('longCount').textContent = `${s.longs_count || 0} Long`;
       document.getElementById('shortCount').textContent = `${s.shorts_count || 0} Short`;
-      document.getElementById('posBadge').textContent = `${s.total_open_positions || 0} ACTIVE`;
-
-      // Render Table
-      renderPositions();
+      document.getElementById('posBadge').textContent = `${count} ACTIVE`;
     }
 
-    // Render positions table based on filters and currency
-    function renderPositions() {
+    function renderPositionsTable() {
       const tbody = document.getElementById('positionsTbody');
       const emptyState = document.getElementById('emptyState');
-      const searchVal = document.getElementById('searchInput').value.trim().toLowerCase();
+      const searchVal = (document.getElementById('searchInput').value || '').toLowerCase();
 
-      // Filter list
       const filtered = currentPositions.filter(pos => {
-        // Tab Filter
-        if (currentFilter === 'options' && !['CALL', 'PUT'].includes(pos.type_badge)) return false;
         if (currentFilter === 'calls' && pos.type_badge !== 'CALL') return false;
         if (currentFilter === 'puts' && pos.type_badge !== 'PUT') return false;
+        if (currentFilter === 'options' && pos.type_badge !== 'CALL' && pos.type_badge !== 'PUT') return false;
         if (currentFilter === 'longs' && pos.side !== 'LONG') return false;
         if (currentFilter === 'shorts' && pos.side !== 'SHORT') return false;
 
-        // Search Filter
         if (searchVal) {
-          const matchSym = (pos.symbol || '').toLowerCase().includes(searchVal);
-          const matchDesc = (pos.description || '').toLowerCase().includes(searchVal);
-          const matchStrike = (pos.strike_price || '').toString().toLowerCase().includes(searchVal);
-          if (!matchSym && !matchDesc && !matchStrike) return false;
+          const sym = (pos.symbol || '').toLowerCase();
+          const desc = (pos.description || '').toLowerCase();
+          const prodId = String(pos.product_id || '');
+          if (!sym.includes(searchVal) && !desc.includes(searchVal) && !prodId.includes(searchVal)) return false;
         }
-
         return true;
       });
 
@@ -1330,36 +2377,37 @@
 
         let typeBadgeClass = 'badge-perp';
         if (pos.type_badge === 'CALL') typeBadgeClass = 'badge-call';
-        if (pos.type_badge === 'PUT') typeBadgeClass = 'badge-put';
+        else if (pos.type_badge === 'PUT') typeBadgeClass = 'badge-put';
 
-        // PnL metrics
         const uPnl = pos.unrealized_pnl || 0;
         const uPnlClass = uPnl >= 0 ? 'text-green' : 'text-red';
         const pnlPctClass = uPnl >= 0 ? 'pnl-pos-pct' : 'pnl-neg-pct';
-        const pnlPctSign = pos.unrealized_pnl_pct >= 0 ? '+' : '';
+        const pnlPct = Number(pos.unrealized_pnl_pct !== undefined ? pos.unrealized_pnl_pct : (pos.pnl_percentage || 0));
+        const pnlPctSign = pnlPct >= 0 ? '+' : '';
 
         const rPnl = pos.realized_pnl || 0;
         const rPnlClass = rPnl >= 0 ? 'text-green' : 'text-red';
 
-        // Formatted Values in active currency & alternate currency
-        const entryPriceMain = formatMoney(pos.entry_price, null, 2, 4);
-        const entryPriceAlt = formatAltMoney(pos.entry_price, null, 2, 2);
+        const entryPriceMain = formatMoney(pos.entry_price, selectedCurrency, 2, 4);
+        const entryPriceAlt = formatAltMoney(pos.entry_price);
 
-        const ltpMain = formatMoney(pos.ltp, null, 2, 4);
-        const ltpAlt = formatAltMoney(pos.ltp, null, 2, 2);
+        const ltpMain = formatMoney(pos.ltp, selectedCurrency, 2, 4);
+        const ltpAlt = formatAltMoney(pos.ltp);
 
-        const markPriceMain = formatMoney(pos.mark_price, null, 2, 4);
-        const markPriceAlt = formatAltMoney(pos.mark_price, null, 2, 2);
+        const markPriceMain = formatMoney(pos.mark_price, selectedCurrency, 2, 4);
+        const markPriceAlt = formatAltMoney(pos.mark_price);
 
-        const uPnlMain = formatMoney(uPnl, null, 2, 4);
-        const uPnlAlt = formatAltMoney(uPnl, null, 2, 2);
-        const uPnlMarkAlt = formatMoney(pos.unrealized_pnl_mark, null, 2, 2);
+        const uPnlMain = formatMoney(uPnl, selectedCurrency, 2, 4);
+        const uPnlAlt = formatAltMoney(uPnl);
 
-        const rPnlMain = formatMoney(rPnl, null, 2, 4);
-        const rPnlAlt = formatAltMoney(rPnl, null, 2, 2);
+        const rPnlMain = formatMoney(rPnl, selectedCurrency, 2, 4);
+        const rPnlAlt = formatAltMoney(rPnl);
 
-        const notionalMain = formatMoney(pos.notional_usd, null, 2, 2);
-        const notionalAlt = formatAltMoney(pos.notional_usd, null, 2, 2);
+        const notionalMain = formatMoney(pos.notional_usd, selectedCurrency, 2, 2);
+        const notionalAlt = formatAltMoney(pos.notional_usd);
+
+        const underlyingSymbol = pos.underlying_asset || 'BTC';
+        const descriptionText = pos.description || `${underlyingSymbol} ${pos.strike_price || ''} ${pos.type_badge} Option`;
 
         html += `
           <tr>
@@ -1370,7 +2418,7 @@
                   <span class="symbol-name">${pos.symbol}</span>
                   <span class="badge-type ${typeBadgeClass}">${pos.type_badge}</span>
                 </div>
-                <div class="symbol-desc">${pos.description}</div>
+                <div class="symbol-desc">${descriptionText}</div>
               </div>
             </td>
 
@@ -1385,7 +2433,7 @@
             <!-- Size / Contracts -->
             <td>
               <div class="mono-num" style="font-size: 0.95rem;">${formatNumber(pos.abs_size, 0)} <span style="font-size: 0.72rem; color: var(--text-muted);">contracts</span></div>
-              <div style="font-size: 0.75rem; color: var(--text-secondary);">${formatNumber(pos.underlying_qty, 4)} ${pos.underlying_asset}</div>
+              <div style="font-size: 0.75rem; color: var(--text-secondary);">${formatNumber(pos.underlying_qty, 4)} ${underlyingSymbol}</div>
             </td>
 
             <!-- Entry Price -->
@@ -1410,8 +2458,8 @@
             <td>
               <div class="pnl-pill">
                 <span class="pnl-value ${uPnlClass}">${uPnlMain}</span>
-                <span class="pnl-pct ${pnlPctClass}">${pnlPctSign}${pos.unrealized_pnl_pct}%</span>
-                <span class="sub-curr" title="Alternate Currency / Mark PnL">${uPnlAlt}</span>
+                <span class="pnl-pct ${pnlPctClass}">${pnlPctSign}${pnlPct.toFixed(2)}%</span>
+                <span class="sub-curr">${uPnlAlt}</span>
               </div>
             </td>
 
@@ -1429,12 +2477,19 @@
 
             <!-- Margin Mode -->
             <td>
-              <span class="badge-mode">${pos.margin_mode}</span>
+              <span class="badge-mode">${pos.margin_mode || 'PORTFOLIO'}</span>
             </td>
 
-            <!-- Details Action -->
+            <!-- 1-Click Exit -->
             <td>
-              <button class="btn-action-view" onclick="openModal(${idx})">Inspect</button>
+              <button class="btn-row-squareoff" onclick="squareOffPosition('${pos.product_id}', '${pos.symbol}')">
+                ⚡ Exit
+              </button>
+            </td>
+
+            <!-- Inspect Details -->
+            <td>
+              <button class="btn-action-view" onclick="inspectPosition(${idx})">Inspect</button>
             </td>
           </tr>
         `;
@@ -1445,38 +2500,36 @@
 
     function setFilter(filter, el) {
       currentFilter = filter;
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      if (el) el.classList.add('active');
-      renderPositions();
+      document.querySelectorAll('.filter-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
+      el.classList.add('active');
+      renderPositionsTable();
     }
 
     function filterPositions() {
-      renderPositions();
+      renderPositionsTable();
     }
 
-    // Modal Handling with comprehensive financial breakdown
-    function openModal(idx) {
-      const pos = currentPositions[idx];
+    function inspectPosition(index) {
+      const pos = currentPositions[index];
       if (!pos) return;
-      document.getElementById('modalSymbolTitle').textContent = `${pos.symbol} Position Breakdown`;
+      document.getElementById('modalSymbolTitle').textContent = `Position Details: ${pos.symbol}`;
 
-      const isINR = selectedCurrency === 'INR';
       const costBasis = pos.cost_basis || (pos.underlying_qty * pos.entry_price);
       const currentValue = pos.underlying_qty * pos.ltp;
 
       const breakdownHtml = `
 Contract: ${pos.symbol} (${pos.type_badge})
-Side: ${pos.side} | Size: ${pos.abs_size} contracts (${pos.underlying_qty} ${pos.underlying_asset})
+Side: ${pos.side} | Size: ${pos.abs_size} contracts (${pos.underlying_qty} ${pos.underlying_asset || 'BTC'})
 --------------------------------------------------------------------------------
-• Entry Price:      ${formatMoney(pos.entry_price)} (${formatAltMoney(pos.entry_price)})
+• Entry Price:        ${formatMoney(pos.entry_price)} (${formatAltMoney(pos.entry_price)})
 • Market Price (LTP): ${formatMoney(pos.ltp)} (${formatAltMoney(pos.ltp)})
-• Mark Price:       ${formatMoney(pos.mark_price)} (${formatAltMoney(pos.mark_price)})
-• Best Bid / Ask:   $${pos.best_bid !== null ? pos.best_bid : '--'} / $${pos.best_ask !== null ? pos.best_ask : '--'}
+• Mark Price:         ${formatMoney(pos.mark_price)} (${formatAltMoney(pos.mark_price)})
+• Best Bid / Ask:     $${pos.best_bid !== null ? pos.best_bid : '--'} / $${pos.best_ask !== null ? pos.best_ask : '--'}
 --------------------------------------------------------------------------------
-• Total Cost Basis: ${formatMoney(costBasis)} (${formatAltMoney(costBasis)})
-• Current Value:    ${formatMoney(currentValue)} (${formatAltMoney(currentValue)})
-• Unrealized PnL:   ${formatMoney(pos.unrealized_pnl)} (${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct}%)
-• Delta Raw API Session PnL: $${(pos.raw || {}).unrealized_pnl || '0'}
+• Total Cost Basis:   ${formatMoney(costBasis)} (${formatAltMoney(costBasis)})
+• Current Value:      ${formatMoney(currentValue)} (${formatAltMoney(currentValue)})
+• Unrealized PnL:     ${formatMoney(pos.unrealized_pnl)} (${pos.unrealized_pnl_pct >= 0 ? '+' : ''}${pos.unrealized_pnl_pct}%)
+• Realized PnL:       ${formatMoney(pos.realized_pnl)} (${formatAltMoney(pos.realized_pnl)})
 --------------------------------------------------------------------------------
 [Formula: (Current Price - Entry Price) * Contracts * Contract Value]
 `;
@@ -1484,26 +2537,652 @@ Side: ${pos.side} | Size: ${pos.abs_size} contracts (${pos.underlying_qty} ${pos
       document.getElementById('detailModal').classList.add('active');
     }
 
-    function closeModal() {
-      document.getElementById('detailModal').classList.remove('active');
+    function closeModal(modalId) {
+      document.getElementById(modalId).classList.remove('active');
     }
 
     // Close modal on overlay click
     document.getElementById('detailModal').addEventListener('click', function (e) {
-      if (e.target === this) closeModal();
+      if (e.target === this) closeModal('detailModal');
     });
 
-    // Continuous Live Background API Streaming (every 2 seconds)
+    // =========================================================================
+    // MULTI-LEG TRADING STUDIO ENGINE
+    // =========================================================================
+
+    let currentUnderlyingInfo = {
+      underlying: 'BTC',
+      spot_price: 0,
+      underlying_price: 0,
+      futures_price: 0,
+      ltp: 0,
+      mark_price: 0,
+      contract_value: 0.001,
+      asset_unit: 'BTC',
+      atm_strike: null
+    };
+
+    function updateUnderlyingPriceAndLotDisplay() {
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      const spotUSD = currentUnderlyingInfo.spot_price || currentUnderlyingInfo.underlying_price || currentUnderlyingInfo.futures_price || currentUnderlyingInfo.ltp || 0;
+      const contractVal = currentUnderlyingInfo.contract_value || (underlying === 'BTC' ? 0.001 : (underlying === 'ETH' ? 0.01 : 1.0));
+      const unit = currentUnderlyingInfo.asset_unit || underlying;
+
+      const spotINR = spotUSD * usdToInrRate;
+
+      // Update spot badge in bar (matches Delta Exchange Option Chain exactly)
+      const spotBadge = document.getElementById('spotPriceBadge');
+      if (spotBadge) {
+        const spotLabel = document.getElementById('spotPriceLabel');
+        if (spotLabel) spotLabel.textContent = `${underlying} Spot:`;
+        document.getElementById('spotPriceVal').textContent = spotUSD > 0 ? `$${formatNumber(spotUSD, 1)}` : '--';
+        document.getElementById('spotPriceValInr').textContent = spotUSD > 0 ? `(₹${formatNumber(spotINR, 0)})` : '';
+      }
+
+      // Update ATM Strike Ref Label
+      const atmRefEl = document.getElementById('atmLabelRef');
+      if (atmRefEl) {
+        if (currentUnderlyingInfo.atm_strike) {
+          atmRefEl.textContent = `🎯 ATM: ${formatNumber(currentUnderlyingInfo.atm_strike, 0)}`;
+        } else {
+          const manualAtm = document.getElementById('inpAtmStrike').value;
+          atmRefEl.textContent = manualAtm ? `🎯 ATM: ${manualAtm}` : `🎯 ATM: --`;
+        }
+      }
+
+      // Update lot size suggestion and calculation dynamically
+      const size = parseInt(document.getElementById('inpDefaultSize').value) || 1;
+      const totalCrypto = size * contractVal;
+      const formattedCrypto = Number(totalCrypto.toFixed(6)).toString();
+      const lotWord = size === 1 ? 'Lot' : 'Lots';
+
+      const lotContractSpec = document.getElementById('lotContractSpec');
+      if (lotContractSpec) {
+        lotContractSpec.textContent = `💡 ${size} ${lotWord} = ${formattedCrypto} ${unit}`;
+      }
+
+      if (typeof updateStrategyMarginRequirement === 'function') {
+        updateStrategyMarginRequirement();
+      }
+    }
+
+    function setQuickLots(num) {
+      document.getElementById('inpDefaultSize').value = num;
+      updateAllLegsSize();
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    function onSizeInputChange() {
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    async function loadExpiriesForUnderlying(underlying = 'BTC') {
+      const selExpiry = document.getElementById('selExpiry');
+      selExpiry.innerHTML = '<option value="">Loading expiries...</option>';
+
+      try {
+        const res = await fetch(`/api/options/expiries?underlying=${underlying}`);
+        const data = await res.json();
+        if (data.success) {
+          currentUnderlyingInfo = {
+            underlying: data.underlying || underlying,
+            spot_price: Number(data.spot_price || data.underlying_price || data.futures_price || data.ltp) || 0,
+            underlying_price: Number(data.underlying_price || data.spot_price || data.futures_price || data.ltp) || 0,
+            futures_price: Number(data.futures_price || data.ltp) || 0,
+            ltp: Number(data.ltp) || 0,
+            mark_price: Number(data.mark_price) || 0,
+            contract_value: Number(data.contract_value) || (underlying === 'BTC' ? 0.001 : (underlying === 'ETH' ? 0.01 : 1.0)),
+            asset_unit: data.asset_unit || underlying,
+            atm_strike: data.atm_strike
+          };
+
+          if (data.expiries && data.expiries.length > 0) {
+            availableExpiries = data.expiries;
+            let optionsHtml = '';
+            data.expiries.forEach((item, idx) => {
+              optionsHtml += `<option value="${item.expiry}" ${idx === 0 ? 'selected' : ''}>${item.expiry}</option>`;
+            });
+            selExpiry.innerHTML = optionsHtml;
+
+            if (data.atm_strike) {
+              document.getElementById('inpAtmStrike').value = data.atm_strike;
+            } else {
+              const firstExp = data.expiries[0];
+              if (firstExp && firstExp.strikes && firstExp.strikes.length > 0) {
+                const midStrike = firstExp.strikes[Math.floor(firstExp.strikes.length / 2)];
+                document.getElementById('inpAtmStrike').value = midStrike;
+              }
+            }
+          } else {
+            selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+          }
+        } else {
+          selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+        }
+      } catch (err) {
+        selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+      }
+
+      updateUnderlyingPriceAndLotDisplay();
+      applyStrategyPreset(activePreset);
+    }
+
+    function getAvailableStrikesForExpiry(expiry) {
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      const atm = parseFloat(document.getElementById('inpAtmStrike').value) || (underlying === 'BTC' ? 86000 : (underlying === 'ETH' ? 2500 : 150));
+      
+      const found = availableExpiries.find(e => e.expiry === expiry);
+      if (found && Array.isArray(found.strikes) && found.strikes.length > 0) {
+        return found.strikes;
+      }
+      
+      // Fallback strike grid around ATM
+      const step = underlying === 'BTC' ? 500 : (underlying === 'ETH' ? 25 : 5);
+      const generated = [];
+      for (let i = -7; i <= 7; i++) {
+        generated.push(atm + i * step);
+      }
+      return generated;
+    }
+
+    function getClosestStrike(targetPrice, expiry) {
+      const strikes = getAvailableStrikesForExpiry(expiry);
+      if (!strikes || strikes.length === 0) return Math.round(targetPrice);
+      let closest = strikes[0];
+      let minDiff = Math.abs(closest - targetPrice);
+      for (let i = 1; i < strikes.length; i++) {
+        const diff = Math.abs(strikes[i] - targetPrice);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = strikes[i];
+        }
+      }
+      return closest;
+    }
+
+    function getStrikesDropdownHtml(idx, selectedStrike, expiry) {
+      let strikes = [...getAvailableStrikesForExpiry(expiry)];
+      const curStrikeNum = parseFloat(selectedStrike);
+      if (!isNaN(curStrikeNum) && !strikes.includes(curStrikeNum)) {
+        strikes.push(curStrikeNum);
+        strikes.sort((a, b) => a - b);
+      }
+      
+      let html = `<select class="leg-strike-select" onchange="updateLegStrike(${idx}, this.value)">`;
+      strikes.forEach(s => {
+        const isSel = (s === curStrikeNum) ? 'selected' : '';
+        html += `<option value="${s}" ${isSel}>${formatNumber(s, 0)}</option>`;
+      });
+      html += `</select>`;
+      return html;
+    }
+
+    function toggleLegOptionType(idx, optType) {
+      if (legRows[idx]) {
+        legRows[idx].option_type = optType;
+        const underlying = document.getElementById('selUnderlying').value || 'BTC';
+        const expiry = document.getElementById('selExpiry').value || '021026';
+        const strike = legRows[idx].strike || parseFloat(document.getElementById('inpAtmStrike').value) || 86000;
+        legRows[idx].symbol = `${optType === 'call' ? 'C' : 'P'}-${underlying}-${strike}-${expiry}`;
+        renderLegRows();
+      }
+    }
+
+    function updateLegStrike(idx, strikeVal) {
+      if (legRows[idx]) {
+        const numStrike = parseFloat(strikeVal);
+        legRows[idx].strike = numStrike;
+        const underlying = document.getElementById('selUnderlying').value || 'BTC';
+        const expiry = document.getElementById('selExpiry').value || '021026';
+        const optType = legRows[idx].option_type || 'call';
+        legRows[idx].symbol = `${optType === 'call' ? 'C' : 'P'}-${underlying}-${numStrike}-${expiry}`;
+        renderLegRows();
+      }
+    }
+
+    function onManualSymbolChange(idx, val) {
+      if (!legRows[idx]) return;
+      legRows[idx].symbol = val.trim();
+      const parts = val.trim().split('-');
+      if (parts.length >= 4) {
+        const typePrefix = parts[0].toUpperCase();
+        if (typePrefix === 'C') legRows[idx].option_type = 'call';
+        else if (typePrefix === 'P') legRows[idx].option_type = 'put';
+        const parsedStrike = parseFloat(parts[2]);
+        if (!isNaN(parsedStrike)) legRows[idx].strike = parsedStrike;
+      }
+      renderLegRows();
+    }
+
+    function onUnderlyingChange() {
+      const underlying = document.getElementById('selUnderlying').value;
+      loadExpiriesForUnderlying(underlying);
+    }
+
+    function onExpiryChange() {
+      const newExpiry = document.getElementById('selExpiry').value;
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      legRows.forEach(leg => {
+        if (leg.option_type && leg.strike) {
+          leg.symbol = `${leg.option_type === 'call' ? 'C' : 'P'}-${underlying}-${leg.strike}-${newExpiry}`;
+        }
+      });
+      recalculatePresetStrikes();
+    }
+
+    function applyStrategyPreset(presetName, btn = null) {
+      activePreset = presetName;
+      if (btn) {
+        document.querySelectorAll('.preset-toolbar .preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      const expiry = document.getElementById('selExpiry').value || '021026';
+      const atm = parseFloat(document.getElementById('inpAtmStrike').value) || (underlying === 'BTC' ? 86000 : 2500);
+      const size = parseInt(document.getElementById('inpDefaultSize').value) || 1;
+
+      legRows = [];
+
+      if (presetName === 'short_straddle') {
+        legRows.push({ side: 'sell', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else if (presetName === 'long_straddle') {
+        legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else if (presetName === 'short_strangle') {
+        const otmCall = getClosestStrike(atm * 1.03, expiry);
+        const otmPut = getClosestStrike(atm * 0.97, expiry);
+        legRows.push({ side: 'sell', option_type: 'call', strike: otmCall, symbol: `C-${underlying}-${otmCall}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'put', strike: otmPut, symbol: `P-${underlying}-${otmPut}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else if (presetName === 'bull_call') {
+        const higherStrike = getClosestStrike(atm * 1.04, expiry);
+        legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'call', strike: higherStrike, symbol: `C-${underlying}-${higherStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else if (presetName === 'bear_put') {
+        const lowerStrike = getClosestStrike(atm * 0.96, expiry);
+        legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'put', strike: lowerStrike, symbol: `P-${underlying}-${lowerStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else if (presetName === 'iron_condor') {
+        const pBuy = getClosestStrike(atm * 0.93, expiry);
+        const pSell = getClosestStrike(atm * 0.97, expiry);
+        const cSell = getClosestStrike(atm * 1.03, expiry);
+        const cBuy = getClosestStrike(atm * 1.07, expiry);
+        legRows.push({ side: 'buy', option_type: 'put', strike: pBuy, symbol: `P-${underlying}-${pBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'put', strike: pSell, symbol: `P-${underlying}-${pSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'sell', option_type: 'call', strike: cSell, symbol: `C-${underlying}-${cSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+        legRows.push({ side: 'buy', option_type: 'call', strike: cBuy, symbol: `C-${underlying}-${cBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      } else {
+        // Custom Builder - default 1 Option leg with LIMIT order type
+        legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+      }
+
+      renderLegRows();
+    }
+
+    function recalculatePresetStrikes() {
+      if (activePreset !== 'custom') {
+        applyStrategyPreset(activePreset);
+      }
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    function updateAllLegsSize() {
+      const sz = parseInt(document.getElementById('inpDefaultSize').value) || 1;
+      legRows.forEach(leg => leg.size = sz);
+      renderLegRows();
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    function addNewLegRow() {
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      const expiry = document.getElementById('selExpiry').value || '021026';
+      const atm = parseFloat(document.getElementById('inpAtmStrike').value) || (underlying === 'BTC' ? 86000 : 2500);
+      const sz = parseInt(document.getElementById('inpDefaultSize').value) || 1;
+      legRows.push({
+        side: 'buy',
+        option_type: 'call',
+        strike: atm,
+        symbol: `C-${underlying}-${atm}-${expiry}`,
+        order_type: 'limit',
+        size: sz,
+        limit_price: ''
+      });
+      renderLegRows();
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    function deleteLegRow(idx) {
+      legRows.splice(idx, 1);
+      renderLegRows();
+      updateUnderlyingPriceAndLotDisplay();
+    }
+
+    function toggleLegSide(idx, side) {
+      if (legRows[idx]) {
+        legRows[idx].side = side;
+        renderLegRows();
+      }
+    }
+
+    function updateLegField(idx, field, value) {
+      if (legRows[idx]) {
+        legRows[idx][field] = value;
+        if (field === 'order_type') {
+          renderLegRows();
+        } else if (field === 'limit_price' || field === 'size') {
+          updateStrategyMarginRequirement();
+        }
+      }
+    }
+
+    function updateStrategyMarginRequirement() {
+      const underlying = document.getElementById('selUnderlying').value || 'BTC';
+      const spotUSD = currentUnderlyingInfo.spot_price || currentUnderlyingInfo.underlying_price || currentUnderlyingInfo.futures_price || currentUnderlyingInfo.ltp || (underlying === 'BTC' ? 86000 : 2500);
+      const contractVal = currentUnderlyingInfo.contract_value || (underlying === 'BTC' ? 0.001 : (underlying === 'ETH' ? 0.01 : 1.0));
+
+      let totalNotionalUSD = 0;
+      let totalRequiredMarginUSD = 0;
+
+      legRows.forEach(leg => {
+        const sz = parseInt(leg.size) || 1;
+        const strike = parseFloat(leg.strike) || spotUSD;
+        const isBuy = (leg.side || 'buy').toLowerCase() === 'buy';
+        const isCall = (leg.option_type || 'call').toLowerCase() === 'call';
+        const cryptoQty = sz * contractVal;
+        const legNotional = strike * cryptoQty;
+        totalNotionalUSD += legNotional;
+
+        const limPrice = parseFloat(leg.limit_price);
+        const premiumUSD = (!isNaN(limPrice) && limPrice > 0) ? limPrice : 0.1;
+
+        if (isBuy) {
+          // Long Option Margin: Premium * Qty
+          const buyMargin = premiumUSD * cryptoQty;
+          totalRequiredMarginUSD += buyMargin;
+        } else {
+          // Short Option Margin (Delta Exchange Exact Formula):
+          // Margin per unit = Premium + Max( 0.05 * Spot - OTM, 0.005 * Spot )
+          let otmAmount = 0;
+          if (isCall) {
+            otmAmount = Math.max(0, strike - spotUSD);
+          } else {
+            otmAmount = Math.max(0, spotUSD - strike);
+          }
+
+          const baseMargin = 0.05 * spotUSD;
+          const minMarginFloor = 0.005 * (isCall ? spotUSD : strike);
+          const otmAdjusted = Math.max(baseMargin - otmAmount, minMarginFloor);
+          const shortMarginPerUnit = premiumUSD + otmAdjusted;
+
+          const sellMargin = shortMarginPerUnit * cryptoQty;
+          totalRequiredMarginUSD += sellMargin;
+        }
+      });
+
+      // Live available margin from wallet
+      const availUSD = currentWallet.usd_available !== undefined ? Number(currentWallet.usd_available) : 0;
+      const isSufficient = (availUSD >= totalRequiredMarginUSD) || (totalRequiredMarginUSD === 0);
+
+      const reqEl = document.getElementById('txtRequiredMarginUSD');
+      const reqAltEl = document.getElementById('txtRequiredMarginAlt');
+      const availEl = document.getElementById('txtAvailableMarginUSD');
+      const availAltEl = document.getElementById('txtAvailableMarginAlt');
+      const notionalEl = document.getElementById('txtStrategyNotionalUSD');
+      const notionalAltEl = document.getElementById('txtStrategyNotionalAlt');
+      const healthBadge = document.getElementById('marginHealthBadge');
+      const healthText = document.getElementById('marginHealthText');
+
+      if (reqEl) {
+        reqEl.textContent = formatMoney(totalRequiredMarginUSD, selectedCurrency, 2, 2);
+        if (reqAltEl) reqAltEl.textContent = `(${formatAltMoney(totalRequiredMarginUSD)})`;
+      }
+      if (availEl) {
+        availEl.textContent = formatMoney(availUSD, selectedCurrency, 2, 2);
+        if (availAltEl) availAltEl.textContent = `(${formatAltMoney(availUSD)})`;
+      }
+      if (notionalEl) {
+        notionalEl.textContent = formatMoney(totalNotionalUSD, selectedCurrency, 2, 2);
+        if (notionalAltEl) notionalAltEl.textContent = `(${formatAltMoney(totalNotionalUSD)})`;
+      }
+
+      if (healthBadge && healthText) {
+        if (totalRequiredMarginUSD === 0 && legRows.length === 0) {
+          healthBadge.className = 'margin-health-badge sufficient';
+          healthText.textContent = 'Ready to Build';
+        } else if (isSufficient) {
+          healthBadge.className = 'margin-health-badge sufficient';
+          healthText.textContent = 'Margin Sufficient';
+        } else {
+          healthBadge.className = 'margin-health-badge insufficient';
+          const shortfall = totalRequiredMarginUSD - availUSD;
+          healthText.textContent = `Shortfall: ${formatMoney(shortfall, selectedCurrency, 2, 2)}`;
+        }
+      }
+    }
+
+    function renderLegRows() {
+      const container = document.getElementById('legsListContainer');
+      if (legRows.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); padding:16px; text-align:center;">No active legs. Click "+ Add New Leg" to construct your strategy.</div>';
+        const stripLegsCount = document.getElementById('stripLegsCount');
+        if (stripLegsCount) stripLegsCount.textContent = '0 Legs';
+        updateStrategyMarginRequirement();
+        return;
+      }
+
+      const stripLegsCount = document.getElementById('stripLegsCount');
+      if (stripLegsCount) stripLegsCount.textContent = `${legRows.length} Leg${legRows.length !== 1 ? 's' : ''}`;
+
+      let html = '';
+      const expiry = document.getElementById('selExpiry').value || '021026';
+
+      legRows.forEach((leg, idx) => {
+        const isBuy = leg.side.toLowerCase() === 'buy';
+        const isLimit = (leg.order_type || 'limit').toLowerCase() === 'limit';
+        const isCall = (leg.option_type || 'call').toLowerCase() === 'call';
+        const strikesSelectHtml = getStrikesDropdownHtml(idx, leg.strike, expiry);
+
+        html += `
+          <div class="leg-row">
+            <div class="leg-badge-tag">LEG #${idx + 1}</div>
+
+            <div class="side-toggle">
+              <button class="side-toggle-btn ${isBuy ? 'active-buy' : ''}" onclick="toggleLegSide(${idx}, 'buy')">BUY</button>
+              <button class="side-toggle-btn ${!isBuy ? 'active-sell' : ''}" onclick="toggleLegSide(${idx}, 'sell')">SELL</button>
+            </div>
+
+            <div class="opt-type-toggle">
+              <button class="opt-type-btn ${isCall ? 'active-ce' : ''}" onclick="toggleLegOptionType(${idx}, 'call')" title="Call Option (CE)">CE</button>
+              <button class="opt-type-btn ${!isCall ? 'active-pe' : ''}" onclick="toggleLegOptionType(${idx}, 'put')" title="Put Option (PE)">PE</button>
+            </div>
+
+            ${strikesSelectHtml}
+
+            <input type="text" class="leg-symbol-input" value="${leg.symbol}" placeholder="e.g. C-BTC-86200-021026" onchange="onManualSymbolChange(${idx}, this.value)" />
+
+            <select class="leg-type-select" onchange="updateLegField(${idx}, 'order_type', this.value)">
+              <option value="limit" ${isLimit ? 'selected' : ''}>LIMIT</option>
+              <option value="market" ${!isLimit ? 'selected' : ''}>MARKET</option>
+            </select>
+
+            <input type="number" step="any" class="leg-price-input" placeholder="Price" value="${leg.limit_price || ''}" ${!isLimit ? 'disabled' : ''} oninput="updateLegField(${idx}, 'limit_price', this.value)" onchange="updateLegField(${idx}, 'limit_price', this.value)" />
+
+            <input type="number" class="leg-size-input" value="${leg.size}" min="1" placeholder="Size" onchange="updateLegField(${idx}, 'size', this.value)" />
+
+            <button class="btn-delete-leg" onclick="deleteLegRow(${idx})" title="Delete Leg">&times;</button>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+      updateStrategyMarginRequirement();
+    }
+
+    // 1-Click Multi-Leg Trade Execution
+    async function executeMultiLegTrade() {
+      if (legRows.length === 0) {
+        showToast('Please add at least one leg to execute.', 'error');
+        return;
+      }
+
+      // Build confirmation summary of all legs
+      let summaryText = `⚡ Confirm Multi-Leg Execution (${legRows.length} Leg${legRows.length !== 1 ? 's' : ''}):\n\n`;
+      legRows.forEach((l, i) => {
+        const sideStr = (l.side || 'BUY').toUpperCase();
+        const typeStr = (l.order_type || 'MARKET').toUpperCase();
+        const priceStr = typeStr === 'LIMIT' ? ` @ $${l.limit_price || 0}` : ' @ MARKET';
+        summaryText += `• Leg #${i + 1}: ${sideStr} ${l.size}x ${l.symbol} (${typeStr}${priceStr})\n`;
+      });
+      summaryText += `\nDo you want to proceed with executing these orders?`;
+
+      if (!confirm(summaryText)) {
+        return;
+      }
+
+      const btn = document.getElementById('btnExecuteMultiLeg');
+      btn.disabled = true;
+      btn.innerHTML = `<span>Executing ${legRows.length} Legs Concurrently...</span>`;
+
+      try {
+        const payload = {
+          legs: legRows.map((l, i) => ({
+            leg_index: i + 1,
+            symbol: l.symbol.trim(),
+            side: l.side.toLowerCase(),
+            size: parseInt(l.size) || 1,
+            order_type: l.order_type.toLowerCase(),
+            limit_price: l.limit_price ? parseFloat(l.limit_price) : null
+          }))
+        };
+
+        const res = await fetch('/api/orders/multi-leg', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.overall_status === 'SUCCESS') {
+          showToast(`🚀 All ${data.successful_legs} legs executed successfully!`, 'success');
+        } else if (data.overall_status === 'PARTIAL') {
+          showToast(`⚠️ Partial execution: ${data.successful_legs} succeeded, ${data.failed_legs} failed.`, 'error');
+        } else {
+          showToast(`❌ Execution failed: ${data.error || 'Check details'}`, 'error');
+        }
+
+        // Immediate sync
+        fetchDashboardData(true);
+      } catch (err) {
+        showToast(`Execution Error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span>Execute All Legs (1-Click)</span>
+        `;
+      }
+    }
+
+    // 1-Click Single Position Square Off
+    async function squareOffPosition(productId, symbol) {
+      if (!confirm(`Are you sure you want to SQUARE OFF and exit ${symbol} at MARKET price?`)) return;
+
+      try {
+        const res = await fetch('/api/orders/square-off', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_id: productId, symbol: symbol })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`⚡ Squared off ${symbol} successfully!`, 'success');
+          fetchDashboardData(true);
+        } else {
+          showToast(`Failed to square off ${symbol}: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Square off error: ${err.message}`, 'error');
+      }
+    }
+
+    // 1-Click Emergency Square Off All
+    async function confirmSquareOffAll() {
+      if (!confirm('🚨 EMERGENCY EXIT: Are you sure you want to CLOSE ALL open positions simultaneously at MARKET price?')) return;
+
+      try {
+        const res = await fetch('/api/orders/square-off-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`⚡ Squared off all ${data.total_squared_off} positions!`, 'success');
+          fetchDashboardData(true);
+        } else {
+          showToast(`Square off all notice: ${data.message || data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Error squaring off all: ${err.message}`, 'error');
+      }
+    }
+
+    let lastSpotPrice = 0;
+
+    async function fetchLiveTickerTick() {
+      if (activeNavTab !== 'studio') return;
+      const u = document.getElementById('selUnderlying').value || 'BTC';
+      try {
+        const res = await fetch(`/api/ticker?underlying=${u}`);
+        const data = await res.json();
+        if (data.success) {
+          const newSpotPrice = Number(data.spot_price || data.underlying_price || data.futures_price || data.ltp || 0);
+          const spotBadge = document.getElementById('spotPriceBadge');
+
+          if (lastSpotPrice > 0 && newSpotPrice > 0 && spotBadge) {
+            if (newSpotPrice > lastSpotPrice) {
+              spotBadge.classList.add('flash-up');
+              setTimeout(() => spotBadge.classList.remove('flash-up'), 350);
+            } else if (newSpotPrice < lastSpotPrice) {
+              spotBadge.classList.add('flash-down');
+              setTimeout(() => spotBadge.classList.remove('flash-down'), 350);
+            }
+          }
+          lastSpotPrice = newSpotPrice;
+
+          currentUnderlyingInfo.spot_price = newSpotPrice;
+          currentUnderlyingInfo.underlying_price = newSpotPrice;
+          currentUnderlyingInfo.futures_price = Number(data.futures_price) || newSpotPrice;
+          currentUnderlyingInfo.ltp = Number(data.ltp) || newSpotPrice;
+          currentUnderlyingInfo.mark_price = Number(data.mark_price) || newSpotPrice;
+          if (data.contract_value) {
+            currentUnderlyingInfo.contract_value = Number(data.contract_value);
+          }
+          updateUnderlyingPriceAndLotDisplay();
+        }
+      } catch (err) {}
+    }
+
+    // Continuous Live Background API Streaming
     function startLiveStreaming() {
+      // Stream dashboard positions & metrics every 2 seconds
       setInterval(() => {
         fetchDashboardData(false);
       }, 2000);
+
+      // High-Frequency Real-Time Tick Streaming for active underlying (every 600ms)
+      setInterval(() => {
+        fetchLiveTickerTick();
+      }, 600);
     }
 
     // Initial Load
     window.addEventListener('DOMContentLoaded', () => {
       setCurrency(selectedCurrency);
       fetchDashboardData(false);
+      loadExpiriesForUnderlying('BTC');
       startLiveStreaming();
     });
   </script>

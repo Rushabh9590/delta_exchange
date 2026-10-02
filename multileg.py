@@ -1,0 +1,454 @@
+"""
+Multi-Leg & 1-Click Trading Engine for Delta Exchange.
+Handles concurrent parallel order dispatch for options and futures strategies
+(Straddles, Strangles, Spreads, Iron Condors, and Custom Multi-Leg Baskets).
+"""
+
+import os
+import sys
+import time
+from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Ensure python-rest-client is in sys.path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_PATH = os.path.join(BASE_DIR, "python-rest-client")
+if REPO_PATH not in sys.path:
+    sys.path.insert(0, REPO_PATH)
+
+from delta_rest_client import DeltaRestClient, OrderType, TimeInForce, round_by_tick_size
+from login import get_delta_client
+
+_PRODUCT_CACHE = {}
+_ALL_PRODUCTS_CACHE = []
+_LAST_PRODUCTS_FETCH = 0
+
+
+def get_client() -> DeltaRestClient:
+    """Returns an authenticated DeltaRestClient instance."""
+    return get_delta_client()
+
+
+def get_all_products(client: DeltaRestClient = None, force_refresh=False) -> list:
+    """
+    Fetches and caches all available trading products from Delta Exchange.
+    """
+    global _ALL_PRODUCTS_CACHE, _PRODUCT_CACHE, _LAST_PRODUCTS_FETCH
+    now = time.time()
+    if not force_refresh and _ALL_PRODUCTS_CACHE and (now - _LAST_PRODUCTS_FETCH < 300):
+        return _ALL_PRODUCTS_CACHE
+
+    c = client or get_client()
+    try:
+        products = c.get_products()
+        if isinstance(products, list):
+            _ALL_PRODUCTS_CACHE = products
+            _LAST_PRODUCTS_FETCH = now
+            for p in products:
+                p_sym = p.get("symbol")
+                p_id = p.get("id")
+                if p_sym:
+                    _PRODUCT_CACHE[p_sym] = p
+                if p_id is not None:
+                    _PRODUCT_CACHE[p_id] = p
+                    _PRODUCT_CACHE[str(p_id)] = p
+    except Exception as e:
+        print(f"[WARN] Failed to fetch all products: {e}")
+
+    return _ALL_PRODUCTS_CACHE
+
+
+def get_product_details(symbol_or_id="BTCUSD", client: DeltaRestClient = None) -> dict:
+    """
+    Fetches and caches product specifications.
+    """
+    global _PRODUCT_CACHE
+    if symbol_or_id in _PRODUCT_CACHE:
+        return _PRODUCT_CACHE[symbol_or_id]
+
+    get_all_products(client, force_refresh=True)
+
+    if symbol_or_id in _PRODUCT_CACHE:
+        return _PRODUCT_CACHE[symbol_or_id]
+
+    raise ValueError(f"Product '{symbol_or_id}' not found on Delta Exchange.")
+
+
+def align_price(price: float, tick_size: float | str) -> float:
+    """Rounds a price to match the product's valid tick size."""
+    try:
+        tick = float(tick_size)
+        if tick <= 0:
+            return round(price, 4)
+        return float(round_by_tick_size(Decimal(str(price)), Decimal(str(tick))))
+    except Exception:
+        return round(price, 4)
+
+
+def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
+    """
+    Executes a single leg order against Delta Exchange REST API.
+    :param leg: dict {symbol, side, size, order_type, limit_price, ...}
+    :return: standardized result dictionary
+    """
+    c = client or get_client()
+    leg_idx = leg.get("leg_index", 1)
+    symbol = leg.get("symbol", "").strip()
+    product_id = leg.get("product_id")
+    side = str(leg.get("side", "buy")).lower()
+    order_type_str = str(leg.get("order_type", "market")).lower()
+
+    try:
+        size = int(leg.get("size", 1))
+    except (ValueError, TypeError):
+        size = 1
+
+    if size <= 0:
+        return {
+            "leg_index": leg_idx,
+            "symbol": symbol,
+            "product_id": product_id,
+            "side": side.upper(),
+            "size": size,
+            "success": False,
+            "error": "Order size must be greater than 0"
+        }
+
+    try:
+        # Resolve product specifications
+        if not product_id and symbol:
+            prod = get_product_details(symbol, c)
+            product_id = prod["id"]
+        elif product_id and not symbol:
+            prod = get_product_details(product_id, c)
+            symbol = prod.get("symbol", f"Product #{product_id}")
+        elif product_id:
+            prod = get_product_details(product_id, c)
+        else:
+            raise ValueError("Either symbol or product_id must be provided for the leg.")
+
+        tick_size = prod.get("tick_size", "0.5")
+
+        if order_type_str == "limit":
+            limit_price = leg.get("limit_price")
+            if limit_price is None or float(limit_price) <= 0:
+                raise ValueError("Limit price is required for Limit orders.")
+            valid_price = align_price(float(limit_price), tick_size)
+
+            tif_val = leg.get("time_in_force", "gtc").lower()
+            tif = TimeInForce.GTC
+            if tif_val == "ioc":
+                tif = TimeInForce.IOC
+            elif tif_val == "fok":
+                tif = TimeInForce.FOK
+
+            res = c.place_order(
+                product_id=product_id,
+                size=size,
+                side=side,
+                limit_price=str(valid_price),
+                order_type=OrderType.LIMIT,
+                time_in_force=tif,
+                post_only="true" if leg.get("post_only") else "false"
+            )
+        else:
+            # Market order
+            res = c.place_order(
+                product_id=product_id,
+                size=size,
+                side=side,
+                order_type=OrderType.MARKET
+            )
+
+        order_id = res.get("id") if isinstance(res, dict) else None
+        state = res.get("state") if isinstance(res, dict) else "placed"
+
+        return {
+            "leg_index": leg_idx,
+            "symbol": symbol,
+            "product_id": product_id,
+            "side": side.upper(),
+            "size": size,
+            "order_type": order_type_str.upper(),
+            "limit_price": leg.get("limit_price"),
+            "success": True,
+            "order_id": order_id,
+            "state": state,
+            "response": res,
+            "error": None
+        }
+
+    except Exception as e:
+        return {
+            "leg_index": leg_idx,
+            "symbol": symbol,
+            "product_id": product_id,
+            "side": side.upper(),
+            "size": size,
+            "order_type": order_type_str.upper(),
+            "limit_price": leg.get("limit_price"),
+            "success": False,
+            "order_id": None,
+            "response": None,
+            "error": str(e)
+        }
+
+
+def execute_multi_leg_strategy(legs: list, client: DeltaRestClient = None, parallel: bool = True) -> dict:
+    """
+    Executes multiple trading legs simultaneously with 1-click execution.
+    Uses ThreadPoolExecutor for concurrent execution to minimize slippage.
+    """
+    if not legs or not isinstance(legs, list):
+        return {
+            "success": False,
+            "error": "No trading legs provided.",
+            "total_legs": 0,
+            "results": []
+        }
+
+    c = client or get_client()
+
+    for idx, leg in enumerate(legs):
+        leg["leg_index"] = idx + 1
+
+    results = [None] * len(legs)
+
+    if parallel and len(legs) > 1:
+        with ThreadPoolExecutor(max_workers=min(len(legs), 8)) as executor:
+            future_to_idx = {
+                executor.submit(execute_single_leg_order, leg, c): idx
+                for idx, leg in enumerate(legs)
+            }
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    res = future.result()
+                    results[idx] = res
+                except Exception as exc:
+                    results[idx] = {
+                        "leg_index": idx + 1,
+                        "symbol": legs[idx].get("symbol", ""),
+                        "success": False,
+                        "error": str(exc)
+                    }
+    else:
+        for idx, leg in enumerate(legs):
+            results[idx] = execute_single_leg_order(leg, c)
+
+    success_count = sum(1 for r in results if r and r.get("success"))
+    failed_count = len(results) - success_count
+
+    if failed_count == 0:
+        overall_status = "SUCCESS"
+    elif success_count > 0:
+        overall_status = "PARTIAL"
+    else:
+        overall_status = "FAILED"
+
+    return {
+        "success": success_count > 0,
+        "overall_status": overall_status,
+        "total_legs": len(legs),
+        "successful_legs": success_count,
+        "failed_legs": failed_count,
+        "results": results
+    }
+
+
+def square_off_single_position(product_id_or_symbol, client: DeltaRestClient = None) -> dict:
+    """
+    Squares off a single open position at market.
+    """
+    c = client or get_client()
+    prod = get_product_details(product_id_or_symbol, c)
+    product_id = prod["id"]
+    symbol = prod.get("symbol", str(product_id))
+
+    # Fetch position
+    pos_res = c.get_position(product_id=product_id)
+    if not pos_res or float(pos_res.get("size", 0)) == 0:
+        all_pos = c.request("GET", "/v2/positions/margined", auth=True).json().get("result", [])
+        pos_res = next((p for p in all_pos if str(p.get("product_id")) == str(product_id)), None)
+
+    if not pos_res:
+        return {"success": False, "error": f"No open position found for {symbol} (Product {product_id})"}
+
+    try:
+        size = float(pos_res.get("size", 0))
+    except (ValueError, TypeError):
+        size = 0.0
+
+    if size == 0:
+        return {"success": False, "error": f"Position for {symbol} is already 0 (flat)."}
+
+    opposing_side = "sell" if size > 0 else "buy"
+    close_size = int(abs(size))
+
+    try:
+        res = c.place_order(
+            product_id=product_id,
+            size=close_size,
+            side=opposing_side,
+            order_type=OrderType.MARKET
+        )
+        return {
+            "success": True,
+            "symbol": symbol,
+            "product_id": product_id,
+            "closed_size": close_size,
+            "side": opposing_side.upper(),
+            "response": res
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "symbol": symbol,
+            "product_id": product_id,
+            "error": str(e)
+        }
+
+
+def square_off_all_open_positions(client: DeltaRestClient = None) -> dict:
+    """
+    Squares off ALL currently open positions simultaneously at market in 1 click.
+    """
+    c = client or get_client()
+    try:
+        pos_res = c.request("GET", "/v2/positions/margined", auth=True).json()
+        raw_positions = pos_res.get("result", [])
+        if isinstance(raw_positions, dict):
+            raw_positions = [raw_positions]
+        elif not isinstance(raw_positions, list):
+            raw_positions = []
+    except Exception as e:
+        return {"success": False, "error": f"Failed to retrieve positions: {e}", "results": []}
+
+    open_positions = [p for p in raw_positions if float(p.get("size", 0)) != 0]
+
+    if not open_positions:
+        return {
+            "success": True,
+            "message": "No open positions to square off.",
+            "total_squared_off": 0,
+            "results": []
+        }
+
+    results = []
+    with ThreadPoolExecutor(max_workers=min(len(open_positions), 8)) as executor:
+        future_to_pos = {
+            executor.submit(square_off_single_position, p.get("product_id"), c): p
+            for p in open_positions
+        }
+        for future in as_completed(future_to_pos):
+            try:
+                res = future.result()
+                results.append(res)
+            except Exception as exc:
+                p = future_to_pos[future]
+                results.append({
+                    "success": False,
+                    "product_id": p.get("product_id"),
+                    "symbol": p.get("product_symbol"),
+                    "error": str(exc)
+                })
+
+    success_count = sum(1 for r in results if r.get("success"))
+    return {
+        "success": success_count > 0,
+        "total_attempted": len(open_positions),
+        "total_squared_off": success_count,
+        "failed_count": len(open_positions) - success_count,
+        "results": results
+    }
+
+
+def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient = None) -> dict:
+    """
+    Fetches available expiration dates, strikes, contract value, and live underlying prices for an asset.
+    """
+    c = client or get_client()
+    all_prods = get_all_products(c)
+
+    # Fetch underlying ticker for spot & mark price & contract value
+    spot_price = 0.0
+    mark_price = 0.0
+    ltp = 0.0
+    contract_value = 0.001 if underlying == "BTC" else (0.01 if underlying == "ETH" else 1.0)
+
+    try:
+        ticker = c.get_ticker(f"{underlying}USD")
+        if ticker:
+            spot_price = float(ticker.get("spot_price") or 0.0)
+            mark_price = float(ticker.get("mark_price") or 0.0)
+            ltp = float(ticker.get("close") or 0.0)
+            if ticker.get("contract_value"):
+                contract_value = float(ticker.get("contract_value"))
+    except Exception as e:
+        print(f"[WARN] Failed to fetch ticker for {underlying}USD: {e}")
+
+    expiries_set = set()
+    strikes_map = {}
+
+    for p in all_prods:
+        c_type = (p.get("contract_type") or "").lower()
+        if "call" not in c_type and "put" not in c_type:
+            continue
+
+        u_asset = (p.get("underlying_asset") or {}).get("symbol", "").upper()
+        sym = p.get("symbol", "").upper()
+        if underlying not in u_asset and f"-{underlying}-" not in sym:
+            continue
+
+        settlement = p.get("settlement_time")
+        strike = float(p.get("strike_price") or 0) if p.get("strike_price") else None
+
+        if p.get("contract_value"):
+            try:
+                contract_value = float(p.get("contract_value"))
+            except Exception:
+                pass
+
+        parts = sym.split("-")
+        exp_str = None
+        if len(parts) >= 4:
+            exp_str = parts[-1]
+        elif settlement:
+            exp_str = str(settlement)
+
+        if exp_str:
+            expiries_set.add(exp_str)
+            if exp_str not in strikes_map:
+                strikes_map[exp_str] = set()
+            if strike:
+                strikes_map[exp_str].add(strike)
+
+    formatted_expiries = []
+    for exp in sorted(list(expiries_set)):
+        strikes = sorted(list(strikes_map.get(exp, [])))
+        formatted_expiries.append({
+            "expiry": exp,
+            "strikes": strikes
+        })
+
+    # Find closest ATM strike from available strikes in first expiry using Spot Index price (matches Delta Option Chain)
+    atm_strike = None
+    underlying_price = spot_price if spot_price > 0 else (ltp if ltp > 0 else mark_price)
+    futures_price = ltp if ltp > 0 else (mark_price if mark_price > 0 else spot_price)
+    if formatted_expiries and formatted_expiries[0]["strikes"] and underlying_price > 0:
+        all_first_strikes = formatted_expiries[0]["strikes"]
+        atm_strike = min(all_first_strikes, key=lambda x: abs(x - underlying_price))
+
+    return {
+        "underlying": underlying,
+        "underlying_price": underlying_price,
+        "spot_price": spot_price if spot_price > 0 else underlying_price,
+        "futures_price": futures_price,
+        "mark_price": mark_price,
+        "ltp": ltp,
+        "contract_value": contract_value,
+        "asset_unit": underlying,
+        "atm_strike": atm_strike,
+        "expiries": formatted_expiries
+    }
+
