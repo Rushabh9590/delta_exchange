@@ -30,7 +30,7 @@ from multileg import (
     get_options_expiries_and_strikes
 )
 
-app = Flask(__name__, static_folder=str(BASE_DIR))
+app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
 # Cached client instance
 _client = None
