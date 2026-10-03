@@ -92,5 +92,21 @@ const ApiService = {
       headers: { 'Content-Type': 'application/json' }
     });
     return await res.json();
+  },
+
+  /**
+   * Fetches master scrips sync status
+   */
+  async getMasterStatus() {
+    const res = await fetch('/api/master/status');
+    return await res.json();
+  },
+
+  /**
+   * Triggers immediate download & sync of master scrips from Delta Exchange
+   */
+  async refreshMasterScrips() {
+    const res = await fetch('/api/master/refresh', { method: 'POST' });
+    return await res.json();
   }
 };

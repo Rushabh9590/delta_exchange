@@ -75,43 +75,81 @@ class DeltaWebSocketManager:
         self.is_connected = True
         if self.verbose:
             print(f"[WS CONNECTED] Connected to {self.ws_url}")
+        spot_symbols = list(set([s.replace("USD", "") for s in self.symbols if "USD" in s]))
+        channels = [
+            {"name": "v2/ticker", "symbols": self.symbols},
+            {"name": "mark_price", "symbols": self.symbols},
+            {"name": "l2_updates", "symbols": self.symbols}
+        ]
+        if spot_symbols:
+            channels.append({"name": "spot_price", "symbols": spot_symbols})
+
         sub_payload = {
             "type": "subscribe",
             "payload": {
-                "channels": [
-                    {"name": "v2/ticker", "symbols": self.symbols},
-                    {"name": "l2_updates", "symbols": self.symbols}
-                ]
+                "channels": channels
             }
         }
         ws.send(json.dumps(sub_payload))
         if self.verbose:
-            print(f"[WS SUB] Subscribed to {self.symbols}")
+            print(f"[WS SUB] Subscribed to {self.symbols} & Spot: {spot_symbols}", flush=True)
 
     def _on_message(self, ws, message):
         try:
             data = json.loads(message)
-            channel = data.get("channel") or data.get("name")
-            symbol = data.get("symbol")
+            msg_type = data.get("type") or data.get("channel") or data.get("name")
+            symbol = data.get("symbol") or (f"{data.get('underlying_asset_symbol')}USD" if data.get("underlying_asset_symbol") else None)
 
-            if channel == "v2/ticker" and symbol:
+            if msg_type in ("v2/ticker", "ticker", "spot_price", "mark_price") and symbol:
                 with self._lock:
                     if symbol not in self.market_data:
                         self.market_data[symbol] = {}
                     
-                    quotes = data.get("quotes", {})
-                    ltp = data.get("close") or quotes.get("best_bid")
-                    self.market_data[symbol]["ltp"] = float(ltp) if ltp is not None else None
-                    self.market_data[symbol]["mark_price"] = float(data.get("mark_price", 0)) if data.get("mark_price") else None
-                    self.market_data[symbol]["bid"] = float(quotes.get("best_bid", 0)) if quotes.get("best_bid") else None
-                    self.market_data[symbol]["ask"] = float(quotes.get("best_ask", 0)) if quotes.get("best_ask") else None
+                    quotes = data.get("quotes") or {}
+                    close_val = data.get("close")
+                    best_bid = quotes.get("best_bid")
+                    spot_val = data.get("spot_price") or data.get("underlying_price")
+                    mark_val = data.get("mark_price")
+
+                    ltp = close_val if close_val is not None else best_bid
+                    if ltp is not None:
+                        self.market_data[symbol]["ltp"] = float(ltp)
+
+                    if mark_val is not None:
+                        try:
+                            self.market_data[symbol]["mark_price"] = float(mark_val)
+                        except (ValueError, TypeError):
+                            pass
+
+                    if spot_val is not None:
+                        try:
+                            self.market_data[symbol]["spot_price"] = float(spot_val)
+                        except (ValueError, TypeError):
+                            pass
+                    elif mark_val is not None and "spot_price" not in self.market_data[symbol]:
+                        self.market_data[symbol]["spot_price"] = self.market_data[symbol].get("mark_price")
+
+                    if best_bid is not None:
+                        try:
+                            self.market_data[symbol]["bid"] = float(best_bid)
+                        except (ValueError, TypeError):
+                            pass
+
+                    best_ask = quotes.get("best_ask")
+                    if best_ask is not None:
+                        try:
+                            self.market_data[symbol]["ask"] = float(best_ask)
+                        except (ValueError, TypeError):
+                            pass
+
                     self.market_data[symbol]["volume"] = data.get("volume")
                     self.market_data[symbol]["timestamp"] = time.time()
 
                 if self.verbose:
-                    print(f"[TICKER] {symbol} | LTP: {self.market_data[symbol]['ltp']} | Mark: {self.market_data[symbol]['mark_price']} | Bid: {self.market_data[symbol]['bid']} | Ask: {self.market_data[symbol]['ask']}")
+                    spot_disp = self.market_data[symbol].get("spot_price") or self.market_data[symbol].get("mark_price") or self.market_data[symbol].get("ltp")
+                    print(f"[TICK] {symbol} | Spot/Index: {spot_disp} | LTP: {self.market_data[symbol].get('ltp')} | Mark: {self.market_data[symbol].get('mark_price')} | Bid: {self.market_data[symbol].get('bid')} | Ask: {self.market_data[symbol].get('ask')}", flush=True)
 
-            elif channel == "l2_updates" and symbol:
+            elif msg_type == "l2_updates" and symbol:
                 with self._lock:
                     if symbol not in self.market_data:
                         self.market_data[symbol] = {}
@@ -122,11 +160,11 @@ class DeltaWebSocketManager:
                 if self.verbose:
                     top_bid = data.get("bids", [["-", "-"]])[0]
                     top_ask = data.get("asks", [["-", "-"]])[0]
-                    print(f"[L2] {symbol} | Best Bid: {top_bid} | Best Ask: {top_ask}")
+                    print(f"[L2] {symbol} | Best Bid: {top_bid} | Best Ask: {top_ask}", flush=True)
 
         except Exception as e:
             if self.verbose:
-                print(f"[WS PARSE ERROR] {e}")
+                print(f"[WS PARSE ERROR] {e}", flush=True)
 
     def _on_error(self, ws, error):
         if self.verbose:

@@ -88,7 +88,7 @@ function onSizeInputChange() {
 async function loadExpiriesForUnderlying(underlying = 'BTC') {
   const selExpiry = document.getElementById('selExpiry');
   if (!selExpiry) return;
-  selExpiry.innerHTML = '<option value="">Loading expiries...</option>';
+  selExpiry.innerHTML = '<option value="">Loading expiries from Master Scrip...</option>';
 
   try {
     const data = await ApiService.getOptionsExpiries(underlying);
@@ -109,45 +109,54 @@ async function loadExpiriesForUnderlying(underlying = 'BTC') {
         availableExpiries = data.expiries;
         let optionsHtml = '';
         data.expiries.forEach((item, idx) => {
-          optionsHtml += `<option value="${item.expiry}" ${idx === 0 ? 'selected' : ''}>${item.expiry}</option>`;
+          const totalStr = item.total_strikes ? ` (${item.total_strikes} strikes)` : '';
+          const labelStr = item.label ? `${item.label}` : item.expiry;
+          optionsHtml += `<option value="${item.expiry}" ${idx === 0 ? 'selected' : ''}>${labelStr} [${item.expiry}]${totalStr}</option>`;
         });
         selExpiry.innerHTML = optionsHtml;
 
-        if (data.atm_strike) {
-          const atmInp = document.getElementById('inpAtmStrike');
-          if (atmInp) atmInp.value = data.atm_strike;
-        } else {
-          const firstExp = data.expiries[0];
-          if (firstExp && firstExp.strikes && firstExp.strikes.length > 0) {
-            const midStrike = firstExp.strikes[Math.floor(firstExp.strikes.length / 2)];
-            const atmInp = document.getElementById('inpAtmStrike');
-            if (atmInp) atmInp.value = midStrike;
-          }
+        const firstExp = data.expiries[0];
+        const initialAtm = firstExp.atm_strike || data.atm_strike || (firstExp.strikes ? firstExp.strikes[Math.floor(firstExp.strikes.length / 2)] : 86000);
+        currentUnderlyingInfo.atm_strike = initialAtm;
+
+        const atmInp = document.getElementById('inpAtmStrike');
+        if (atmInp) atmInp.value = initialAtm;
+
+        const expiryHint = document.getElementById('expiryCountHint');
+        if (expiryHint) {
+          expiryHint.textContent = `📅 ${data.expiries.length} Expiries (${firstExp.total_strikes || firstExp.strikes.length} Strikes in selected)`;
         }
       } else {
-        selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+        selExpiry.innerHTML = '<option value="">No Expiries Available</option>';
       }
     } else {
-      selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+      selExpiry.innerHTML = '<option value="">Failed to load expiries</option>';
     }
   } catch (err) {
-    selExpiry.innerHTML = '<option value="021026">Default Expiry</option>';
+    console.error('Error fetching expiries:', err);
+    selExpiry.innerHTML = '<option value="">Error loading expiries</option>';
   }
 
   updateUnderlyingPriceAndLotDisplay();
   applyStrategyPreset(activePreset);
+  if (typeof subscribeActiveSymbols === 'function') {
+    subscribeActiveSymbols();
+  }
 }
 
+/**
+ * Returns the exact list of exchange strike prices for a specific expiry date
+ */
 function getAvailableStrikesForExpiry(expiry) {
-  const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-  const atm = parseFloat(document.getElementById('inpAtmStrike')?.value) || (underlying === 'BTC' ? 86000 : (underlying === 'ETH' ? 2500 : 150));
-
   const found = availableExpiries.find(e => e.expiry === expiry);
   if (found && Array.isArray(found.strikes) && found.strikes.length > 0) {
     return found.strikes;
   }
-
-  // Fallback strike grid around ATM
+  if (availableExpiries.length > 0 && availableExpiries[0].strikes && availableExpiries[0].strikes.length > 0) {
+    return availableExpiries[0].strikes;
+  }
+  const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  const atm = parseFloat(document.getElementById('inpAtmStrike')?.value) || (underlying === 'BTC' ? 86000 : (underlying === 'ETH' ? 2500 : 150));
   const step = underlying === 'BTC' ? 500 : (underlying === 'ETH' ? 25 : 5);
   const generated = [];
   for (let i = -7; i <= 7; i++) {
@@ -156,6 +165,9 @@ function getAvailableStrikesForExpiry(expiry) {
   return generated;
 }
 
+/**
+ * Finds the nearest valid exchange strike price for a given target price and expiry date
+ */
 function getClosestStrike(targetPrice, expiry) {
   const strikes = getAvailableStrikesForExpiry(expiry);
   if (!strikes || strikes.length === 0) return Math.round(targetPrice);
@@ -171,18 +183,32 @@ function getClosestStrike(targetPrice, expiry) {
   return closest;
 }
 
+/**
+ * Generates the HTML dropdown for a leg's strike price, tailored strictly to the selected expiry's strikes
+ */
 function getStrikesDropdownHtml(idx, selectedStrike, expiry) {
-  let strikes = [...getAvailableStrikesForExpiry(expiry)];
-  const curStrikeNum = parseFloat(selectedStrike);
-  if (!isNaN(curStrikeNum) && !strikes.includes(curStrikeNum)) {
-    strikes.push(curStrikeNum);
-    strikes.sort((a, b) => a - b);
+  const strikes = getAvailableStrikesForExpiry(expiry);
+  let curStrikeNum = parseFloat(selectedStrike);
+
+  // Auto-snap invalid strike to closest valid strike in this expiry
+  if (isNaN(curStrikeNum) || !strikes.includes(curStrikeNum)) {
+    curStrikeNum = getClosestStrike(curStrikeNum || 0, expiry);
+    if (legRows[idx]) {
+      legRows[idx].strike = curStrikeNum;
+      const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+      const optType = legRows[idx].option_type || 'call';
+      legRows[idx].symbol = `${optType === 'call' ? 'C' : 'P'}-${underlying}-${curStrikeNum}-${expiry}`;
+    }
   }
+
+  const expObj = availableExpiries.find(e => e.expiry === expiry);
+  const atmForThisExp = expObj?.atm_strike;
 
   let html = `<select class="leg-strike-select" onchange="updateLegStrike(${idx}, this.value)">`;
   strikes.forEach(s => {
     const isSel = (s === curStrikeNum) ? 'selected' : '';
-    html += `<option value="${s}" ${isSel}>${formatNumber(s, 0)}</option>`;
+    const isAtm = (s === atmForThisExp) ? ' ⭐ ATM' : '';
+    html += `<option value="${s}" ${isSel}>${formatNumber(s, 0)}${isAtm}</option>`;
   });
   html += `</select>`;
   return html;
@@ -192,7 +218,7 @@ function toggleLegOptionType(idx, optType) {
   if (legRows[idx]) {
     legRows[idx].option_type = optType;
     const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-    const expiry = document.getElementById('selExpiry')?.value || '021026';
+    const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '031026');
     const strike = legRows[idx].strike || parseFloat(document.getElementById('inpAtmStrike')?.value) || 86000;
     legRows[idx].symbol = `${optType === 'call' ? 'C' : 'P'}-${underlying}-${strike}-${expiry}`;
     renderLegRows();
@@ -204,7 +230,7 @@ function updateLegStrike(idx, strikeVal) {
     const numStrike = parseFloat(strikeVal);
     legRows[idx].strike = numStrike;
     const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-    const expiry = document.getElementById('selExpiry')?.value || '021026';
+    const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '031026');
     const optType = legRows[idx].option_type || 'call';
     legRows[idx].symbol = `${optType === 'call' ? 'C' : 'P'}-${underlying}-${numStrike}-${expiry}`;
     renderLegRows();
@@ -230,15 +256,45 @@ function onUnderlyingChange() {
   loadExpiriesForUnderlying(underlying);
 }
 
+/**
+ * Triggered whenever the user chooses a different expiration date
+ * Synchronizes ATM strikes, recalculates preset strikes, and snaps custom legs to new expiry's strikes
+ */
 function onExpiryChange() {
-  const newExpiry = document.getElementById('selExpiry')?.value || '021026';
+  const selExpiry = document.getElementById('selExpiry');
+  const newExpiry = selExpiry?.value;
+  if (!newExpiry) return;
+
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-  legRows.forEach(leg => {
-    if (leg.option_type && leg.strike) {
-      leg.symbol = `${leg.option_type === 'call' ? 'C' : 'P'}-${underlying}-${leg.strike}-${newExpiry}`;
+  const expObj = availableExpiries.find(e => e.expiry === newExpiry);
+
+  if (expObj) {
+    if (expObj.atm_strike) {
+      currentUnderlyingInfo.atm_strike = expObj.atm_strike;
+      const atmInp = document.getElementById('inpAtmStrike');
+      if (atmInp) atmInp.value = expObj.atm_strike;
     }
-  });
-  recalculatePresetStrikes();
+    const expiryHint = document.getElementById('expiryCountHint');
+    if (expiryHint) {
+      expiryHint.textContent = `📅 ${availableExpiries.length} Expiries (${expObj.total_strikes || expObj.strikes.length} Strikes in selected)`;
+    }
+  }
+
+  if (activePreset !== 'custom') {
+    applyStrategyPreset(activePreset);
+  } else {
+    // Custom legs: adapt each leg's strike to the closest valid strike of the newly selected expiry
+    legRows.forEach(leg => {
+      if (leg.option_type) {
+        const closestStrike = getClosestStrike(leg.strike, newExpiry);
+        leg.strike = closestStrike;
+        leg.symbol = `${leg.option_type === 'call' ? 'C' : 'P'}-${underlying}-${closestStrike}-${newExpiry}`;
+      }
+    });
+    renderLegRows();
+  }
+
+  updateUnderlyingPriceAndLotDisplay();
 }
 
 function applyStrategyPreset(presetName, btn = null) {
@@ -249,8 +305,11 @@ function applyStrategyPreset(presetName, btn = null) {
   }
 
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-  const expiry = document.getElementById('selExpiry')?.value || '021026';
-  const atm = parseFloat(document.getElementById('inpAtmStrike')?.value) || (underlying === 'BTC' ? 86000 : 2500);
+  const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '031026');
+  const expObj = availableExpiries.find(e => e.expiry === expiry);
+
+  const rawAtm = parseFloat(document.getElementById('inpAtmStrike')?.value) || expObj?.atm_strike || (underlying === 'BTC' ? 86000 : 2500);
+  const atm = getClosestStrike(rawAtm, expiry);
   const size = parseInt(document.getElementById('inpDefaultSize')?.value) || 1;
 
   legRows = [];
@@ -262,23 +321,23 @@ function applyStrategyPreset(presetName, btn = null) {
     legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
   } else if (presetName === 'short_strangle') {
-    const otmCall = getClosestStrike(atm * 1.03, expiry);
-    const otmPut = getClosestStrike(atm * 0.97, expiry);
+    const otmCall = getClosestStrike(atm * 1.02, expiry);
+    const otmPut = getClosestStrike(atm * 0.98, expiry);
     legRows.push({ side: 'sell', option_type: 'call', strike: otmCall, symbol: `C-${underlying}-${otmCall}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'sell', option_type: 'put', strike: otmPut, symbol: `P-${underlying}-${otmPut}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
   } else if (presetName === 'bull_call') {
-    const higherStrike = getClosestStrike(atm * 1.04, expiry);
+    const higherStrike = getClosestStrike(atm * 1.03, expiry);
     legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'sell', option_type: 'call', strike: higherStrike, symbol: `C-${underlying}-${higherStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
   } else if (presetName === 'bear_put') {
-    const lowerStrike = getClosestStrike(atm * 0.96, expiry);
+    const lowerStrike = getClosestStrike(atm * 0.97, expiry);
     legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'sell', option_type: 'put', strike: lowerStrike, symbol: `P-${underlying}-${lowerStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
   } else if (presetName === 'iron_condor') {
-    const pBuy = getClosestStrike(atm * 0.93, expiry);
+    const pBuy = getClosestStrike(atm * 0.94, expiry);
     const pSell = getClosestStrike(atm * 0.97, expiry);
     const cSell = getClosestStrike(atm * 1.03, expiry);
-    const cBuy = getClosestStrike(atm * 1.07, expiry);
+    const cBuy = getClosestStrike(atm * 1.06, expiry);
     legRows.push({ side: 'buy', option_type: 'put', strike: pBuy, symbol: `P-${underlying}-${pBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'sell', option_type: 'put', strike: pSell, symbol: `P-${underlying}-${pSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
     legRows.push({ side: 'sell', option_type: 'call', strike: cSell, symbol: `C-${underlying}-${cSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
@@ -307,8 +366,10 @@ function updateAllLegsSize() {
 
 function addNewLegRow() {
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
-  const expiry = document.getElementById('selExpiry')?.value || '021026';
-  const atm = parseFloat(document.getElementById('inpAtmStrike')?.value) || (underlying === 'BTC' ? 86000 : 2500);
+  const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '031026');
+  const expObj = availableExpiries.find(e => e.expiry === expiry);
+  const rawAtm = parseFloat(document.getElementById('inpAtmStrike')?.value) || expObj?.atm_strike || (underlying === 'BTC' ? 86000 : 2500);
+  const atm = getClosestStrike(rawAtm, expiry);
   const sz = parseInt(document.getElementById('inpDefaultSize')?.value) || 1;
   legRows.push({
     side: 'buy',
@@ -321,6 +382,40 @@ function addNewLegRow() {
   });
   renderLegRows();
   updateUnderlyingPriceAndLotDisplay();
+}
+
+/**
+ * Downloads & synchronizes Master Scrips on demand from Delta Exchange
+ */
+async function syncMasterScrips() {
+  const btn = document.getElementById('btnSyncMaster');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '🔄 Syncing Master...';
+  }
+  try {
+    const res = await ApiService.refreshMasterScrips();
+    if (res && res.success) {
+      const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+      await loadExpiriesForUnderlying(underlying);
+      if (typeof showToast === 'function') {
+        showToast(`✅ Master Scrips synced! ${res.total_products || 1220} active contracts loaded.`, 'success');
+      }
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(`❌ Master Scrips sync failed: ${res?.error || 'Unknown error'}`, 'error');
+      }
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') {
+      showToast(`❌ Master sync error: ${e.message}`, 'error');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="btn-icon">🔄</span> Sync Master Scrips';
+    }
+  }
 }
 
 function deleteLegRow(idx) {

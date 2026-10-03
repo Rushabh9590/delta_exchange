@@ -7,6 +7,7 @@ Handles concurrent parallel order dispatch for options and futures strategies
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -19,9 +20,25 @@ if REPO_PATH not in sys.path:
 from delta_rest_client import DeltaRestClient, OrderType, TimeInForce, round_by_tick_size
 from login import get_delta_client
 
+import json
+import threading
+
 _PRODUCT_CACHE = {}
 _ALL_PRODUCTS_CACHE = []
 _LAST_PRODUCTS_FETCH = 0
+_MASTER_LOCK = threading.Lock()
+_MASTER_CACHE_FILE = os.path.join(BASE_DIR, "master_products.json")
+_AUTO_SYNC_THREAD = None
+_AUTO_SYNC_RUNNING = False
+_MASTER_STATUS = {
+    "last_sync_timestamp": None,
+    "last_sync_iso": None,
+    "total_products": 0,
+    "option_products": 0,
+    "futures_products": 0,
+    "status": "uninitialized",
+    "error": None
+}
 
 
 def get_client() -> DeltaRestClient:
@@ -29,32 +46,168 @@ def get_client() -> DeltaRestClient:
     return get_delta_client()
 
 
+def load_master_from_disk():
+    """Loads master scrips from local JSON cache if available."""
+    global _ALL_PRODUCTS_CACHE, _PRODUCT_CACHE, _LAST_PRODUCTS_FETCH, _MASTER_STATUS
+    if os.path.exists(_MASTER_CACHE_FILE):
+        try:
+            with open(_MASTER_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                products = data.get("products", [])
+                if products:
+                    _ALL_PRODUCTS_CACHE = products
+                    _LAST_PRODUCTS_FETCH = data.get("timestamp", time.time())
+                    _MASTER_STATUS["last_sync_timestamp"] = _LAST_PRODUCTS_FETCH
+                    _MASTER_STATUS["last_sync_iso"] = datetime.fromtimestamp(_LAST_PRODUCTS_FETCH, tz=timezone.utc).isoformat()
+                    _MASTER_STATUS["total_products"] = len(products)
+                    _MASTER_STATUS["option_products"] = sum(1 for p in products if "option" in (p.get("contract_type") or "").lower())
+                    _MASTER_STATUS["futures_products"] = _MASTER_STATUS["total_products"] - _MASTER_STATUS["option_products"]
+                    _MASTER_STATUS["status"] = "loaded_from_disk"
+                    for p in products:
+                        p_sym = p.get("symbol")
+                        p_id = p.get("id")
+                        if p_sym:
+                            _PRODUCT_CACHE[p_sym] = p
+                        if p_id is not None:
+                            _PRODUCT_CACHE[p_id] = p
+                            _PRODUCT_CACHE[str(p_id)] = p
+                    print(f"[MASTER SCRIP] Loaded {len(products)} products from disk cache.")
+        except Exception as e:
+            print(f"[WARN] Failed to read master scrips from disk cache: {e}")
+
+
+def save_master_to_disk(products: list):
+    """Saves master scrips to local JSON cache for offline/instant availability."""
+    try:
+        now = time.time()
+        payload = {
+            "timestamp": now,
+            "iso_time": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+            "total_count": len(products),
+            "products": products
+        }
+        temp_file = _MASTER_CACHE_FILE + ".tmp"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        if os.path.exists(_MASTER_CACHE_FILE):
+            os.remove(_MASTER_CACHE_FILE)
+        os.rename(temp_file, _MASTER_CACHE_FILE)
+    except Exception as e:
+        print(f"[WARN] Failed to write master scrips to disk: {e}")
+
+
+def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
+    """
+    Downloads the freshest master scrips from Delta Exchange API.
+    Updates in-memory caches and persists to disk.
+    """
+    global _ALL_PRODUCTS_CACHE, _PRODUCT_CACHE, _LAST_PRODUCTS_FETCH, _MASTER_STATUS
+    with _MASTER_LOCK:
+        now = time.time()
+        if not force and _ALL_PRODUCTS_CACHE and (now - _LAST_PRODUCTS_FETCH < 60):
+            return {
+                "success": True,
+                "cached": True,
+                **_MASTER_STATUS
+            }
+
+        c = client or get_client()
+        try:
+            products = c.get_products()
+            if isinstance(products, list) and len(products) > 0:
+                _ALL_PRODUCTS_CACHE = products
+                _LAST_PRODUCTS_FETCH = now
+                _PRODUCT_CACHE.clear()
+                for p in products:
+                    p_sym = p.get("symbol")
+                    p_id = p.get("id")
+                    if p_sym:
+                        _PRODUCT_CACHE[p_sym] = p
+                    if p_id is not None:
+                        _PRODUCT_CACHE[p_id] = p
+                        _PRODUCT_CACHE[str(p_id)] = p
+
+                opt_count = sum(1 for p in products if "option" in (p.get("contract_type") or "").lower())
+                _MASTER_STATUS = {
+                    "last_sync_timestamp": now,
+                    "last_sync_iso": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+                    "total_products": len(products),
+                    "option_products": opt_count,
+                    "futures_products": len(products) - opt_count,
+                    "status": "synced_from_exchange",
+                    "error": None
+                }
+                save_master_to_disk(products)
+                print(f"[MASTER SCRIP] Successfully synced {len(products)} master contracts from Delta Exchange.")
+                return {
+                    "success": True,
+                    "cached": False,
+                    **_MASTER_STATUS
+                }
+            else:
+                raise ValueError("Exchange returned empty product list.")
+        except Exception as e:
+            _MASTER_STATUS["error"] = str(e)
+            _MASTER_STATUS["status"] = "sync_failed"
+            print(f"[WARN] Failed to sync master scrips: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                **_MASTER_STATUS
+            }
+
+
+def get_master_status() -> dict:
+    """Returns the current master scrips status and metrics."""
+    return {
+        "success": True,
+        **_MASTER_STATUS
+    }
+
+
+def _background_master_sync_loop(interval_seconds=900):
+    """
+    Intelligent background daemon for master scrip synchronization:
+    - Normal schedule: Runs every 15 minutes (avoids rate limits and excessive bandwidth).
+    - Daily Rollover Window (11:58 UTC - 12:15 UTC / 5:28 PM - 5:45 PM IST):
+      Increases polling to every 45 seconds to instantly capture new daily/weekly contracts upon release.
+    """
+    global _AUTO_SYNC_RUNNING
+    print(f"[MASTER SCRIP] Started smart master scrip sync daemon (Normal: {interval_seconds}s | Rollover window: 45s).")
+    while _AUTO_SYNC_RUNNING:
+        try:
+            sync_master_scrips(force=True)
+        except Exception as e:
+            print(f"[WARN] Background master sync error: {e}")
+
+        # Check if we are currently in the 12:00 UTC (5:30 PM IST) daily contract rollover window
+        now_utc = datetime.now(timezone.utc)
+        is_rollover_window = (now_utc.hour == 11 and now_utc.minute >= 58) or (now_utc.hour == 12 and now_utc.minute <= 15)
+        
+        sleep_time = 45 if is_rollover_window else interval_seconds
+        time.sleep(sleep_time)
+
+
+def start_master_sync_daemon(interval_seconds=900):
+    """Starts the background auto-sync thread for master scrips with adaptive timing."""
+    global _AUTO_SYNC_THREAD, _AUTO_SYNC_RUNNING
+    if _AUTO_SYNC_RUNNING:
+        return
+    _AUTO_SYNC_RUNNING = True
+    load_master_from_disk()
+    # Initial sync in background
+    _AUTO_SYNC_THREAD = threading.Thread(target=_background_master_sync_loop, args=(interval_seconds,), daemon=True)
+    _AUTO_SYNC_THREAD.start()
+
+
 def get_all_products(client: DeltaRestClient = None, force_refresh=False) -> list:
     """
     Fetches and caches all available trading products from Delta Exchange.
     """
-    global _ALL_PRODUCTS_CACHE, _PRODUCT_CACHE, _LAST_PRODUCTS_FETCH
+    global _ALL_PRODUCTS_CACHE, _LAST_PRODUCTS_FETCH
     now = time.time()
-    if not force_refresh and _ALL_PRODUCTS_CACHE and (now - _LAST_PRODUCTS_FETCH < 300):
-        return _ALL_PRODUCTS_CACHE
-
-    c = client or get_client()
-    try:
-        products = c.get_products()
-        if isinstance(products, list):
-            _ALL_PRODUCTS_CACHE = products
-            _LAST_PRODUCTS_FETCH = now
-            for p in products:
-                p_sym = p.get("symbol")
-                p_id = p.get("id")
-                if p_sym:
-                    _PRODUCT_CACHE[p_sym] = p
-                if p_id is not None:
-                    _PRODUCT_CACHE[p_id] = p
-                    _PRODUCT_CACHE[str(p_id)] = p
-    except Exception as e:
-        print(f"[WARN] Failed to fetch all products: {e}")
-
+    if force_refresh or not _ALL_PRODUCTS_CACHE or (now - _LAST_PRODUCTS_FETCH > 60):
+        sync_master_scrips(client, force=force_refresh)
     return _ALL_PRODUCTS_CACHE
 
 
@@ -387,10 +540,16 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
     except Exception as e:
         print(f"[WARN] Failed to fetch ticker for {underlying}USD: {e}")
 
+    now_utc = datetime.now(timezone.utc)
     expiries_set = set()
     strikes_map = {}
 
     for p in all_prods:
+        # Only live active contracts
+        state = p.get("state", "live")
+        if state not in ["live", "active"] and state is not None:
+            continue
+
         c_type = (p.get("contract_type") or "").lower()
         if "call" not in c_type and "put" not in c_type:
             continue
@@ -401,6 +560,17 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
             continue
 
         settlement = p.get("settlement_time")
+        if settlement:
+            try:
+                clean_settle = str(settlement).replace("Z", "+00:00")
+                settle_dt = datetime.fromisoformat(clean_settle)
+                if settle_dt.tzinfo is None:
+                    settle_dt = settle_dt.replace(tzinfo=timezone.utc)
+                if settle_dt <= now_utc:
+                    continue
+            except Exception:
+                pass
+
         strike = float(p.get("strike_price") or 0) if p.get("strike_price") else None
 
         if p.get("contract_value"):
@@ -417,27 +587,74 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
             exp_str = str(settlement)
 
         if exp_str:
+            # If exp_str is DDMMYY format (e.g. 021026), check if expired at 12:00 UTC
+            if len(exp_str) == 6 and exp_str.isdigit():
+                try:
+                    exp_dt = datetime.strptime(exp_str, "%d%m%y").replace(hour=12, minute=0, second=0, tzinfo=timezone.utc)
+                    if exp_dt <= now_utc:
+                        continue
+                except Exception:
+                    pass
+
             expiries_set.add(exp_str)
             if exp_str not in strikes_map:
                 strikes_map[exp_str] = set()
             if strike:
                 strikes_map[exp_str].add(strike)
 
-    formatted_expiries = []
-    for exp in sorted(list(expiries_set)):
-        strikes = sorted(list(strikes_map.get(exp, [])))
-        formatted_expiries.append({
-            "expiry": exp,
-            "strikes": strikes
-        })
+    def parse_expiry_date(exp):
+        try:
+            return datetime.strptime(exp, "%d%m%y").replace(hour=12, minute=0, second=0, tzinfo=timezone.utc)
+        except Exception:
+            try:
+                clean_exp = str(exp).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(clean_exp)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return datetime.max.replace(tzinfo=timezone.utc)
 
-    # Find closest ATM strike from available strikes in first expiry using Spot Index price (matches Delta Option Chain)
-    atm_strike = None
+    def format_expiry_label(exp):
+        try:
+            dt = datetime.strptime(exp, "%d%m%y")
+            return dt.strftime("%d %b %Y")
+        except Exception:
+            return exp
+
+    # Sort expiries chronologically by date
+    sorted_exp_list = sorted(list(expiries_set), key=parse_expiry_date)
+    formatted_expiries = []
+
     underlying_price = spot_price if spot_price > 0 else (ltp if ltp > 0 else mark_price)
     futures_price = ltp if ltp > 0 else (mark_price if mark_price > 0 else spot_price)
-    if formatted_expiries and formatted_expiries[0]["strikes"] and underlying_price > 0:
-        all_first_strikes = formatted_expiries[0]["strikes"]
-        atm_strike = min(all_first_strikes, key=lambda x: abs(x - underlying_price))
+
+    for exp in sorted_exp_list:
+        strikes = sorted(list(strikes_map.get(exp, [])))
+        if strikes:
+            # Calculate specific ATM strike for THIS particular expiry date
+            expiry_atm = None
+            if underlying_price > 0:
+                expiry_atm = min(strikes, key=lambda x: abs(x - underlying_price))
+            else:
+                expiry_atm = strikes[len(strikes) // 2]
+
+            # Calculate approximate strike interval
+            step = None
+            if len(strikes) >= 2:
+                step = strikes[1] - strikes[0]
+
+            formatted_expiries.append({
+                "expiry": exp,
+                "label": format_expiry_label(exp),
+                "strikes": strikes,
+                "atm_strike": expiry_atm,
+                "min_strike": min(strikes),
+                "max_strike": max(strikes),
+                "total_strikes": len(strikes),
+                "strike_step": step
+            })
+
+    # Default ATM strike from first available expiry
+    atm_strike = formatted_expiries[0]["atm_strike"] if formatted_expiries else None
 
     return {
         "underlying": underlying,
@@ -449,6 +666,8 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
         "contract_value": contract_value,
         "asset_unit": underlying,
         "atm_strike": atm_strike,
-        "expiries": formatted_expiries
+        "expiries": formatted_expiries,
+        "master_sync": get_master_status()
     }
+
 

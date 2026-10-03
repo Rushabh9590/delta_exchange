@@ -14,16 +14,83 @@ let usdToInrRate = 85.0;
 let isFetching = false;
 let activeNavTab = 'positions';
 let lastSpotPrice = 0;
+let serverTimeOffset = 0;
 
 /**
- * Switch top navigation sub-menu tabs (Positions vs Multi-Leg Studio)
+ * Updates the live ticking exchange server clock in Indian Standard Time (DD/MM/YYYY HH:MM:SS IST)
+ */
+function updateExchangeClock() {
+  // Exchange UTC Epoch + 5h 30m offset for Indian Standard Time (IST)
+  const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const istTime = new Date(Date.now() + serverTimeOffset + istOffsetMs);
+  
+  const day = String(istTime.getUTCDate()).padStart(2, '0');
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+  const year = istTime.getUTCFullYear();
+  
+  const hours = String(istTime.getUTCHours()).padStart(2, '0');
+  const minutes = String(istTime.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(istTime.getUTCSeconds()).padStart(2, '0');
+  
+  const formattedTime = `${day}/${month}/${year} ${hours}:${minutes}:${seconds} IST`;
+  
+  const clockEl = document.getElementById('exchangeClockTime');
+  if (clockEl) {
+    clockEl.textContent = formattedTime;
+  }
+}
+
+/**
+ * Sidebar Navigation Drawer Controllers
+ */
+function toggleSidebarDrawer() {
+  const drawer = document.getElementById('sidebarDrawer');
+  const overlay = document.getElementById('drawerOverlay');
+  if (!drawer || !overlay) return;
+  const isOpen = drawer.classList.contains('active');
+  if (isOpen) {
+    closeSidebarDrawer();
+  } else {
+    openSidebarDrawer();
+  }
+}
+
+function openSidebarDrawer() {
+  document.getElementById('sidebarDrawer')?.classList.add('active');
+  document.getElementById('drawerOverlay')?.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSidebarDrawer() {
+  document.getElementById('sidebarDrawer')?.classList.remove('active');
+  document.getElementById('drawerOverlay')?.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+/**
+ * Navigate to a tab from sidebar drawer and smoothly close it
+ */
+function navigateToTab(tabName) {
+  switchNavTab(tabName);
+  closeSidebarDrawer();
+}
+
+/**
+ * Switch navigation tabs (Positions vs Multi-Leg Studio) across top bar and drawer
  * @param {string} tabName - 'positions' or 'studio'
  */
 function switchNavTab(tabName) {
   activeNavTab = tabName;
+  
+  // Top navigation tabs
   document.getElementById('tabNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('tabNavStudio')?.classList.toggle('active', tabName === 'studio');
 
+  // Sidebar drawer menu items
+  document.getElementById('drawerNavPositions')?.classList.toggle('active', tabName === 'positions');
+  document.getElementById('drawerNavStudio')?.classList.toggle('active', tabName === 'studio');
+
+  // Content views
   document.getElementById('viewPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('viewStudio')?.classList.toggle('active', tabName === 'studio');
 }
@@ -144,14 +211,23 @@ async function fetchDashboardData(manual = false) {
       return;
     }
 
+    if (data.server_timestamp) {
+      serverTimeOffset = (Number(data.server_timestamp) * 1000) - Date.now();
+      updateExchangeClock();
+    }
+
     if (data.environment) {
       const envBadge = document.getElementById('envBadge');
       if (envBadge) envBadge.textContent = data.environment;
+      const drawerEnvBadge = document.getElementById('drawerEnvBadge');
+      if (drawerEnvBadge) drawerEnvBadge.textContent = data.environment;
     }
     if (data.usd_to_inr_rate) {
       usdToInrRate = Number(data.usd_to_inr_rate);
       const rateDisplay = document.getElementById('rateDisplay');
       if (rateDisplay) rateDisplay.textContent = `₹${usdToInrRate.toFixed(2)}`;
+      const drawerRateDisplay = document.getElementById('drawerRateDisplay');
+      if (drawerRateDisplay) drawerRateDisplay.textContent = `₹${usdToInrRate.toFixed(2)}`;
     }
 
     const connStatus = document.getElementById('connStatus');
@@ -233,6 +309,8 @@ function renderDashboardValues() {
   if (elCount) elCount.textContent = count;
   const navPosCount = document.getElementById('navPosCount');
   if (navPosCount) navPosCount.textContent = count;
+  const drawerPosCount = document.getElementById('drawerPosCount');
+  if (drawerPosCount) drawerPosCount.textContent = `${count} Active`;
   const longCount = document.getElementById('longCount');
   if (longCount) longCount.textContent = `${s.longs_count || 0} Long`;
   const shortCount = document.getElementById('shortCount');
@@ -241,8 +319,109 @@ function renderDashboardValues() {
   if (posBadge) posBadge.textContent = `${count} ACTIVE`;
 }
 
+// Direct WebSocket Live Stream Instance
+let deltaWs = null;
+let subscribedSymbols = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+
 /**
- * Ultra-fast live tick streamer for active underlying asset spot price (600ms)
+ * Connects directly to Delta Exchange WebSocket for millisecond-level live price streaming
+ */
+function initDeltaWebSocket() {
+  const wsUrl = 'wss://socket.india.delta.exchange';
+  try {
+    deltaWs = new WebSocket(wsUrl);
+
+    deltaWs.onopen = () => {
+      console.log('[Delta WS] Connected to live tick WebSocket stream.');
+      subscribeActiveSymbols();
+    };
+
+    deltaWs.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        const msgType = data.type || data.channel || data.name || '';
+        const sym = (data.symbol || (data.underlying_asset_symbol ? `${data.underlying_asset_symbol}USD` : '')).toUpperCase();
+        const currentUnderlying = (document.getElementById('selUnderlying')?.value || 'BTC').toUpperCase();
+        const expectedSymbol = `${currentUnderlying}USD`;
+
+        if (
+          (msgType === 'v2/ticker' || msgType === 'ticker' || msgType === 'spot_price' || data.close !== undefined || data.mark_price !== undefined) &&
+          (sym === expectedSymbol || sym === currentUnderlying || (data.underlying_asset_symbol && data.underlying_asset_symbol.toUpperCase() === currentUnderlying))
+        ) {
+          applyLiveTickUpdate(data);
+        }
+      } catch (err) {}
+    };
+
+    deltaWs.onclose = () => {
+      console.log('[Delta WS] WebSocket disconnected. Reconnecting in 2s...');
+      setTimeout(initDeltaWebSocket, 2000);
+    };
+
+    deltaWs.onerror = (err) => {
+      console.warn('[Delta WS] WebSocket notice:', err);
+    };
+  } catch (e) {
+    console.error('[Delta WS] Failed to init WebSocket:', e);
+  }
+}
+
+function subscribeActiveSymbols() {
+  if (!deltaWs || deltaWs.readyState !== WebSocket.OPEN) return;
+  const currentUnderlying = (document.getElementById('selUnderlying')?.value || 'BTC').toUpperCase();
+  const symbolsToSub = Array.from(new Set([...subscribedSymbols, `${currentUnderlying}USD`]));
+  
+  const subMsg = {
+    type: 'subscribe',
+    payload: {
+      channels: [
+        { name: 'v2/ticker', symbols: symbolsToSub }
+      ]
+    }
+  };
+  deltaWs.send(JSON.stringify(subMsg));
+}
+
+function applyLiveTickUpdate(data) {
+  const quotes = data.quotes || {};
+  const spot = Number(data.spot_price || data.underlying_price || 0);
+  const mark = Number(data.mark_price || 0);
+  const ltp = Number(data.close || quotes.best_bid || data.ltp || 0);
+  const newSpotPrice = spot > 0 ? spot : (ltp > 0 ? ltp : mark);
+
+  if (newSpotPrice > 0) {
+    const spotBadge = document.getElementById('spotPriceBadge');
+    if (lastSpotPrice > 0 && spotBadge) {
+      if (newSpotPrice > lastSpotPrice) {
+        spotBadge.classList.add('flash-up');
+        spotBadge.classList.remove('flash-down');
+        setTimeout(() => spotBadge.classList.remove('flash-up'), 250);
+      } else if (newSpotPrice < lastSpotPrice) {
+        spotBadge.classList.add('flash-down');
+        spotBadge.classList.remove('flash-up');
+        setTimeout(() => spotBadge.classList.remove('flash-down'), 250);
+      }
+    }
+    lastSpotPrice = newSpotPrice;
+
+    currentUnderlyingInfo.spot_price = newSpotPrice;
+    currentUnderlyingInfo.underlying_price = newSpotPrice;
+    if (ltp > 0) currentUnderlyingInfo.futures_price = ltp;
+    if (ltp > 0) currentUnderlyingInfo.ltp = ltp;
+    if (mark > 0) currentUnderlyingInfo.mark_price = mark;
+
+    if (data.timestamp) {
+      const tsNum = Number(data.timestamp);
+      const exchangeTs = tsNum > 1e11 ? tsNum / 1e6 : tsNum;
+      serverTimeOffset = (exchangeTs * 1000) - Date.now();
+    }
+
+    updateUnderlyingPriceAndLotDisplay();
+  }
+}
+
+/**
+ * Ultra-fast live tick fallback for active underlying asset spot price
  */
 async function fetchLiveTickerTick() {
   if (activeNavTab !== 'studio') return;
@@ -250,29 +429,7 @@ async function fetchLiveTickerTick() {
   try {
     const data = await ApiService.getTicker(u);
     if (data.success) {
-      const newSpotPrice = Number(data.spot_price || data.underlying_price || data.futures_price || data.ltp || 0);
-      const spotBadge = document.getElementById('spotPriceBadge');
-
-      if (lastSpotPrice > 0 && newSpotPrice > 0 && spotBadge) {
-        if (newSpotPrice > lastSpotPrice) {
-          spotBadge.classList.add('flash-up');
-          setTimeout(() => spotBadge.classList.remove('flash-up'), 350);
-        } else if (newSpotPrice < lastSpotPrice) {
-          spotBadge.classList.add('flash-down');
-          setTimeout(() => spotBadge.classList.remove('flash-down'), 350);
-        }
-      }
-      lastSpotPrice = newSpotPrice;
-
-      currentUnderlyingInfo.spot_price = newSpotPrice;
-      currentUnderlyingInfo.underlying_price = newSpotPrice;
-      currentUnderlyingInfo.futures_price = Number(data.futures_price) || newSpotPrice;
-      currentUnderlyingInfo.ltp = Number(data.ltp) || newSpotPrice;
-      currentUnderlyingInfo.mark_price = Number(data.mark_price) || newSpotPrice;
-      if (data.contract_value) {
-        currentUnderlyingInfo.contract_value = Number(data.contract_value);
-      }
-      updateUnderlyingPriceAndLotDisplay();
+      applyLiveTickUpdate(data);
     }
   } catch (err) {}
 }
@@ -281,19 +438,27 @@ async function fetchLiveTickerTick() {
  * Starts continuous live polling and tick streaming
  */
 function startLiveStreaming() {
-  // Stream dashboard positions & metrics every 2 seconds
+  // Ultra-Fast stream dashboard positions & metrics every 1000ms (1 second)
   setInterval(() => {
     fetchDashboardData(false);
-  }, 2000);
+  }, 1000);
 
-  // High-Frequency Real-Time Tick Streaming for active underlying (every 600ms)
+  // Fallback tick poller if WebSocket reconnects (every 500ms)
   setInterval(() => {
     fetchLiveTickerTick();
-  }, 600);
+  }, 500);
+
+  // Live Exchange Clock 1-second precision ticking
+  setInterval(() => {
+    updateExchangeClock();
+  }, 1000);
 }
 
 // Initial Boot & Event Binding
 window.addEventListener('DOMContentLoaded', () => {
+  // Initialize Exchange Clock immediately
+  updateExchangeClock();
+
   // Close modal on overlay click
   document.getElementById('detailModal')?.addEventListener('click', function (e) {
     if (e.target === this) closeModal('detailModal');
@@ -303,4 +468,5 @@ window.addEventListener('DOMContentLoaded', () => {
   fetchDashboardData(false);
   loadExpiriesForUnderlying('BTC');
   startLiveStreaming();
+  initDeltaWebSocket();
 });

@@ -27,13 +27,35 @@ from multileg import (
     execute_single_leg_order,
     square_off_single_position,
     square_off_all_open_positions,
-    get_options_expiries_and_strikes
+    get_options_expiries_and_strikes,
+    sync_master_scrips,
+    get_master_status,
+    start_master_sync_daemon
 )
+from websocket import DeltaWebSocketManager
+
+# Start background master scrip auto-sync daemon (adaptive 15m default, 45s during 5:30 PM IST rollover window)
+start_master_sync_daemon(interval_seconds=900)
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
-# Cached client instance
+# Cached client instance & WebSocket Manager
 _client = None
+_ws_manager = None
+WS_SYMBOLS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]
+
+
+def get_ws_manager():
+    global _ws_manager
+    if _ws_manager is None:
+        try:
+            _ws_manager = DeltaWebSocketManager(symbols=WS_SYMBOLS, verbose=False)
+            _ws_manager.start()
+            print(f"[WS CONNECTED] Delta WebSocket stream active on server", flush=True)
+            print(f"[WS SUBSCRIPTION] Subscribed to {len(WS_SYMBOLS)} symbols: {WS_SYMBOLS} & Spot", flush=True)
+        except Exception as e:
+            print(f"[WS WARNING] Server WebSocket initialization skipped: {e}", flush=True)
+    return _ws_manager
 
 
 def get_client():
@@ -377,8 +399,18 @@ def get_dashboard():
         inr_bal = wallet_summary.get("inr_balance", 0)
         usd_to_inr_rate = round(inr_bal / usd_bal, 2) if (usd_bal > 0 and inr_bal > 0) else 85.0
 
+        # Delta Exchange official server timestamp
+        delta_server_ts = None
+        try:
+            btc_ticker = client.get_ticker("BTCUSD")
+            if btc_ticker and btc_ticker.get("timestamp"):
+                delta_server_ts = float(btc_ticker.get("timestamp")) / 1e6
+        except Exception:
+            delta_server_ts = None
+
         return jsonify({
             "success": True,
+            "server_timestamp": delta_server_ts if delta_server_ts else time.time(),
             "environment": env_label,
             "base_url": base_url,
             "usd_to_inr_rate": usd_to_inr_rate,
@@ -456,10 +488,9 @@ def search_products():
 @app.route("/api/ticker", methods=["GET"])
 def get_ticker_live():
     """
-    Ultra-fast live ticker endpoint for real-time tick-by-tick price streaming.
+    Ultra-fast live ticker endpoint served directly from memory WebSocket cache or REST fallback.
     """
     try:
-        client = get_client()
         symbol = request.args.get("symbol", "").upper()
         underlying = request.args.get("underlying", "").upper()
         if not symbol and underlying:
@@ -467,6 +498,33 @@ def get_ticker_live():
         if not symbol:
             symbol = "BTCUSD"
 
+        # 1. Check WebSocket memory cache first (0ms instantaneous response)
+        ws_mgr = get_ws_manager()
+        ws_quote = ws_mgr.get_latest_quote(symbol) if ws_mgr else {}
+        if ws_quote and (ws_quote.get("ltp") or ws_quote.get("spot_price") or ws_quote.get("mark_price")):
+            ltp = float(ws_quote.get("ltp") or 0.0)
+            mark_price = float(ws_quote.get("mark_price") or 0.0)
+            spot_price = float(ws_quote.get("spot_price") or 0.0)
+            underlying_price = spot_price if spot_price > 0 else (ltp if ltp > 0 else mark_price)
+            contract_val = 0.001 if "BTC" in symbol else (0.01 if "ETH" in symbol else 1.0)
+            now_ts = ws_quote.get("timestamp") or time.time()
+
+            return jsonify({
+                "success": True,
+                "symbol": symbol,
+                "underlying_price": underlying_price,
+                "spot_price": spot_price if spot_price > 0 else underlying_price,
+                "futures_price": ltp if ltp > 0 else (mark_price if mark_price > 0 else spot_price),
+                "ltp": ltp,
+                "mark_price": mark_price,
+                "contract_value": contract_val,
+                "timestamp": now_ts,
+                "server_timestamp": now_ts,
+                "source": "websocket"
+            })
+
+        # 2. REST API fallback if quote not yet populated
+        client = get_client()
         ticker = client.get_ticker(symbol)
         if not ticker:
             return jsonify({"success": False, "error": "Ticker not found"}), 404
@@ -477,6 +535,9 @@ def get_ticker_live():
         contract_value = float(ticker.get("contract_value") or (0.001 if "BTC" in symbol else (0.01 if "ETH" in symbol else 1.0)))
         underlying_price = spot_price if spot_price > 0 else (ltp if ltp > 0 else mark_price)
 
+        delta_raw_ts = ticker.get("timestamp")
+        delta_server_ts = float(delta_raw_ts) / 1e6 if delta_raw_ts else time.time()
+
         return jsonify({
             "success": True,
             "symbol": symbol,
@@ -486,8 +547,35 @@ def get_ticker_live():
             "ltp": ltp,
             "mark_price": mark_price,
             "contract_value": contract_value,
-            "timestamp": time.time()
+            "timestamp": delta_server_ts,
+            "server_timestamp": delta_server_ts,
+            "source": "rest"
         })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/master/status", methods=["GET"])
+def get_master_scrip_status():
+    """
+    Returns current master scrips cache status, product counts, and last exchange sync timestamp.
+    """
+    try:
+        status = get_master_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/master/refresh", methods=["GET", "POST"])
+def refresh_master_scrips():
+    """
+    Forces immediate fresh download and sync of master scrips from Delta Exchange.
+    """
+    try:
+        client = get_client()
+        res = sync_master_scrips(client=client, force=True)
+        return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -576,8 +664,11 @@ def square_off_all():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    print(f"==================================================")
-    print(f" Delta Exchange Open Positions & Multi-Leg Server")
-    print(f" Server running at: http://127.0.0.1:{port}")
-    print(f"==================================================")
+    print(f"==================================================", flush=True)
+    print(f" Delta Exchange Open Positions & Multi-Leg Server", flush=True)
+    print(f" Local Web UI:    http://127.0.0.1:{port}", flush=True)
+    print(f" Wi-Fi LAN UI:    http://10.90.1.60:{port}", flush=True)
+    print(f"==================================================", flush=True)
+    # Start server WebSocket stream manager
+    get_ws_manager()
     app.run(host="0.0.0.0", port=port, debug=False)
