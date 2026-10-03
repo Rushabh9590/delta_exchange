@@ -71,9 +71,8 @@ def load_master_from_disk():
                         if p_id is not None:
                             _PRODUCT_CACHE[p_id] = p
                             _PRODUCT_CACHE[str(p_id)] = p
-                    print(f"[MASTER SCRIP] Loaded {len(products)} products from disk cache.")
         except Exception as e:
-            print(f"[WARN] Failed to read master scrips from disk cache: {e}")
+            pass
 
 
 def save_master_to_disk(products: list):
@@ -93,7 +92,7 @@ def save_master_to_disk(products: list):
             os.remove(_MASTER_CACHE_FILE)
         os.rename(temp_file, _MASTER_CACHE_FILE)
     except Exception as e:
-        print(f"[WARN] Failed to write master scrips to disk: {e}")
+        pass
 
 
 def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
@@ -138,7 +137,6 @@ def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
                     "error": None
                 }
                 save_master_to_disk(products)
-                print(f"[MASTER SCRIP] Successfully synced {len(products)} master contracts from Delta Exchange.")
                 return {
                     "success": True,
                     "cached": False,
@@ -149,7 +147,6 @@ def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
         except Exception as e:
             _MASTER_STATUS["error"] = str(e)
             _MASTER_STATUS["status"] = "sync_failed"
-            print(f"[WARN] Failed to sync master scrips: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -173,12 +170,11 @@ def _background_master_sync_loop(interval_seconds=900):
       Increases polling to every 45 seconds to instantly capture new daily/weekly contracts upon release.
     """
     global _AUTO_SYNC_RUNNING
-    print(f"[MASTER SCRIP] Started smart master scrip sync daemon (Normal: {interval_seconds}s | Rollover window: 45s).")
     while _AUTO_SYNC_RUNNING:
         try:
             sync_master_scrips(force=True)
-        except Exception as e:
-            print(f"[WARN] Background master sync error: {e}")
+        except Exception:
+            pass
 
         # Check if we are currently in the 12:00 UTC (5:30 PM IST) daily contract rollover window
         now_utc = datetime.now(timezone.utc)
