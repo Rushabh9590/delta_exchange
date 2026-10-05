@@ -555,6 +555,67 @@ def get_ticker_live():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/tickers/batch", methods=["GET", "POST"])
+def get_tickers_batch():
+    """
+    Fetches live quotes/tickers for a list of symbols (e.g. multi-leg symbols).
+    """
+    try:
+        symbols_param = request.args.get("symbols", "")
+        symbols = []
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
+            symbols = data.get("symbols", [])
+        if not symbols and symbols_param:
+            symbols = [s.strip().upper() for s in symbols_param.split(",") if s.strip()]
+
+        if not symbols:
+            return jsonify({"success": True, "tickers": {}})
+
+        ws_mgr = get_ws_manager()
+        client = get_client()
+        result = {}
+
+        if ws_mgr and hasattr(ws_mgr, "subscribe_symbols"):
+            ws_mgr.subscribe_symbols(symbols)
+
+        for sym in symbols:
+            sym_upper = sym.upper()
+            ws_quote = ws_mgr.get_latest_quote(sym_upper) if ws_mgr else {}
+            if ws_quote and (ws_quote.get("ltp") is not None or ws_quote.get("spot_price") is not None or ws_quote.get("mark_price") is not None or ws_quote.get("bid") is not None):
+                ltp = float(ws_quote.get("ltp") or ws_quote.get("bid") or ws_quote.get("mark_price") or 0.0)
+                mark_price = float(ws_quote.get("mark_price") or 0.0)
+                result[sym_upper] = {
+                    "symbol": sym_upper,
+                    "ltp": ltp,
+                    "mark_price": mark_price,
+                    "bid": float(ws_quote.get("bid") or 0.0),
+                    "ask": float(ws_quote.get("ask") or 0.0),
+                    "source": "websocket"
+                }
+            else:
+                try:
+                    ticker = client.get_ticker(sym_upper)
+                    if ticker:
+                        quotes = ticker.get("quotes") or {}
+                        ltp = float(ticker.get("close") or quotes.get("best_bid") or ticker.get("mark_price") or 0.0)
+                        mark_price = float(ticker.get("mark_price") or 0.0)
+                        result[sym_upper] = {
+                            "symbol": sym_upper,
+                            "ltp": ltp,
+                            "mark_price": mark_price,
+                            "bid": float(quotes.get("best_bid") or 0.0),
+                            "ask": float(quotes.get("best_ask") or 0.0),
+                            "source": "rest"
+                        }
+                except Exception:
+                    pass
+
+        return jsonify({"success": True, "tickers": result})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/master/status", methods=["GET"])
 def get_master_scrip_status():
     """

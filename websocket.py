@@ -200,6 +200,34 @@ class DeltaWebSocketManager:
             self.ws_app.close()
         self.is_connected = False
 
+    def subscribe_symbols(self, new_symbols):
+        """Dynamically subscribes to new symbols while WebSocket is running."""
+        if not new_symbols:
+            return
+        to_add = []
+        with self._lock:
+            for s in new_symbols:
+                if s and s not in self.symbols:
+                    self.symbols.append(s)
+                    to_add.append(s)
+        if to_add and self.is_connected and self.ws_app:
+            try:
+                sub_payload = {
+                    "type": "subscribe",
+                    "payload": {
+                        "channels": [
+                            {"name": "v2/ticker", "symbols": to_add},
+                            {"name": "mark_price", "symbols": to_add}
+                        ]
+                    }
+                }
+                self.ws_app.send(json.dumps(sub_payload))
+                if self.verbose:
+                    print(f"[WS DYNAMIC SUB] Subscribed to {to_add}", flush=True)
+            except Exception as e:
+                if self.verbose:
+                    print(f"[WS SUB ERROR] {e}", flush=True)
+
     def get_latest_quote(self, symbol="BTCUSD"):
         """Returns the latest quote dictionary for the specified symbol."""
         with self._lock:

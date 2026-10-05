@@ -123,7 +123,7 @@
     grid-template-areas:
       "badge side opt del"
       "strike strike sym sym"
-      "type price size size";
+      "ltp type price size";
     gap: 8px;
     padding: 12px;
     background: var(--bg-card);
@@ -163,6 +163,12 @@
     grid-area: sym;
     font-size: 0.80rem;
     padding: 8px 10px;
+  }
+
+  .leg-ltp-cell {
+    grid-area: ltp;
+    font-size: 0.78rem;
+    padding: 8px 6px;
   }
 
   .leg-type-select {

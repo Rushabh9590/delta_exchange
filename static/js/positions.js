@@ -41,8 +41,18 @@ function renderPositionsTable() {
 
   emptyState.style.display = 'none';
 
+  let totalTableNotional = 0;
+  let totalTableUPnl = 0;
+  let totalTableRPnl = 0;
+  let totalContracts = 0;
+
   let html = '';
   filtered.forEach((pos, idx) => {
+    totalTableNotional += (pos.notional_usd || 0);
+    totalTableUPnl += (pos.unrealized_pnl || 0);
+    totalTableRPnl += (pos.realized_pnl || 0);
+    totalContracts += (pos.abs_size || 0);
+
     const isLong = pos.side === 'LONG';
     const sideClass = isLong ? 'side-long' : 'side-short';
     const sideIcon = isLong ? '▲' : '▼';
@@ -168,6 +178,47 @@ function renderPositionsTable() {
   });
 
   tbody.innerHTML = html;
+
+  const tfoot = document.getElementById('positionsTfoot');
+  if (tfoot) {
+    if (filtered.length > 0) {
+      const totNotionalMain = formatMoney(totalTableNotional, selectedCurrency, 2, 2);
+      const totNotionalAlt = formatAltMoney(totalTableNotional);
+      const totUPnlMain = formatMoney(totalTableUPnl, selectedCurrency, 2, 2);
+      const totUPnlAlt = formatAltMoney(totalTableUPnl);
+      const totUPnlClass = totalTableUPnl >= 0 ? 'text-green' : 'text-red';
+      const totRPnlMain = formatMoney(totalTableRPnl, selectedCurrency, 2, 2);
+      const totRPnlAlt = formatAltMoney(totalTableRPnl);
+      const totRPnlClass = totalTableRPnl >= 0 ? 'text-green' : 'text-red';
+
+      tfoot.innerHTML = `
+        <tr>
+          <td colspan="2" class="tfoot-label">
+            TOTAL (${filtered.length} ${filtered.length === 1 ? 'Position' : 'Positions'})
+          </td>
+          <td>
+            <div class="mono-num" style="font-weight: 700;">${formatNumber(totalContracts, 0)} <span style="font-size: 0.72rem; color: var(--text-muted);">contracts</span></div>
+          </td>
+          <td colspan="3" style="text-align: right; color: var(--text-muted); font-size: 0.78rem; font-weight: 600;">PORTFOLIO TOTALS:</td>
+          <td>
+            <div class="mono-num ${totUPnlClass}" style="font-weight: 700; font-size: 0.95rem;">${totUPnlMain}</div>
+            <div class="sub-curr">${totUPnlAlt}</div>
+          </td>
+          <td>
+            <div class="mono-num ${totRPnlClass}" style="font-weight: 700; font-size: 0.95rem;">${totRPnlMain}</div>
+            <div class="sub-curr">${totRPnlAlt}</div>
+          </td>
+          <td>
+            <div class="mono-num text-amber" style="font-weight: 800; font-size: 1.0rem;">${totNotionalMain}</div>
+            <div class="sub-curr">${totNotionalAlt}</div>
+          </td>
+          <td colspan="3"></td>
+        </tr>
+      `;
+    } else {
+      tfoot.innerHTML = '';
+    }
+  }
 }
 
 /**

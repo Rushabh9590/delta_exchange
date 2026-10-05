@@ -631,6 +631,7 @@ body {
 .icon-green { background: var(--accent-green-bg); color: var(--accent-green); }
 .icon-blue { background: var(--accent-blue-bg); color: var(--accent-blue); }
 .icon-purple { background: var(--accent-purple-bg); color: var(--accent-purple); }
+.icon-amber { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
 
 .metric-value {
   font-size: 1.65rem;
@@ -650,6 +651,7 @@ body {
 .text-green { color: var(--accent-green) !important; }
 .text-red { color: var(--accent-red) !important; }
 .text-blue { color: var(--accent-blue) !important; }
+.text-amber { color: #f59e0b !important; }
 .mono-num { font-family: var(--font-mono); }
 
 /* --------------------------------------------------------------------------

@@ -16,11 +16,46 @@ const ApiService = {
 
   /**
    * Fetches live ticker quote for high-frequency price streaming
-   * @param {string} underlying - e.g. 'BTC', 'ETH'
+   * @param {string} underlyingOrSymbol - e.g. 'BTC', 'ETH' or 'C-BTC-89200-051026'
    */
-  async getTicker(underlying = 'BTC') {
-    const res = await fetch(`/api/ticker?underlying=${encodeURIComponent(underlying)}`);
+  async getTicker(underlyingOrSymbol = 'BTC') {
+    const isFullSymbol = underlyingOrSymbol.includes('-') || underlyingOrSymbol.endsWith('USD');
+    const param = isFullSymbol ? `symbol=${encodeURIComponent(underlyingOrSymbol)}` : `underlying=${encodeURIComponent(underlyingOrSymbol)}`;
+    const res = await fetch(`/api/ticker?${param}`);
     return await res.json();
+  },
+
+  /**
+   * Fetches live ticker quotes for multiple symbols in batch
+   * @param {Array<string>} symbols
+   */
+  async getBatchTickers(symbols = []) {
+    if (!symbols || symbols.length === 0) return { success: true, tickers: {} };
+    try {
+      const res = await fetch(`/api/tickers/batch?symbols=${encodeURIComponent(symbols.join(','))}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {}
+
+    // Fallback: parallel fetch for individual symbols
+    const results = {};
+    await Promise.all(symbols.map(async (s) => {
+      try {
+        const d = await this.getTicker(s);
+        if (d && d.success) {
+          results[s.toUpperCase()] = {
+            symbol: s.toUpperCase(),
+            ltp: d.ltp,
+            mark_price: d.mark_price,
+            bid: d.futures_price || d.ltp,
+            ask: d.futures_price || d.ltp,
+            source: d.source || 'rest'
+          };
+        }
+      } catch (err) {}
+    }));
+    return { success: true, tickers: results };
   },
 
   /**

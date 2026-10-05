@@ -465,7 +465,8 @@ function updateStrategyMarginRequirement() {
     totalNotionalUSD += legNotional;
 
     const limPrice = parseFloat(leg.limit_price);
-    const premiumUSD = (!isNaN(limPrice) && limPrice > 0) ? limPrice : 0.1;
+    const estPrice = (leg.ltp && leg.ltp > 0) ? leg.ltp : (leg.mark_price && leg.mark_price > 0 ? leg.mark_price : 0.1);
+    const premiumUSD = (!isNaN(limPrice) && limPrice > 0) ? limPrice : estPrice;
 
     if (isBuy) {
       // Long Option Margin: Premium * Qty
@@ -532,6 +533,118 @@ function updateStrategyMarginRequirement() {
   }
 }
 
+/**
+ * Copies live LTP or Mark Price of a leg directly to its Limit Price input
+ */
+function applyLtpToLimit(idx) {
+  const leg = legRows[idx];
+  if (!leg) return;
+  const targetPrice = (leg.ltp && leg.ltp > 0) ? leg.ltp : (leg.mark_price && leg.mark_price > 0 ? leg.mark_price : null);
+  if (targetPrice !== null) {
+    leg.limit_price = targetPrice;
+    const priceInput = document.getElementById(`legPriceInp_${idx}`);
+    if (priceInput) {
+      priceInput.value = targetPrice;
+    }
+    updateStrategyMarginRequirement();
+    if (typeof showToast === 'function') {
+      showToast(`⚡ Leg #${idx + 1} Limit Price set to live LTP: $${targetPrice}`, 'success');
+    }
+  } else {
+    if (typeof showToast === 'function') {
+      showToast(`No live traded LTP quote available yet for ${leg.symbol}`, 'info');
+    }
+  }
+}
+
+/**
+ * Updates DOM LTP badge for a specific leg
+ */
+function updateLegLtpDisplay(idx, ltp, markPrice) {
+  const leg = legRows[idx];
+  if (!leg) return;
+  const oldLtp = leg.ltp;
+  leg.ltp = ltp;
+  if (markPrice !== undefined) leg.mark_price = markPrice;
+
+  const ltpCell = document.getElementById(`legLtpCell_${idx}`);
+  const ltpValEl = document.getElementById(`legLtpVal_${idx}`);
+  if (ltpValEl && ltpCell) {
+    const displayVal = (ltp && ltp > 0) ? `$${formatNumber(ltp, ltp >= 100 ? 1 : (ltp >= 1 ? 2 : 4))}` : ((markPrice && markPrice > 0) ? `~$${formatNumber(markPrice, 2)}` : '--');
+    ltpValEl.textContent = displayVal;
+
+    if (ltp && ltp > 0) {
+      ltpCell.classList.remove('empty-ltp');
+      if (oldLtp !== undefined && oldLtp !== null && oldLtp > 0) {
+        if (ltp > oldLtp) {
+          ltpCell.classList.add('flash-up');
+          ltpCell.classList.remove('flash-down');
+          setTimeout(() => ltpCell.classList.remove('flash-up'), 350);
+        } else if (ltp < oldLtp) {
+          ltpCell.classList.add('flash-down');
+          ltpCell.classList.remove('flash-up');
+          setTimeout(() => ltpCell.classList.remove('flash-down'), 350);
+        }
+      }
+    } else {
+      ltpCell.classList.add('empty-ltp');
+    }
+  }
+}
+
+/**
+ * Processes real-time WebSocket tick stream for active multi-leg symbols
+ */
+function handleLegTickUpdate(data) {
+  if (!data || legRows.length === 0) return;
+  const incomingSym = (data.symbol || '').toUpperCase();
+  if (!incomingSym) return;
+
+  legRows.forEach((leg, idx) => {
+    if (leg.symbol && leg.symbol.toUpperCase() === incomingSym) {
+      const quotes = data.quotes || {};
+      const closeVal = data.close;
+      const bestBid = quotes.best_bid;
+      const markVal = data.mark_price;
+      const ltp = closeVal !== undefined ? Number(closeVal) : (bestBid !== undefined ? Number(bestBid) : (data.ltp !== undefined ? Number(data.ltp) : Number(markVal || 0)));
+      const markPrice = markVal !== undefined ? Number(markVal) : undefined;
+      updateLegLtpDisplay(idx, ltp, markPrice);
+    }
+  });
+}
+
+/**
+ * Fetches batch live quotes for all active leg symbols
+ */
+let isFetchingLegTickers = false;
+async function fetchLegTickers() {
+  if (isFetchingLegTickers || legRows.length === 0) return;
+  const symbols = legRows.map(l => l.symbol).filter(Boolean);
+  if (symbols.length === 0) return;
+
+  isFetchingLegTickers = true;
+  try {
+    if (typeof addSubscribedSymbols === 'function') {
+      addSubscribedSymbols(symbols);
+    }
+
+    const res = await ApiService.getBatchTickers(symbols);
+    if (res && res.success && res.tickers) {
+      legRows.forEach((leg, idx) => {
+        const tick = res.tickers[leg.symbol.toUpperCase()];
+        if (tick) {
+          const newLtp = tick.ltp !== undefined ? tick.ltp : (tick.mark_price || 0);
+          updateLegLtpDisplay(idx, newLtp, tick.mark_price);
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[MultiLeg] Error fetching leg tickers:', err);
+  } finally {
+    isFetchingLegTickers = false;
+  }
+}
+
 function renderLegRows() {
   const container = document.getElementById('legsListContainer');
   if (!container) return;
@@ -555,6 +668,8 @@ function renderLegRows() {
     const isLimit = (leg.order_type || 'limit').toLowerCase() === 'limit';
     const isCall = (leg.option_type || 'call').toLowerCase() === 'call';
     const strikesSelectHtml = getStrikesDropdownHtml(idx, leg.strike, expiry);
+    const hasLtp = leg.ltp !== undefined && leg.ltp !== null && leg.ltp > 0;
+    const displayLtp = hasLtp ? `$${formatNumber(leg.ltp, leg.ltp >= 100 ? 1 : (leg.ltp >= 1 ? 2 : 4))}` : ((leg.mark_price && leg.mark_price > 0) ? `~$${formatNumber(leg.mark_price, 2)}` : '--');
 
     html += `
       <div class="leg-row">
@@ -574,12 +689,17 @@ function renderLegRows() {
 
         <input type="text" class="leg-symbol-input" value="${leg.symbol}" placeholder="e.g. C-BTC-86200-021026" onchange="onManualSymbolChange(${idx}, this.value)" />
 
+        <div class="leg-ltp-cell ${hasLtp ? '' : 'empty-ltp'}" id="legLtpCell_${idx}" onclick="applyLtpToLimit(${idx})" title="Click to copy LTP ($${leg.ltp || 0}) to Limit Price">
+          <span class="leg-ltp-dot"></span>
+          <span id="legLtpVal_${idx}">${displayLtp}</span>
+        </div>
+
         <select class="leg-type-select" onchange="updateLegField(${idx}, 'order_type', this.value)">
           <option value="limit" ${isLimit ? 'selected' : ''}>LIMIT</option>
           <option value="market" ${!isLimit ? 'selected' : ''}>MARKET</option>
         </select>
 
-        <input type="number" step="any" class="leg-price-input" placeholder="Price" value="${leg.limit_price || ''}" ${!isLimit ? 'disabled' : ''} oninput="updateLegField(${idx}, 'limit_price', this.value)" onchange="updateLegField(${idx}, 'limit_price', this.value)" />
+        <input type="number" step="any" id="legPriceInp_${idx}" class="leg-price-input" placeholder="Price" value="${leg.limit_price || ''}" ${!isLimit ? 'disabled' : ''} oninput="updateLegField(${idx}, 'limit_price', this.value)" onchange="updateLegField(${idx}, 'limit_price', this.value)" />
 
         <input type="number" class="leg-size-input" value="${leg.size}" min="1" placeholder="Size" onchange="updateLegField(${idx}, 'size', this.value)" />
 
@@ -590,6 +710,7 @@ function renderLegRows() {
 
   container.innerHTML = html;
   updateStrategyMarginRequirement();
+  fetchLegTickers();
 }
 
 /**

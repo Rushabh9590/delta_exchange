@@ -304,6 +304,14 @@ function renderDashboardValues() {
   const elRPnlAlt = document.getElementById('totalRealizedPnlAlt');
   if (elRPnlAlt) elRPnlAlt.textContent = formatAltMoney(rPnlUsd);
 
+  const notionalUsd = s.total_notional_usd || 0;
+  const elNotional = document.getElementById('totalNotionalVal');
+  if (elNotional) {
+    elNotional.textContent = formatMoney(notionalUsd, selectedCurrency, 2, 2);
+  }
+  const elNotionalAlt = document.getElementById('totalNotionalValAlt');
+  if (elNotionalAlt) elNotionalAlt.textContent = formatAltMoney(notionalUsd);
+
   const count = s.total_open_positions || 0;
   const elCount = document.getElementById('openPositionsCount');
   if (elCount) elCount.textContent = count;
@@ -350,6 +358,11 @@ function initDeltaWebSocket() {
         ) {
           applyLiveTickUpdate(data);
         }
+
+        // Live streaming for active strategy leg quotes
+        if (typeof handleLegTickUpdate === 'function') {
+          handleLegTickUpdate(data);
+        }
       } catch (err) {}
     };
 
@@ -363,6 +376,21 @@ function initDeltaWebSocket() {
     };
   } catch (e) {
     console.error('[Delta WS] Failed to init WebSocket:', e);
+  }
+}
+
+function addSubscribedSymbols(symbols) {
+  if (!symbols || symbols.length === 0) return;
+  let added = false;
+  symbols.forEach(s => {
+    const symUpper = s.toUpperCase();
+    if (!subscribedSymbols.includes(symUpper)) {
+      subscribedSymbols.push(symUpper);
+      added = true;
+    }
+  });
+  if (added && deltaWs && deltaWs.readyState === WebSocket.OPEN) {
+    subscribeActiveSymbols();
   }
 }
 
@@ -447,6 +475,13 @@ function startLiveStreaming() {
   setInterval(() => {
     fetchLiveTickerTick();
   }, 500);
+
+  // Poll active strategy leg tickers every 1000ms
+  setInterval(() => {
+    if (activeNavTab === 'studio' && typeof fetchLegTickers === 'function') {
+      fetchLegTickers();
+    }
+  }, 1000);
 
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {
