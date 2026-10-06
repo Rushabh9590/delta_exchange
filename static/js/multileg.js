@@ -253,6 +253,9 @@ function onManualSymbolChange(idx, val) {
 
 function onUnderlyingChange() {
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  try {
+    localStorage.setItem('delta_studio_underlying', underlying);
+  } catch (e) { }
   loadExpiriesForUnderlying(underlying);
 }
 

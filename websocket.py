@@ -142,7 +142,20 @@ class DeltaWebSocketManager:
                         except (ValueError, TypeError):
                             pass
 
-                    self.market_data[symbol]["volume"] = data.get("volume")
+                    vol_val = data.get("volume")
+                    if vol_val is not None:
+                        try:
+                            self.market_data[symbol]["volume"] = float(vol_val)
+                        except (ValueError, TypeError):
+                            pass
+
+                    oi_val = data.get("oi") or data.get("oi_contracts") or data.get("oi_value") or data.get("open_interest")
+                    if oi_val is not None:
+                        try:
+                            self.market_data[symbol]["oi"] = float(oi_val)
+                        except (ValueError, TypeError):
+                            pass
+
                     self.market_data[symbol]["timestamp"] = time.time()
 
                 if self.verbose:

@@ -5,7 +5,13 @@
  * ==============================================================================
  */
 
-let currentFilter = 'all';
+let currentFilter = (function () {
+  try {
+    return localStorage.getItem('delta_positions_filter') || 'all';
+  } catch (e) {
+    return 'all';
+  }
+})();
 
 /**
  * Renders the live positions table with full dual-currency values and badges
@@ -14,6 +20,12 @@ function renderPositionsTable() {
   const tbody = document.getElementById('positionsTbody');
   const emptyState = document.getElementById('emptyState');
   if (!tbody || !emptyState) return;
+
+  // Sync active class on filter tab buttons
+  document.querySelectorAll('.filter-tabs .tab-btn').forEach(btn => {
+    const fnAttr = btn.getAttribute('onclick') || '';
+    btn.classList.toggle('active', fnAttr.includes(`'${currentFilter}'`));
+  });
 
   const searchVal = (document.getElementById('searchInput')?.value || '').toLowerCase();
 
@@ -226,8 +238,13 @@ function renderPositionsTable() {
  */
 function setFilter(filter, el) {
   currentFilter = filter;
+  try {
+    localStorage.setItem('delta_positions_filter', filter);
+  } catch (e) { }
   document.querySelectorAll('.filter-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
-  el.classList.add('active');
+  if (el) {
+    el.classList.add('active');
+  }
   renderPositionsTable();
 }
 

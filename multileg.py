@@ -667,3 +667,122 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
     }
 
 
+def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient = None) -> dict:
+    """
+    Fetches full live option chain matrix (Calls & Puts) for specified underlying asset and expiry.
+    """
+    c = client or get_client()
+    exp_info = get_options_expiries_and_strikes(underlying=underlying, client=c)
+    expiries = exp_info.get("expiries", [])
+
+    selected_expiry = expiry
+    if not selected_expiry and expiries:
+        selected_expiry = expiries[0]["expiry"]
+
+    spot_price = exp_info.get("spot_price", 0.0)
+    atm_strike = exp_info.get("atm_strike", None)
+
+    # Find matching expiry object
+    exp_obj = next((e for e in expiries if e["expiry"] == selected_expiry), None)
+    if not exp_obj and expiries:
+        exp_obj = expiries[0]
+        selected_expiry = exp_obj["expiry"]
+
+    strikes = exp_obj["strikes"] if exp_obj else []
+    expiry_atm = exp_obj["atm_strike"] if exp_obj else atm_strike
+
+    all_prods = get_all_products(c)
+
+    # Fetch live tickers across all option products for instantaneous quote matrix
+    live_tickers = {}
+    try:
+        raw_tickers = c.get_tickers() or []
+        for t in raw_tickers:
+            if t and t.get("symbol"):
+                live_tickers[t["symbol"].upper()] = t
+    except Exception as e:
+        print(f"[WARN] Failed to fetch bulk tickers in option chain: {e}")
+
+    # Map products by (strike, call/put)
+    chain_map = {}
+    for s in strikes:
+        chain_map[s] = {
+            "strike": s,
+            "is_atm": (s == expiry_atm),
+            "call": None,
+            "put": None
+        }
+
+    for p in all_prods:
+        sym = (p.get("symbol") or "").upper()
+        if not sym.endswith(f"-{selected_expiry}"):
+            continue
+        if f"-{underlying}-" not in sym:
+            continue
+
+        c_type = (p.get("contract_type") or "").lower()
+        is_call = "call" in c_type or sym.startswith("C-")
+        is_put = "put" in c_type or sym.startswith("P-")
+        if not is_call and not is_put:
+            continue
+
+        strike = float(p.get("strike_price") or 0) if p.get("strike_price") else None
+        if not strike or strike not in chain_map:
+            continue
+
+        t = live_tickers.get(sym) or {}
+        quotes = t.get("quotes") or {}
+        greeks = t.get("greeks") or {}
+
+        close_val = t.get("close")
+        mark_val = t.get("mark_price")
+        best_bid = quotes.get("best_bid")
+        best_ask = quotes.get("best_ask")
+        vol_val = t.get("volume")
+        oi_val = t.get("oi") or t.get("oi_value")
+
+        ltp = float(close_val) if close_val is not None else None
+        mark_price = float(mark_val) if mark_val is not None else 0.0
+        bid_price = float(best_bid) if best_bid is not None else None
+        ask_price = float(best_ask) if best_ask is not None else None
+        volume = float(vol_val) if vol_val is not None else 0.0
+        oi = float(oi_val) if oi_val is not None else 0.0
+
+        prod_data = {
+            "product_id": p.get("id"),
+            "symbol": sym,
+            "contract_type": "call" if is_call else "put",
+            "strike": strike,
+            "expiry": selected_expiry,
+            "is_itm": (strike < spot_price) if is_call else (strike > spot_price),
+            "tick_size": float(p.get("tick_size") or 0.1),
+            "contract_value": float(p.get("contract_value") or exp_info.get("contract_value", 0.001)),
+            "ltp": ltp,
+            "mark_price": mark_price,
+            "best_bid": bid_price,
+            "best_ask": ask_price,
+            "volume": volume,
+            "open_interest": oi,
+            "greeks": greeks
+        }
+
+        if is_call:
+            chain_map[strike]["call"] = prod_data
+        else:
+            chain_map[strike]["put"] = prod_data
+
+    rows = [chain_map[s] for s in sorted(strikes)]
+
+    return {
+        "success": True,
+        "underlying": underlying,
+        "selected_expiry": selected_expiry,
+        "spot_price": spot_price,
+        "atm_strike": expiry_atm,
+        "contract_value": exp_info.get("contract_value", 0.001),
+        "expiries": expiries,
+        "chain": rows,
+        "total_strikes": len(rows)
+    }
+
+

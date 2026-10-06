@@ -9,12 +9,39 @@
 let currentPositions = [];
 let currentWallet = {};
 let currentSummary = {};
-let selectedCurrency = 'INR';
+let selectedCurrency = (function () {
+  try {
+    return localStorage.getItem('delta_currency') || 'INR';
+  } catch (e) {
+    return 'INR';
+  }
+})();
 let usdToInrRate = 85.0;
 let isFetching = false;
 let activeNavTab = 'positions';
 let lastSpotPrice = 0;
 let serverTimeOffset = 0;
+
+/**
+ * Gets the active tab to restore on page reload from URL hash or localStorage
+ */
+function getInitialNavTab() {
+  const validTabs = ['positions', 'studio', 'chain'];
+  // 1. Prioritize URL hash (e.g. #positions, #studio, #chain)
+  const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+  if (validTabs.includes(hash)) {
+    return hash;
+  }
+  // 2. Check localStorage
+  try {
+    const saved = localStorage.getItem('delta_active_nav_tab');
+    if (saved && validTabs.includes(saved)) {
+      return saved;
+    }
+  } catch (e) { }
+  // Default to positions
+  return 'positions';
+}
 
 /**
  * Updates the live ticking exchange server clock in Indian Standard Time (DD/MM/YYYY HH:MM:SS IST)
@@ -23,17 +50,17 @@ function updateExchangeClock() {
   // Exchange UTC Epoch + 5h 30m offset for Indian Standard Time (IST)
   const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
   const istTime = new Date(Date.now() + serverTimeOffset + istOffsetMs);
-  
+
   const day = String(istTime.getUTCDate()).padStart(2, '0');
   const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
   const year = istTime.getUTCFullYear();
-  
+
   const hours = String(istTime.getUTCHours()).padStart(2, '0');
   const minutes = String(istTime.getUTCMinutes()).padStart(2, '0');
   const seconds = String(istTime.getUTCSeconds()).padStart(2, '0');
-  
+
   const formattedTime = `${day}/${month}/${year} ${hours}:${minutes}:${seconds} IST`;
-  
+
   const clockEl = document.getElementById('exchangeClockTime');
   if (clockEl) {
     clockEl.textContent = formattedTime;
@@ -76,23 +103,62 @@ function navigateToTab(tabName) {
 }
 
 /**
- * Switch navigation tabs (Positions vs Multi-Leg Studio) across top bar and drawer
- * @param {string} tabName - 'positions' or 'studio'
+ * Switch navigation tabs (Positions vs Multi-Leg Studio vs Option Chain) across top bar and drawer
+ * @param {string} tabName - 'positions', 'studio', or 'chain'
+ * @param {boolean} updateUrl - whether to sync URL hash
  */
-function switchNavTab(tabName) {
+function switchNavTab(tabName, updateUrl = true) {
+  if (!tabName) tabName = 'positions';
   activeNavTab = tabName;
-  
+
+  // Persist to localStorage for refresh retention
+  try {
+    localStorage.setItem('delta_active_nav_tab', tabName);
+  } catch (e) { }
+
+  // Update URL hash for bookmarking and page refresh persistence
+  if (updateUrl) {
+    const targetHash = '#' + tabName;
+    if (window.location.hash !== targetHash) {
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', targetHash);
+      } else {
+        window.location.hash = tabName;
+      }
+    }
+  }
+
   // Top navigation tabs
   document.getElementById('tabNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('tabNavStudio')?.classList.toggle('active', tabName === 'studio');
+  document.getElementById('tabNavChain')?.classList.toggle('active', tabName === 'chain');
 
   // Sidebar drawer menu items
   document.getElementById('drawerNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('drawerNavStudio')?.classList.toggle('active', tabName === 'studio');
+  document.getElementById('drawerNavChain')?.classList.toggle('active', tabName === 'chain');
 
   // Content views
   document.getElementById('viewPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('viewStudio')?.classList.toggle('active', tabName === 'studio');
+  document.getElementById('viewOptionChain')?.classList.toggle('active', tabName === 'chain');
+
+  if (tabName === 'chain' && typeof loadOptionChain === 'function') {
+    const curAsset = (typeof ocCurrentUnderlying !== 'undefined' && ocCurrentUnderlying) ? ocCurrentUnderlying : (localStorage.getItem('delta_oc_underlying') || 'BTC');
+    const curExp = (typeof ocSelectedExpiry !== 'undefined') ? ocSelectedExpiry : '';
+    loadOptionChain(curAsset, curExp);
+  } else if (tabName === 'studio') {
+    if (typeof updateUnderlyingPriceAndLotDisplay === 'function') {
+      updateUnderlyingPriceAndLotDisplay();
+    }
+    if (typeof fetchLegTickers === 'function') {
+      fetchLegTickers();
+    }
+  } else if (tabName === 'positions') {
+    if (typeof renderPositionsTable === 'function') {
+      renderPositionsTable();
+    }
+  }
 }
 
 /**
@@ -145,6 +211,9 @@ function formatNumber(val, decimals = 2) {
  */
 function setCurrency(curr) {
   selectedCurrency = curr;
+  try {
+    localStorage.setItem('delta_currency', curr);
+  } catch (e) { }
   document.getElementById('btnCurrUSD')?.classList.toggle('active', curr === 'USD');
   document.getElementById('btnCurrINR')?.classList.toggle('active', curr === 'INR');
 
@@ -279,10 +348,10 @@ function renderDashboardValues() {
 
   const elBal = document.getElementById('walletBalanceMain');
   if (elBal) elBal.textContent = (selectedCurrency === 'INR' ? '₹' : '$') + mainBal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  
+
   const elAvail = document.getElementById('walletAvailMain');
   if (elAvail) elAvail.textContent = (selectedCurrency === 'INR' ? '₹' : '$') + mainAvail.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  
+
   const elAlt = document.getElementById('walletAltMain');
   if (elAlt) elAlt.textContent = (altCurr === 'INR' ? '₹' : '$') + altBal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -363,7 +432,12 @@ function initDeltaWebSocket() {
         if (typeof handleLegTickUpdate === 'function') {
           handleLegTickUpdate(data);
         }
-      } catch (err) {}
+
+        // Live streaming for active Option Chain quotes
+        if (typeof handleOptionChainTickUpdate === 'function') {
+          handleOptionChainTickUpdate(data);
+        }
+      } catch (err) { }
     };
 
     deltaWs.onclose = () => {
@@ -398,7 +472,7 @@ function subscribeActiveSymbols() {
   if (!deltaWs || deltaWs.readyState !== WebSocket.OPEN) return;
   const currentUnderlying = (document.getElementById('selUnderlying')?.value || 'BTC').toUpperCase();
   const symbolsToSub = Array.from(new Set([...subscribedSymbols, `${currentUnderlying}USD`]));
-  
+
   const subMsg = {
     type: 'subscribe',
     payload: {
@@ -452,14 +526,14 @@ function applyLiveTickUpdate(data) {
  * Ultra-fast live tick fallback for active underlying asset spot price
  */
 async function fetchLiveTickerTick() {
-  if (activeNavTab !== 'studio') return;
-  const u = document.getElementById('selUnderlying')?.value || 'BTC';
+  if (activeNavTab !== 'studio' && activeNavTab !== 'chain') return;
+  const u = (activeNavTab === 'chain' && typeof ocCurrentUnderlying !== 'undefined') ? ocCurrentUnderlying : (document.getElementById('selUnderlying')?.value || 'BTC');
   try {
     const data = await ApiService.getTicker(u);
     if (data.success) {
       applyLiveTickUpdate(data);
     }
-  } catch (err) {}
+  } catch (err) { }
 }
 
 /**
@@ -483,6 +557,13 @@ function startLiveStreaming() {
     }
   }, 1000);
 
+  // Poll live Option Chain if active (every 3000ms, non-destructive background update)
+  setInterval(() => {
+    if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
+      loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
+    }
+  }, 3000);
+
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {
     updateExchangeClock();
@@ -499,9 +580,36 @@ window.addEventListener('DOMContentLoaded', () => {
     if (e.target === this) closeModal('detailModal');
   });
 
+  // Apply saved/current currency
   setCurrency(selectedCurrency);
+
+  // Restore and display the active tab (Positions / Multi-Leg Studio / Live Option Chain)
+  const initialTab = getInitialNavTab();
+  switchNavTab(initialTab, true);
+
+  const studioUnderlying = (function () {
+    try {
+      return localStorage.getItem('delta_studio_underlying') || 'BTC';
+    } catch (e) {
+      return 'BTC';
+    }
+  })();
+  const selUnderlying = document.getElementById('selUnderlying');
+  if (selUnderlying && studioUnderlying) {
+    selUnderlying.value = studioUnderlying;
+  }
+
   fetchDashboardData(false);
-  loadExpiriesForUnderlying('BTC');
+  loadExpiriesForUnderlying(studioUnderlying);
   startLiveStreaming();
   initDeltaWebSocket();
+});
+
+// Sync active tab seamlessly on browser Back/Forward or manual hash navigation
+window.addEventListener('hashchange', () => {
+  const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+  const validTabs = ['positions', 'studio', 'chain'];
+  if (validTabs.includes(hash) && hash !== activeNavTab) {
+    switchNavTab(hash, false);
+  }
 });

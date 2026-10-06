@@ -7,30 +7,36 @@
   .main-container {
     padding: 16px;
   }
+
   .nav-container {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
   }
+
   .brand-group {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
   }
+
   .nav-menu-tabs {
     width: 100%;
     display: flex;
   }
+
   .nav-tab-btn {
     flex: 1;
     justify-content: center;
     text-align: center;
   }
+
   .nav-controls {
     width: 100%;
     justify-content: space-between;
   }
+
   .strategy-config-bar {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -43,13 +49,90 @@
   }
 
   .navbar {
-    padding: 10px 12px;
+    padding: 8px 10px;
   }
 
-  /* Top Metrics Cards 2x2 Grid */
+  .nav-container {
+    gap: 8px;
+  }
+
+  .brand-group {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  /* Compact Single-Row Mobile Navbar Controls */
+  .nav-controls {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav-controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Compact Clock on Mobile: Hides long text label, keeps clock on single line */
+  .exchange-clock-pill {
+    padding: 4px 8px;
+    font-size: 0.70rem;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .exchange-clock-pill .clock-label {
+    display: none;
+  }
+
+  .exchange-clock-pill .clock-time {
+    font-size: 0.70rem;
+    white-space: nowrap;
+  }
+
+  .live-status-pill {
+    padding: 4px 7px;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+    gap: 4px;
+  }
+
+  .currency-switch {
+    flex-shrink: 0;
+  }
+
+  .curr-btn {
+    padding: 4px 7px;
+    font-size: 0.70rem;
+  }
+
+  .rate-badge {
+    padding: 4px 6px;
+    font-size: 0.68rem;
+    flex-shrink: 0;
+  }
+
+  .nav-controls .btn-refresh {
+    padding: 4px 8px;
+    font-size: 0.70rem;
+    flex-shrink: 0;
+  }
+
+  /* Top Metrics Cards 2x2 Grid (Visible on Positions Dashboard tab) */
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
+  }
+
+  /* When Option Chain or Multi-Leg Studio tab is active on mobile, hide the 5 large metric cards to give 100% screen space to trading */
+  body.tab-chain-active .metrics-grid,
+  body.tab-studio-active .metrics-grid {
+    display: none !important;
   }
 
   .metric-card {
@@ -70,7 +153,8 @@
   }
 
   /* Studio Header & Templates Swipe Bar */
-  .studio-card, .section-container {
+  .studio-card,
+  .section-container {
     padding: 14px 12px;
     border-radius: var(--radius-md);
   }
@@ -88,6 +172,7 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
+
   .preset-toolbar::-webkit-scrollbar {
     display: none;
   }

@@ -68,6 +68,79 @@ const ApiService = {
   },
 
   /**
+   * Fetches full option chain matrix for underlying and expiry
+   * @param {string} underlying - e.g. 'BTC', 'ETH'
+   * @param {string} expiry - e.g. '051026'
+   */
+  async getOptionChain(underlying = 'BTC', expiry = '') {
+    const expParam = expiry ? `&expiry=${encodeURIComponent(expiry)}` : '';
+    try {
+      const res = await fetch(`/api/options/chain?underlying=${encodeURIComponent(underlying)}${expParam}`);
+      if (res.ok) {
+        const text = await res.text();
+        if (text.startsWith('{')) {
+          const data = JSON.parse(text);
+          if (data && data.success) return data;
+        }
+      }
+    } catch (e) {}
+
+    // Fallback: Construct option chain directly from expiries metadata
+    try {
+      const expData = await this.getOptionsExpiries(underlying);
+      if (expData && expData.success) {
+        const expiries = expData.expiries || [];
+        const selExp = expiry || (expiries[0]?.expiry || '');
+        const expObj = expiries.find(e => e.expiry === selExp) || expiries[0] || {};
+        const strikes = expObj.strikes || [];
+        const spot = expData.spot_price || expData.underlying_price || 0;
+
+        const chain = strikes.map(s => {
+          return {
+            strike: s,
+            is_atm: (s === (expObj.atm_strike || expData.atm_strike)),
+            call: {
+              symbol: `C-${underlying}-${s}-${selExp}`,
+              contract_type: 'call',
+              strike: s,
+              expiry: selExp,
+              is_itm: (spot > 0 && s < spot),
+              contract_value: expData.contract_value || (underlying === 'BTC' ? 0.001 : 0.01),
+              ltp: null,
+              mark_price: null
+            },
+            put: {
+              symbol: `P-${underlying}-${s}-${selExp}`,
+              contract_type: 'put',
+              strike: s,
+              expiry: selExp,
+              is_itm: (spot > 0 && s > spot),
+              contract_value: expData.contract_value || (underlying === 'BTC' ? 0.001 : 0.01),
+              ltp: null,
+              mark_price: null
+            }
+          };
+        });
+
+        return {
+          success: true,
+          underlying: underlying,
+          selected_expiry: selExp,
+          spot_price: spot,
+          atm_strike: expObj.atm_strike || expData.atm_strike,
+          contract_value: expData.contract_value || (underlying === 'BTC' ? 0.001 : 0.01),
+          expiries: expiries,
+          chain: chain,
+          total_strikes: chain.length
+        };
+      }
+    } catch (err) {
+      console.error('Fallback option chain error:', err);
+    }
+    return { success: false, error: 'Failed to load option chain' };
+  },
+
+  /**
    * Searches available tradable products
    */
   async searchProducts(underlying = '', contractType = '', query = '') {

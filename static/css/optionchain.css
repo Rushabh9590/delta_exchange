@@ -1,0 +1,594 @@
+/* ==============================================================================
+   DELTA EXCHANGE - LIVE OPTION CHAIN STYLESHEET
+   Calls/Puts Matrix, ATM Strike Centering, ITM/OTM Shading, 1-Click Multi-Leg Add
+   ============================================================================== */
+
+.optionchain-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Option Chain Header & Toolbar */
+.oc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.oc-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.oc-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oc-badge {
+  background: rgba(0, 210, 255, 0.15);
+  border: 1px solid rgba(0, 210, 255, 0.4);
+  color: #00d2ff;
+  font-size: 0.70rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.oc-controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Underlying Asset Switcher */
+.oc-asset-tabs {
+  display: flex;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.oc-asset-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.oc-asset-btn:hover {
+  color: var(--text-primary);
+}
+
+.oc-asset-btn.active {
+  background: var(--accent-blue);
+  color: #0b0e14;
+}
+
+/* Expiry Dropdown */
+.oc-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 0.80rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.oc-select:focus {
+  border-color: var(--border-focus);
+}
+
+/* Info Badges (Spot, ATM, Strikes) */
+.oc-info-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.oc-info-pill {
+  font-size: 0.76rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.oc-spot-pill {
+  background: rgba(0, 220, 130, 0.12);
+  border: 1px solid rgba(0, 220, 130, 0.35);
+  color: var(--accent-green);
+}
+
+.oc-atm-pill {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--accent-blue);
+}
+
+.oc-lot-pill {
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: var(--accent-purple);
+}
+
+/* Option Chain Main Table */
+.oc-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  max-height: 720px;
+  position: relative;
+}
+
+.oc-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+/* Super Headers (CALLS vs STRIKE vs PUTS) */
+.oc-super-header th {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.oc-super-call {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: var(--accent-green) !important;
+  border-right: 2px solid var(--border-card);
+}
+
+.oc-super-strike {
+  background: #151c28 !important;
+  color: #38bdf8 !important;
+  border-left: 2px solid var(--border-card);
+  border-right: 2px solid var(--border-card);
+}
+
+.oc-super-put {
+  background: rgba(168, 85, 247, 0.18) !important;
+  color: var(--accent-purple) !important;
+  border-left: 2px solid var(--border-card);
+}
+
+/* Column Sub-Headers */
+.oc-sub-header th {
+  position: sticky;
+  top: 35px;
+  z-index: 10;
+  background: #111722;
+  padding: 8px 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-card);
+  box-sizing: border-box;
+}
+
+.oc-table th.col-oi,
+.oc-table td.col-oi {
+  text-align: right;
+}
+
+.oc-table th.col-vol,
+.oc-table td.col-vol {
+  text-align: right;
+}
+
+.oc-table th.col-bid,
+.oc-table td.col-bid {
+  text-align: right;
+}
+
+.oc-table th.col-ask,
+.oc-table td.col-ask {
+  text-align: right;
+}
+
+.oc-table th.col-mark,
+.oc-table td.col-mark {
+  text-align: right;
+}
+
+.oc-table th.col-ltp,
+.oc-table td.col-ltp {
+  text-align: right;
+}
+
+.oc-table th.col-trade,
+.oc-table td.col-trade {
+  text-align: center;
+}
+
+.oc-table th.col-strike,
+.oc-table td.col-strike {
+  text-align: center;
+}
+
+.oc-sub-header th.strike-col-head {
+  text-align: center;
+  color: #38bdf8;
+  background: #151c28;
+}
+
+/* Side Filter Tabs (Both / Calls / Puts) */
+.oc-side-tabs {
+  display: inline-flex;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.oc-side-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.oc-side-btn:hover {
+  color: var(--text-primary);
+}
+
+.oc-side-btn.active {
+  background: rgba(0, 210, 255, 0.2);
+  color: #00d2ff;
+  border: 1px solid rgba(0, 210, 255, 0.4);
+}
+
+/* Side Filtering Views (Calls Only / Puts Only / Both) */
+.oc-table-wrapper.view-calls-only .col-put-side,
+.oc-table-wrapper.view-calls-only .oc-super-put {
+  display: none !important;
+}
+
+.oc-table-wrapper.view-puts-only .col-call-side,
+.oc-table-wrapper.view-puts-only .oc-super-call {
+  display: none !important;
+}
+
+.oc-table-wrapper.view-calls-only .oc-table,
+.oc-table-wrapper.view-puts-only .oc-table {
+  min-width: 100% !important;
+  width: 100% !important;
+}
+
+/* Table Rows & Cells */
+.oc-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease;
+}
+
+.oc-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.oc-table td {
+  padding: 6px 5px;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+/* Center Strike Column */
+.oc-strike-cell {
+  text-align: center !important;
+  font-weight: 800;
+  font-size: 0.84rem;
+  background: #151c28;
+  color: var(--text-primary);
+  border-left: 1px solid var(--border-card);
+  border-right: 1px solid var(--border-card);
+  position: relative;
+}
+
+/* ATM Row Highlight */
+.oc-row-atm {
+  border-top: 2px solid #38bdf8 !important;
+  border-bottom: 2px solid #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.08) !important;
+}
+
+.oc-row-atm .oc-strike-cell {
+  background: rgba(56, 189, 248, 0.25) !important;
+  color: #fff !important;
+  font-weight: 900;
+}
+
+.oc-atm-tag {
+  display: inline-block;
+  background: #38bdf8;
+  color: #0b0e14;
+  font-size: 0.60rem;
+  font-weight: 900;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* ITM Shading (In-The-Money) */
+.oc-itm-call {
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.oc-itm-put {
+  background: rgba(168, 85, 247, 0.06);
+}
+
+/* LTP Highlight Cells */
+.oc-ltp-val {
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.oc-call-ltp {
+  color: var(--accent-green);
+}
+
+.oc-put-ltp {
+  color: var(--accent-purple);
+}
+
+.oc-ltp-val:hover {
+  background: rgba(255, 255, 255, 0.1);
+  text-decoration: underline;
+}
+
+/* 1-Click Trade / Strategy Action Buttons */
+.oc-actions-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.oc-btn-buy,
+.oc-btn-sell {
+  border: none;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 22px;
+  text-align: center;
+}
+
+.oc-btn-buy {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.oc-btn-buy:hover {
+  background: var(--accent-green);
+  color: #0b0e14;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.oc-btn-sell {
+  background: rgba(244, 63, 94, 0.2);
+  color: var(--accent-red);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.oc-btn-sell:hover {
+  background: var(--accent-red);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+}
+
+/* Flash Animations */
+.oc-flash-up {
+  background: rgba(0, 220, 130, 0.45) !important;
+  color: #00dc82 !important;
+}
+
+.oc-flash-down {
+  background: rgba(244, 63, 94, 0.45) !important;
+  color: #f43f5e !important;
+}
+
+/* Responsive Option Chain */
+@media (max-width: 992px) {
+  .optionchain-card {
+    padding: 14px 12px;
+  }
+  .oc-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .oc-controls-bar {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 768px) {
+  .optionchain-card {
+    padding: 8px 6px;
+    border-radius: var(--radius-sm);
+    gap: 8px;
+  }
+
+  .oc-header {
+    gap: 6px;
+    padding-bottom: 6px;
+  }
+
+  .oc-title {
+    font-size: 0.95rem;
+  }
+
+  .oc-badge {
+    font-size: 0.62rem;
+    padding: 2px 6px;
+  }
+
+  .oc-controls-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .oc-asset-tabs {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .oc-asset-btn {
+    flex: 1;
+    padding: 5px 3px;
+    text-align: center;
+    font-size: 0.72rem;
+  }
+
+  .oc-side-tabs {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .oc-side-btn {
+    flex: 1;
+    padding: 5px 3px;
+    text-align: center;
+    font-size: 0.72rem;
+  }
+
+  .oc-select {
+    width: 100%;
+    font-size: 0.74rem;
+    padding: 5px 8px;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .search-box .search-input {
+    width: 100% !important;
+    font-size: 0.74rem;
+    padding: 5px 8px 5px 28px;
+  }
+
+  .btn-refresh {
+    width: 100%;
+    justify-content: center;
+    padding: 5px 10px;
+    font-size: 0.74rem;
+  }
+
+  .oc-info-strip {
+    padding: 5px 6px;
+    gap: 4px;
+    font-size: 0.68rem;
+  }
+
+  .oc-info-pill {
+    padding: 2px 6px;
+    font-size: 0.66rem;
+  }
+
+  .oc-table-wrapper {
+    max-height: calc(100vh - 160px);
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-sm);
+  }
+
+  .oc-table {
+    min-width: 980px;
+    font-size: 0.72rem;
+  }
+
+  .oc-table-wrapper.view-calls-only .oc-table,
+  .oc-table-wrapper.view-puts-only .oc-table {
+    min-width: 100% !important;
+  }
+
+  .oc-table td {
+    padding: 5px 2px;
+  }
+
+  .oc-super-header th {
+    padding: 5px 4px;
+    font-size: 0.70rem;
+  }
+
+  .oc-sub-header th {
+    padding: 5px 2px;
+    font-size: 0.62rem;
+  }
+
+  .oc-btn-buy, .oc-btn-sell {
+    padding: 2px 4px;
+    min-width: 18px;
+    font-size: 0.62rem;
+  }
+}

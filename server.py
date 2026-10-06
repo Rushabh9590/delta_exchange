@@ -28,6 +28,7 @@ from multileg import (
     square_off_single_position,
     square_off_all_open_positions,
     get_options_expiries_and_strikes,
+    get_option_chain_data,
     sync_master_scrips,
     get_master_status,
     start_master_sync_daemon
@@ -579,37 +580,71 @@ def get_tickers_batch():
         if ws_mgr and hasattr(ws_mgr, "subscribe_symbols"):
             ws_mgr.subscribe_symbols(symbols)
 
+        # Pre-fetch bulk tickers from REST for fallback if needed
+        rest_tickers_map = {}
+        try:
+            bulk = client.get_tickers() or []
+            for t in bulk:
+                if t and t.get("symbol"):
+                    rest_tickers_map[t["symbol"].upper()] = t
+        except Exception:
+            pass
+
         for sym in symbols:
             sym_upper = sym.upper()
             ws_quote = ws_mgr.get_latest_quote(sym_upper) if ws_mgr else {}
-            if ws_quote and (ws_quote.get("ltp") is not None or ws_quote.get("spot_price") is not None or ws_quote.get("mark_price") is not None or ws_quote.get("bid") is not None):
-                ltp = float(ws_quote.get("ltp") or ws_quote.get("bid") or ws_quote.get("mark_price") or 0.0)
-                mark_price = float(ws_quote.get("mark_price") or 0.0)
-                result[sym_upper] = {
-                    "symbol": sym_upper,
-                    "ltp": ltp,
-                    "mark_price": mark_price,
-                    "bid": float(ws_quote.get("bid") or 0.0),
-                    "ask": float(ws_quote.get("ask") or 0.0),
-                    "source": "websocket"
-                }
-            else:
-                try:
-                    ticker = client.get_ticker(sym_upper)
-                    if ticker:
-                        quotes = ticker.get("quotes") or {}
-                        ltp = float(ticker.get("close") or quotes.get("best_bid") or ticker.get("mark_price") or 0.0)
-                        mark_price = float(ticker.get("mark_price") or 0.0)
-                        result[sym_upper] = {
-                            "symbol": sym_upper,
-                            "ltp": ltp,
-                            "mark_price": mark_price,
-                            "bid": float(quotes.get("best_bid") or 0.0),
-                            "ask": float(quotes.get("best_ask") or 0.0),
-                            "source": "rest"
-                        }
-                except Exception:
-                    pass
+            rest_ticker = rest_tickers_map.get(sym_upper) or {}
+            quotes = rest_ticker.get("quotes") or {}
+
+            # Prioritize ws_quote then fallback to rest_ticker
+            ltp = None
+            if ws_quote.get("ltp") is not None and float(ws_quote.get("ltp") or 0) > 0:
+                ltp = float(ws_quote["ltp"])
+            elif rest_ticker.get("close") is not None:
+                ltp = float(rest_ticker["close"])
+            elif quotes.get("best_bid") is not None:
+                ltp = float(quotes["best_bid"])
+
+            mark_price = None
+            if ws_quote.get("mark_price") is not None and float(ws_quote.get("mark_price") or 0) > 0:
+                mark_price = float(ws_quote["mark_price"])
+            elif rest_ticker.get("mark_price") is not None:
+                mark_price = float(rest_ticker["mark_price"])
+
+            bid = None
+            if ws_quote.get("bid") is not None and float(ws_quote.get("bid") or 0) > 0:
+                bid = float(ws_quote["bid"])
+            elif quotes.get("best_bid") is not None:
+                bid = float(quotes["best_bid"])
+
+            ask = None
+            if ws_quote.get("ask") is not None and float(ws_quote.get("ask") or 0) > 0:
+                ask = float(ws_quote["ask"])
+            elif quotes.get("best_ask") is not None:
+                ask = float(quotes["best_ask"])
+
+            vol = None
+            if ws_quote.get("volume") is not None and float(ws_quote.get("volume") or 0) > 0:
+                vol = float(ws_quote["volume"])
+            elif rest_ticker.get("volume") is not None:
+                vol = float(rest_ticker["volume"])
+
+            oi = None
+            if ws_quote.get("oi") is not None and float(ws_quote.get("oi") or 0) > 0:
+                oi = float(ws_quote["oi"])
+            elif rest_ticker.get("oi") is not None or rest_ticker.get("oi_value") is not None:
+                oi = float(rest_ticker.get("oi") or rest_ticker.get("oi_value") or 0.0)
+
+            result[sym_upper] = {
+                "symbol": sym_upper,
+                "ltp": ltp,
+                "mark_price": mark_price or 0.0,
+                "bid": bid,
+                "ask": ask,
+                "volume": vol or 0.0,
+                "oi": oi or 0.0,
+                "source": "websocket" if ws_quote.get("ltp") else "rest"
+            }
 
         return jsonify({"success": True, "tickers": result})
     except Exception as e:
@@ -654,6 +689,50 @@ def get_options_expiries():
             "success": True,
             **data
         })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/options/chain", methods=["GET"])
+def get_options_chain():
+    """
+    Fetches full live option chain matrix (Calls & Puts) for specified underlying and expiry.
+    """
+    try:
+        client = get_client()
+        underlying = request.args.get("underlying", "BTC").upper()
+        expiry = request.args.get("expiry", None)
+        data = get_option_chain_data(underlying=underlying, expiry=expiry, client=client)
+
+        # Enrich with WebSocket cache quotes if available without overwriting non-null data
+        ws_mgr = get_ws_manager()
+        if ws_mgr and data.get("chain"):
+            symbols_to_sub = []
+            for row in data["chain"]:
+                for side_key in ("call", "put"):
+                    contract = row.get(side_key)
+                    if contract and contract.get("symbol"):
+                        sym = contract["symbol"]
+                        symbols_to_sub.append(sym)
+                        q = ws_mgr.get_latest_quote(sym)
+                        if q:
+                            if q.get("ltp") is not None and float(q.get("ltp") or 0) > 0:
+                                contract["ltp"] = float(q["ltp"])
+                            if q.get("mark_price") is not None and float(q.get("mark_price") or 0) > 0:
+                                contract["mark_price"] = float(q["mark_price"])
+                            if q.get("bid") is not None and float(q.get("bid") or 0) > 0:
+                                contract["best_bid"] = float(q["bid"])
+                            if q.get("ask") is not None and float(q.get("ask") or 0) > 0:
+                                contract["best_ask"] = float(q["ask"])
+                            if q.get("volume") is not None and float(q.get("volume") or 0) > 0:
+                                contract["volume"] = float(q["volume"])
+                            if q.get("oi") is not None and float(q.get("oi") or 0) > 0:
+                                contract["open_interest"] = float(q["oi"])
+
+            if hasattr(ws_mgr, "subscribe_symbols") and symbols_to_sub:
+                ws_mgr.subscribe_symbols(symbols_to_sub)
+
+        return jsonify(data)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

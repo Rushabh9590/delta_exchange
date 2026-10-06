@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/static/css/style.css" />
   <link rel="stylesheet" href="/static/css/positions.css" />
   <link rel="stylesheet" href="/static/css/multileg.css" />
+  <link rel="stylesheet" href="/static/css/optionchain.css" />
   <link rel="stylesheet" href="/static/css/mobile.css" />
 </head>
 
@@ -76,6 +77,23 @@
         </div>
         <span class="drawer-badge badge-accent">1-Click</span>
       </button>
+
+      <!-- Menu Item 3: Live Option Chain -->
+      <button class="drawer-menu-item" id="drawerNavChain" onclick="navigateToTab('chain')">
+        <div class="drawer-item-icon icon-chain" style="background: rgba(0, 210, 255, 0.15); color: #00d2ff;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+        </div>
+        <div class="drawer-item-text">
+          <span class="drawer-item-title">Live Option Chain</span>
+          <span class="drawer-item-desc">Interactive Calls & Puts matrix</span>
+        </div>
+        <span class="drawer-badge"
+          style="background: rgba(0, 210, 255, 0.15); color: #00d2ff; border-color: rgba(0, 210, 255, 0.3);">Real-Time</span>
+      </button>
     </div>
 
     <!-- Sidebar Drawer Footer Info -->
@@ -126,7 +144,8 @@
       <div class="nav-controls">
         <!-- Live Exchange Server Clock (DD/MM/YYYY HH:MM:SS IST) -->
         <div class="exchange-clock-pill" title="Delta Exchange India Time (IST)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
@@ -166,111 +185,110 @@
   <!-- Main Container -->
   <main class="main-container">
 
-    <!-- Top Key Metrics Cards (Visible Across Sub-Menu Tabs) -->
-    <div class="metrics-grid">
-      <!-- Total Unrealized PnL -->
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title" id="lblUnrealizedPnl">Total Unrealized PnL</span>
-          <div class="metric-icon icon-green" id="uPnlIcon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-              <polyline points="17 6 23 6 23 12"></polyline>
-            </svg>
-          </div>
-        </div>
-        <div class="metric-value text-green" id="totalUnrealizedPnl">₹0.00</div>
-        <div class="metric-sub">
-          <span>Alt:</span>
-          <span class="mono-num" id="totalUnrealizedPnlAlt">$0.00</span>
-        </div>
-      </div>
-
-      <!-- Total Realized PnL -->
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title" id="lblRealizedPnl">Total Realized PnL</span>
-          <div class="metric-icon icon-blue">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="1" x2="12" y2="23"></line>
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-            </svg>
-          </div>
-        </div>
-        <div class="metric-value text-blue" id="totalRealizedPnl">₹0.00</div>
-        <div class="metric-sub">
-          <span>Alt:</span>
-          <span class="mono-num" id="totalRealizedPnlAlt">$0.00</span>
-        </div>
-      </div>
-
-      <!-- Total Notional Exposure -->
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title" id="lblTotalNotional">Total Notional</span>
-          <div class="metric-icon icon-amber">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="1" x2="12" y2="23"></line>
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-            </svg>
-          </div>
-        </div>
-        <div class="metric-value text-amber" id="totalNotionalVal">₹0.00</div>
-        <div class="metric-sub">
-          <span>Alt:</span>
-          <span class="mono-num" id="totalNotionalValAlt">$0.00</span>
-        </div>
-      </div>
-
-      <!-- Wallet Balance -->
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">Wallet Balance</span>
-          <div class="metric-icon icon-purple">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-              <path d="M7 15h0M2 9.5h20"></path>
-            </svg>
-          </div>
-        </div>
-        <div class="metric-value" id="walletBalanceMain">₹0.00</div>
-        <div class="metric-sub">
-          <span>Avail:</span>
-          <span class="mono-num text-green" id="walletAvailMain" style="font-weight: 700;">₹0.00</span>
-          <span style="margin-left: auto;" class="mono-num" id="walletAltMain">$0.00</span>
-        </div>
-      </div>
-
-      <!-- Open Positions Count -->
-      <div class="metric-card">
-        <div class="metric-header">
-          <span class="metric-title">Active Positions</span>
-          <div class="metric-icon icon-green">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
-              <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
-            </svg>
-          </div>
-        </div>
-        <div class="metric-value" id="openPositionsCount">0</div>
-        <div class="metric-sub">
-          <span id="longCount" class="text-green mono-num">0 Long</span>
-          <span>•</span>
-          <span id="shortCount" class="text-red mono-num">0 Short</span>
-          <span style="margin-left: auto;" id="posBadge" class="badge-type badge-call">0 Active</span>
-        </div>
-      </div>
-    </div>
-
     <!-- ===================================================================== -->
     <!-- VIEW 1: LIVE OPEN POSITIONS (ACTIVE BY DEFAULT)                       -->
     <!-- ===================================================================== -->
     <div id="viewPositions" class="tab-view active">
+      <!-- Top Key Metrics Cards (Positions Dashboard) -->
+      <div class="metrics-grid">
+        <!-- Total Unrealized PnL -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title" id="lblUnrealizedPnl">Total Unrealized PnL</span>
+            <div class="metric-icon icon-green" id="uPnlIcon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                <polyline points="17 6 23 6 23 12"></polyline>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value text-green" id="totalUnrealizedPnl">₹0.00</div>
+          <div class="metric-sub">
+            <span>Alt:</span>
+            <span class="mono-num" id="totalUnrealizedPnlAlt">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Total Realized PnL -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title" id="lblRealizedPnl">Total Realized PnL</span>
+            <div class="metric-icon icon-blue">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23"></line>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value text-blue" id="totalRealizedPnl">₹0.00</div>
+          <div class="metric-sub">
+            <span>Alt:</span>
+            <span class="mono-num" id="totalRealizedPnlAlt">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Total Notional Exposure -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title" id="lblTotalNotional">Total Notional</span>
+            <div class="metric-icon icon-amber">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23"></line>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value text-amber" id="totalNotionalVal">₹0.00</div>
+          <div class="metric-sub">
+            <span>Alt:</span>
+            <span class="mono-num" id="totalNotionalValAlt">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Wallet Balance -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Wallet Balance</span>
+            <div class="metric-icon icon-purple">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                <path d="M7 15h0M2 9.5h20"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="walletBalanceMain">₹0.00</div>
+          <div class="metric-sub">
+            <span>Avail:</span>
+            <span class="mono-num text-green" id="walletAvailMain" style="font-weight: 700;">₹0.00</span>
+            <span style="margin-left: auto;" class="mono-num" id="walletAltMain">$0.00</span>
+          </div>
+        </div>
+
+        <!-- Open Positions Count -->
+        <div class="metric-card">
+          <div class="metric-header">
+            <span class="metric-title">Active Positions</span>
+            <div class="metric-icon icon-green">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path>
+                <path d="M22 12A10 10 0 0 0 12 2v10z"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="metric-value" id="openPositionsCount">0</div>
+          <div class="metric-sub">
+            <span id="longCount" class="text-green mono-num">0 Long</span>
+            <span>•</span>
+            <span id="shortCount" class="text-red mono-num">0 Short</span>
+            <span style="margin-left: auto;" id="posBadge" class="badge-type badge-call">0 Active</span>
+          </div>
+        </div>
+      </div>
       <div class="section-container">
         <!-- Table Toolbar Header -->
         <div class="section-header">
@@ -349,12 +367,15 @@
     <div id="viewStudio" class="tab-view">
       <div class="studio-card">
         <div class="studio-header">
-          <div class="studio-title-group" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div class="studio-title-group"
+            style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <span class="studio-title">
               <span>Multi-Leg Options Studio</span>
               <span class="studio-badge">1-Click Execution</span>
             </span>
-            <button id="btnSyncMaster" class="preset-btn" style="background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff; font-weight: 600; cursor: pointer;" onclick="syncMasterScrips()" title="Download & sync freshest master scrip contracts from Delta Exchange">
+            <button id="btnSyncMaster" class="preset-btn"
+              style="background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.4); color: #00d2ff; font-weight: 600; cursor: pointer;"
+              onclick="syncMasterScrips()" title="Download & sync freshest master scrip contracts from Delta Exchange">
               <span class="btn-icon">🔄</span> Sync Master Scrips
             </button>
           </div>
@@ -540,6 +561,149 @@
       </div>
     </div>
 
+    <!-- ===================================================================== -->
+    <!-- VIEW 3: LIVE OPTION CHAIN (CALLS & PUTS MATRIX)                      -->
+    <!-- ===================================================================== -->
+    <div id="viewOptionChain" class="tab-view">
+      <div class="optionchain-card">
+        <!-- Option Chain Header Toolbar -->
+        <div class="oc-header">
+          <div class="oc-title-group">
+            <span class="oc-title">
+              <span>Delta Exchange Option Chain</span>
+              <span class="oc-badge">Calls & Puts Live</span>
+            </span>
+          </div>
+
+          <div class="oc-controls-bar">
+            <!-- Underlying Selector -->
+            <div class="oc-asset-tabs">
+              <button type="button" class="oc-asset-btn active" data-asset="BTC"
+                onclick="loadOptionChain('BTC')">BTC</button>
+              <button type="button" class="oc-asset-btn" data-asset="ETH" onclick="loadOptionChain('ETH')">ETH</button>
+              <button type="button" class="oc-asset-btn" data-asset="SOL" onclick="loadOptionChain('SOL')">SOL</button>
+              <button type="button" class="oc-asset-btn" data-asset="XRP" onclick="loadOptionChain('XRP')">XRP</button>
+            </div>
+
+            <!-- Expiration Date Dropdown -->
+            <select class="oc-select" id="ocSelExpiry" onchange="loadOptionChain(ocCurrentUnderlying, this.value)">
+              <option value="">Loading expiries...</option>
+            </select>
+
+            <!-- Mobile & Desktop View Filter Switcher (Both / Calls Only / Puts Only) -->
+            <div class="oc-side-tabs" id="ocSideFilterGroup">
+              <button type="button" class="oc-side-btn active" data-side="both" onclick="setOptionChainSideFilter('both', this)">Both (All)</button>
+              <button type="button" class="oc-side-btn" data-side="calls" onclick="setOptionChainSideFilter('calls', this)">Calls (CE)</button>
+              <button type="button" class="oc-side-btn" data-side="puts" onclick="setOptionChainSideFilter('puts', this)">Puts (PE)</button>
+            </div>
+
+            <!-- Search Strike -->
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" class="search-input" style="width: 140px;" placeholder="Search strike..."
+                oninput="onOptionChainSearch(this.value)" />
+            </div>
+
+            <!-- Refresh button -->
+            <button class="btn-refresh" onclick="loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry)"
+              title="Refresh Option Chain">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Info Strip (Spot, ATM, Spec, Counts) -->
+        <div class="oc-info-strip">
+          <div class="oc-info-pill oc-spot-pill">
+            <span class="spot-pulse-dot"></span>
+            <span>Spot:</span>
+            <span id="ocSpotPriceVal">--</span>
+          </div>
+
+          <div class="oc-info-pill oc-atm-pill">
+            <span>🎯 ATM Strike:</span>
+            <span id="ocAtmVal">--</span>
+          </div>
+
+          <div class="oc-info-pill oc-lot-pill" id="ocLotSpec">
+            💡 1 Lot = 0.001 BTC
+          </div>
+
+          <div style="margin-left: auto; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);"
+            id="ocStrikesCountBadge">
+            -- Strikes
+          </div>
+        </div>
+
+        <!-- Option Chain Table Matrix -->
+        <div class="oc-table-wrapper" id="ocTableWrapper">
+          <table class="oc-table">
+            <colgroup>
+              <!-- CALLS -->
+              <col class="col-call-side col-oi" style="width: 5.5%;">
+              <col class="col-call-side col-vol" style="width: 5.5%;">
+              <col class="col-call-side col-bid" style="width: 7.2%;">
+              <col class="col-call-side col-ask" style="width: 7.2%;">
+              <col class="col-call-side col-mark" style="width: 7.2%;">
+              <col class="col-call-side col-ltp" style="width: 8.0%;">
+              <col class="col-call-side col-trade" style="width: 5.4%;">
+              <!-- STRIKE -->
+              <col class="col-strike" style="width: 8.0%;">
+              <!-- PUTS -->
+              <col class="col-put-side col-trade" style="width: 5.4%;">
+              <col class="col-put-side col-ltp" style="width: 8.0%;">
+              <col class="col-put-side col-mark" style="width: 7.2%;">
+              <col class="col-put-side col-bid" style="width: 7.2%;">
+              <col class="col-put-side col-ask" style="width: 7.2%;">
+              <col class="col-put-side col-vol" style="width: 5.5%;">
+              <col class="col-put-side col-oi" style="width: 5.5%;">
+            </colgroup>
+            <thead>
+              <!-- Super Headers -->
+              <tr class="oc-super-header">
+                <th colspan="7" class="oc-super-call">CALL OPTIONS (CE)</th>
+                <th class="oc-super-strike">STRIKE</th>
+                <th colspan="7" class="oc-super-put">PUT OPTIONS (PE)</th>
+              </tr>
+              <!-- Sub Headers -->
+              <tr class="oc-sub-header">
+                <!-- Calls -->
+                <th class="col-call-side col-oi">OI</th>
+                <th class="col-call-side col-vol">Vol</th>
+                <th class="col-call-side col-bid">Bid</th>
+                <th class="col-call-side col-ask">Ask</th>
+                <th class="col-call-side col-mark">Mark ($)</th>
+                <th class="col-call-side col-ltp">LTP ($)</th>
+                <th class="col-call-side col-trade">Trade</th>
+
+                <!-- Strike -->
+                <th class="col-strike strike-col-head">Strike ($)</th>
+
+                <!-- Puts -->
+                <th class="col-put-side col-trade">Trade</th>
+                <th class="col-put-side col-ltp">LTP ($)</th>
+                <th class="col-put-side col-mark">Mark ($)</th>
+                <th class="col-put-side col-bid">Bid</th>
+                <th class="col-put-side col-ask">Ask</th>
+                <th class="col-put-side col-vol">Vol</th>
+                <th class="col-put-side col-oi">OI</th>
+              </tr>
+            </thead>
+            <tbody id="ocTbody">
+              <!-- Dynamically populated via optionchain.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Footer -->
@@ -569,6 +733,7 @@
   <script src="/static/js/api.js"></script>
   <script src="/static/js/positions.js"></script>
   <script src="/static/js/multileg.js"></script>
+  <script src="/static/js/optionchain.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 
