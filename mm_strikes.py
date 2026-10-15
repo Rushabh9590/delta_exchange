@@ -167,6 +167,31 @@ def evaluate_mm_strikes(
     min_edge = min_net_edge_pct if min_net_edge_pct is not None else defaults["min_net_edge_pct"]
     asset = (underlying or defaults["underlying"]).strip().upper()
 
+    if asset not in ["BTC", "ETH"]:
+        return {
+            "success": False,
+            "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{asset}' has no option contracts.",
+            "underlying": asset,
+            "selected_expiry": None,
+            "spot_price": 0.0,
+            "atm_strike": None,
+            "criteria": {
+                "min_bid_price": min_bid,
+                "min_spread_ticks": min_ticks,
+                "min_net_edge_pct": min_edge
+            },
+            "summary": {
+                "total_scanned": 0,
+                "total_qualified": 0,
+                "max_spread_ticks": 0.0,
+                "max_net_edge_pct": 0.0
+            },
+            "qualified_strikes": [],
+            "all_strikes": [],
+            "expiries": [],
+            "timestamp": time.time()
+        }
+
     c = client or get_delta_client()
     chain_data = get_option_chain_data(underlying=asset, expiry=expiry, client=c)
 
@@ -300,7 +325,7 @@ def evaluate_mm_strikes(
     }
 
 
-def print_terminal_table(result: dict, show_all: bool = False):
+def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = False):
     """
     Renders a formatted, colored ASCII table of selected strikes on terminal.
     """
@@ -316,8 +341,11 @@ def print_terminal_table(result: dict, show_all: bool = False):
 
     # Header Banner
     print("\n" + "=" * 115)
-    print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKE SELECTION CRITERIA{COLOR_RESET}")
-    print(f"{COLOR_DIM}  Doc Source: Nitin Joshi Framework | Time: {now_str} IST{COLOR_RESET}")
+    if not is_multi:
+        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKE SELECTION CRITERIA{COLOR_RESET}")
+        print(f"{COLOR_DIM}  Doc Source: Nitin Joshi Framework | Time: {now_str} IST{COLOR_RESET}")
+    else:
+        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{underlying}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
     print("=" * 115)
 
     # Criteria Strip
@@ -422,55 +450,88 @@ def print_terminal_table(result: dict, show_all: bool = False):
 
 
 def stream_terminal_websocket(
-    underlying: str,
-    expiry: str,
-    min_bid: float,
-    min_ticks: float,
-    min_edge: float,
+    underlying,
+    expiry: str = None,
+    min_bid: float = 0.3,
+    min_ticks: float = 5.0,
+    min_edge: float = 50.0,
     show_all: bool = False
 ):
     """
-    Subscribes all option contracts for the chosen underlying and expiry directly to Delta's WebSocket
+    Subscribes all option contracts for the chosen underlying(s) and expiry directly to Delta's WebSocket
     and streams live tick-by-tick updates to the terminal without periodic REST polling.
+    Supports single asset ('BTC' or 'ETH') or multiple assets (['BTC', 'ETH'] or 'ALL' / 'BOTH').
     """
+    if isinstance(underlying, str):
+        if underlying.upper() in ["ALL", "BOTH"]:
+            assets = ["BTC", "ETH"]
+        else:
+            assets = [underlying.upper()]
+    elif isinstance(underlying, (list, tuple, set)):
+        assets = [str(u).upper() for u in underlying]
+    else:
+        assets = ["BTC"]
+
     client = get_delta_client()
-    print(f"\n{COLOR_CYAN}[INITIALIZING]{COLOR_RESET} Fetching option catalog for {underlying}...")
-    init_res = evaluate_mm_strikes(
-        underlying=underlying,
-        expiry=expiry,
-        min_bid_price=min_bid,
-        min_spread_ticks=min_ticks,
-        min_net_edge_pct=min_edge,
-        client=client
-    )
+    underlying_data = {}
+    all_contracts = {}
+    symbols_to_sub = []
 
-    all_contracts = {x["symbol"]: x for x in init_res.get("all_strikes", []) if x.get("symbol")}
-    symbols_to_sub = list(all_contracts.keys())
-    spot_symbol = f"{underlying}USD"
-    if spot_symbol not in symbols_to_sub:
-        symbols_to_sub.append(spot_symbol)
+    for asset in assets:
+        print(f"\n{COLOR_CYAN}[INITIALIZING]{COLOR_RESET} Fetching option catalog for {asset}...")
+        init_res = evaluate_mm_strikes(
+            underlying=asset,
+            expiry=expiry,
+            min_bid_price=min_bid,
+            min_spread_ticks=min_ticks,
+            min_net_edge_pct=min_edge,
+            client=client
+        )
 
-    if not symbols_to_sub:
-        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} No option contracts found for {underlying} expiry {expiry}.")
+        if not init_res.get("success", True):
+            print(f"{COLOR_RED}[ERROR]{COLOR_RESET} {init_res.get('error', f'Failed to fetch {asset} options')}")
+            continue
+
+        strikes = init_res.get("all_strikes", [])
+        if not strikes:
+            print(f"{COLOR_RED}[WARNING]{COLOR_RESET} No active option contracts found for {asset}.")
+            continue
+
+        underlying_data[asset] = init_res
+        for x in strikes:
+            sym = x.get("symbol")
+            if sym:
+                all_contracts[sym] = (asset, x)
+                symbols_to_sub.append(sym)
+
+        spot_symbol = f"{asset}USD"
+        if spot_symbol not in symbols_to_sub:
+            symbols_to_sub.append(spot_symbol)
+
+    if not underlying_data:
+        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} No option contracts found to stream.")
         return
 
-    print(f"{COLOR_GREEN}[WEBSOCKET CONNECTING]{COLOR_RESET} Subscribing to {len(symbols_to_sub)} contracts live on Delta WebSocket...")
+    asset_title = " & ".join(underlying_data.keys())
+    print(f"{COLOR_GREEN}[WEBSOCKET CONNECTING]{COLOR_RESET} Subscribing to {len(symbols_to_sub)} contracts live on Delta WebSocket ({asset_title})...")
 
     tick_count = [0]
     last_render_time = [0.0]
     render_lock = threading.Lock()
+    is_multi = len(underlying_data) > 1
 
     def on_tick_received(symbol, quote_dict, raw_data):
         tick_count[0] += 1
         sym_upper = symbol.upper()
 
-        if sym_upper == spot_symbol:
-            new_spot = quote_dict.get("spot_price") or quote_dict.get("mark_price") or quote_dict.get("ltp")
-            if new_spot:
-                init_res["spot_price"] = float(new_spot)
+        for asset in underlying_data:
+            if sym_upper == f"{asset}USD":
+                new_spot = quote_dict.get("spot_price") or quote_dict.get("mark_price") or quote_dict.get("ltp")
+                if new_spot:
+                    underlying_data[asset]["spot_price"] = float(new_spot)
 
         if sym_upper in all_contracts:
-            contract = all_contracts[sym_upper]
+            asset, contract = all_contracts[sym_upper]
             quotes = raw_data.get("quotes") or {}
             raw_bid = quotes.get("best_bid") if quotes.get("best_bid") is not None else quote_dict.get("bid")
             raw_ask = quotes.get("best_ask") if quotes.get("best_ask") is not None else quote_dict.get("ask")
@@ -484,7 +545,7 @@ def stream_terminal_websocket(
                 contract["ltp"] = float(raw_ltp)
 
             # Re-evaluate MM metrics in real-time
-            tick = contract.get("tick_size") or 0.1
+            tick = contract.get("tick_size") or (0.1 if asset == "BTC" else 0.05)
             b = contract.get("bid")
             a = contract.get("ask")
             if b is not None and a is not None and b > 0 and a > 0 and a >= b:
@@ -515,22 +576,25 @@ def stream_terminal_websocket(
         if now - last_render_time[0] >= 0.25:
             last_render_time[0] = now
             with render_lock:
-                all_list = list(all_contracts.values())
-                qual_list = [x for x in all_list if x.get("qualified")]
-                qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
+                for asset in underlying_data:
+                    all_list = [c for a, c in all_contracts.values() if a == asset]
+                    qual_list = [x for x in all_list if x.get("qualified")]
+                    qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
 
-                init_res["all_strikes"] = all_list
-                init_res["qualified_strikes"] = qual_list
-                init_res["summary"] = {
-                    "total_scanned": len(all_list),
-                    "total_qualified": len(qual_list),
-                    "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
-                    "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
-                    "total_ticks": tick_count[0]
-                }
+                    underlying_data[asset]["all_strikes"] = all_list
+                    underlying_data[asset]["qualified_strikes"] = qual_list
+                    underlying_data[asset]["summary"] = {
+                        "total_scanned": len(all_list),
+                        "total_qualified": len(qual_list),
+                        "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
+                        "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
+                        "total_ticks": tick_count[0]
+                    }
+
                 os.system("cls" if os.name == "nt" else "clear")
-                print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts")
-                print_terminal_table(init_res, show_all=show_all)
+                print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title})")
+                for asset, res in underlying_data.items():
+                    print_terminal_table(res, show_all=show_all, is_multi=is_multi)
 
     ws_manager = DeltaWebSocketManager(
         symbols=symbols_to_sub,
@@ -541,7 +605,8 @@ def stream_terminal_websocket(
 
     try:
         # Initial display
-        print_terminal_table(init_res, show_all=show_all)
+        for asset, res in underlying_data.items():
+            print_terminal_table(res, show_all=show_all, is_multi=is_multi)
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
@@ -558,8 +623,15 @@ def run_cli():
     )
     parser.add_argument(
         "-u", "--underlying",
-        default=defaults["underlying"],
-        help=f"Underlying asset symbol (e.g. BTC, ETH, SOL, XRP). Default: {defaults['underlying']}"
+        type=str.upper,
+        choices=["BTC", "ETH", "ALL", "BOTH"],
+        default=defaults["underlying"] if defaults["underlying"] in ["BTC", "ETH"] else "BTC",
+        help=f"Underlying asset symbol (BTC, ETH, or ALL to scan both). Default: {defaults['underlying']}"
+    )
+    parser.add_argument(
+        "-b", "--both",
+        action="store_true",
+        help="Scan and watch both BTC and ETH simultaneously"
     )
     parser.add_argument(
         "-e", "--expiry",
@@ -582,7 +654,7 @@ def run_cli():
         "--min-edge",
         type=float,
         default=defaults["min_net_edge_pct"],
-        help=f"Minimum Net Edge Percentage threshold. Default: {defaults['min_net_edge_pct']}%"
+        help=f"Minimum Net Edge Percentage threshold. Default: {defaults['min_net_edge_pct']}%%"
     )
     parser.add_argument(
         "-a", "--all",
@@ -597,23 +669,28 @@ def run_cli():
 
     args = parser.parse_args()
 
+    watch_both = args.both or (args.underlying in ["ALL", "BOTH"])
+    underlyings = ["BTC", "ETH"] if watch_both else [args.underlying]
+
     client = get_delta_client()
 
     if not args.watch:
         # One-shot scan
-        res = evaluate_mm_strikes(
-            underlying=args.underlying,
-            expiry=args.expiry,
-            min_bid_price=args.min_bid,
-            min_spread_ticks=args.min_ticks,
-            min_net_edge_pct=args.min_edge,
-            client=client
-        )
-        print_terminal_table(res, show_all=args.all)
+        is_multi = len(underlyings) > 1
+        for sym in underlyings:
+            res = evaluate_mm_strikes(
+                underlying=sym,
+                expiry=args.expiry,
+                min_bid_price=args.min_bid,
+                min_spread_ticks=args.min_ticks,
+                min_net_edge_pct=args.min_edge,
+                client=client
+            )
+            print_terminal_table(res, show_all=args.all, is_multi=is_multi)
     else:
         # Live tick-by-tick WebSocket streaming
         stream_terminal_websocket(
-            underlying=args.underlying,
+            underlying=underlyings,
             expiry=args.expiry,
             min_bid=args.min_bid,
             min_ticks=args.min_ticks,

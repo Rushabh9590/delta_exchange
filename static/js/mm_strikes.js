@@ -46,7 +46,12 @@ async function initMarketMakingModule() {
  * and immediately subscribes all option contracts to the live WebSocket stream.
  */
 async function loadMarketMakingStrikes(underlying = null, expiry = null) {
-  if (underlying) mmCurrentUnderlying = underlying.toUpperCase();
+  if (underlying) {
+    const cleanAsset = underlying.toUpperCase();
+    mmCurrentUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
+  } else if (mmCurrentUnderlying !== 'ETH') {
+    mmCurrentUnderlying = 'BTC';
+  }
   if (expiry !== null) mmSelectedExpiry = expiry;
 
   const minBid = document.getElementById('mmInpMinBid')?.value;
@@ -173,12 +178,6 @@ function renderMarketMakingView(data) {
     elMaxEdge.textContent = `${(summary.max_net_edge_pct || 0).toFixed(1)}%`;
   }
 
-  // Update Spot & ATM Info Strip
-  const elSpot = document.getElementById('mmSpotVal');
-  if (elSpot) elSpot.textContent = `$${Number(data.spot_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  const elAtm = document.getElementById('mmAtmVal');
-  if (elAtm) elAtm.textContent = data.atm_strike ? `${data.atm_strike}` : '--';
 
   // Drawer Badge
   const elDrawerBadge = document.getElementById('drawerMmBadge');
@@ -460,7 +459,8 @@ function handleMmStrikesTickUpdate(data) {
  * Handles switching underlying asset
  */
 function onMmUnderlyingChange(asset) {
-  mmCurrentUnderlying = asset.toUpperCase();
+  const cleanAsset = (asset || 'BTC').toUpperCase();
+  mmCurrentUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
   mmSelectedExpiry = '';
   loadMarketMakingStrikes(mmCurrentUnderlying, '');
 }

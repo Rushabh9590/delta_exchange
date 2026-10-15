@@ -57,21 +57,20 @@
   background: rgba(16, 185, 129, 0.05);
   border: 1px solid rgba(16, 185, 129, 0.2);
   border-radius: var(--radius-md, 8px);
-  padding: 10px 16px;
+  padding: 8px 14px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
+  overflow-x: auto;
 }
 
 .mm-formula-text {
   display: flex;
   align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .mm-formula-chip {
@@ -82,12 +81,8 @@
   font-family: var(--font-mono);
   font-size: 0.76rem;
   color: var(--text-primary);
-}
-
-.mm-formula-note {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  font-style: italic;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Control & Filter Strip */

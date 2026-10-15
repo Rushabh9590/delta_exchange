@@ -512,11 +512,24 @@ def square_off_all_open_positions(client: DeltaRestClient = None) -> dict:
     }
 
 
+SUPPORTED_OPTION_UNDERLYINGS = ["BTC", "ETH"]
+
+
 def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient = None) -> dict:
     """
     Fetches available expiration dates, strikes, contract value, and live underlying prices for an asset.
     """
     c = client or get_client()
+    underlying = (underlying or "BTC").strip().upper()
+
+    if underlying not in SUPPORTED_OPTION_UNDERLYINGS:
+        return {
+            "success": False,
+            "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+            "underlying": underlying,
+            "expiries": []
+        }
+
     all_prods = get_all_products(c)
 
     # Fetch underlying ticker for spot & mark price & contract value
@@ -672,7 +685,26 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
     Fetches full live option chain matrix (Calls & Puts) for specified underlying asset and expiry.
     """
     c = client or get_client()
+    underlying = (underlying or "BTC").strip().upper()
+    if underlying not in SUPPORTED_OPTION_UNDERLYINGS:
+        return {
+            "success": False,
+            "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+            "underlying": underlying,
+            "chain": [],
+            "expiries": []
+        }
+
     exp_info = get_options_expiries_and_strikes(underlying=underlying, client=c)
+    if not exp_info.get("success", True):
+        return {
+            "success": False,
+            "error": exp_info.get("error", f"No option contracts found for {underlying}"),
+            "underlying": underlying,
+            "chain": [],
+            "expiries": []
+        }
+
     expiries = exp_info.get("expiries", [])
 
     selected_expiry = expiry

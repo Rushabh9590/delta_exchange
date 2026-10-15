@@ -418,8 +418,6 @@
             <select id="selUnderlying" class="config-select" onchange="onUnderlyingChange()">
               <option value="BTC" selected>Bitcoin (BTC)</option>
               <option value="ETH">Ethereum (ETH)</option>
-              <option value="SOL">Solana (SOL)</option>
-              <option value="XRP">Ripple (XRP)</option>
             </select>
             <div class="field-sub-info">
               <span class="sub-info-pill live-spot-pill" id="spotPriceBadge" title="Live Delta Exchange Spot Price">
@@ -598,8 +596,6 @@
               <button type="button" class="oc-asset-btn active" data-asset="BTC"
                 onclick="loadOptionChain('BTC')">BTC</button>
               <button type="button" class="oc-asset-btn" data-asset="ETH" onclick="loadOptionChain('ETH')">ETH</button>
-              <button type="button" class="oc-asset-btn" data-asset="SOL" onclick="loadOptionChain('SOL')">SOL</button>
-              <button type="button" class="oc-asset-btn" data-asset="XRP" onclick="loadOptionChain('XRP')">XRP</button>
             </div>
 
             <!-- Expiration Date Dropdown -->
@@ -740,8 +736,6 @@
             <div class="mm-asset-tabs">
               <button type="button" class="mm-asset-btn active" data-asset="BTC" onclick="onMmUnderlyingChange('BTC')">BTC</button>
               <button type="button" class="mm-asset-btn" data-asset="ETH" onclick="onMmUnderlyingChange('ETH')">ETH</button>
-              <button type="button" class="mm-asset-btn" data-asset="SOL" onclick="onMmUnderlyingChange('SOL')">SOL</button>
-              <button type="button" class="mm-asset-btn" data-asset="XRP" onclick="onMmUnderlyingChange('XRP')">XRP</button>
             </div>
 
             <!-- Expiry Selector -->
@@ -777,9 +771,6 @@
             <span class="mm-formula-chip">Net Edge = Spread − (2 × Tick)</span>
             <span class="mm-formula-chip">Net Edge % = (Net Edge / Mid) × 100</span>
             <span class="mm-formula-chip">Spread Ticks = Spread / Tick</span>
-          </div>
-          <div class="mm-formula-note">
-            *Assumes 2 ticks of trading cost/slippage deduction per Nitin Joshi MM Framework
           </div>
         </div>
 
@@ -837,12 +828,6 @@
             <span class="mm-stat-label">Highest Net Edge %</span>
             <div class="mm-stat-val text-green" id="mmStatMaxEdge">0.0%</div>
             <div class="mm-stat-sub">Max net edge after 2 ticks</div>
-          </div>
-
-          <div class="mm-stat-card">
-            <span class="mm-stat-label">Spot & ATM Reference</span>
-            <div class="mm-stat-val" id="mmSpotVal" style="font-size: 1.1rem;">$--</div>
-            <div class="mm-stat-sub">ATM Strike: <span id="mmAtmVal" class="mono-num" style="font-weight:700; color:var(--text-primary); margin-left:4px;">--</span></div>
           </div>
         </div>
 

@@ -684,7 +684,15 @@ def get_options_expiries():
     """
     try:
         client = get_client()
-        underlying = request.args.get("underlying", "BTC").upper()
+        underlying = request.args.get("underlying", "BTC").strip().upper()
+        if underlying not in ["BTC", "ETH"]:
+            return jsonify({
+                "success": False,
+                "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+                "underlying": underlying,
+                "expiries": []
+            }), 400
+
         data = get_options_expiries_and_strikes(underlying=underlying, client=client)
         return jsonify({
             "success": True,
@@ -701,7 +709,16 @@ def get_options_chain():
     """
     try:
         client = get_client()
-        underlying = request.args.get("underlying", "BTC").upper()
+        underlying = request.args.get("underlying", "BTC").strip().upper()
+        if underlying not in ["BTC", "ETH"]:
+            return jsonify({
+                "success": False,
+                "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+                "underlying": underlying,
+                "chain": [],
+                "expiries": []
+            }), 400
+
         expiry = request.args.get("expiry", None)
         data = get_option_chain_data(underlying=underlying, expiry=expiry, client=client)
 
@@ -745,7 +762,17 @@ def get_market_making_strikes():
     (Spread, Mid, Net Edge, Net Edge %, Spread Ticks), and returns qualified strikes.
     """
     try:
-        underlying = request.args.get("underlying", "BTC").upper()
+        underlying = request.args.get("underlying", "BTC").strip().upper()
+        if underlying not in ["BTC", "ETH"]:
+            return jsonify({
+                "success": False,
+                "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+                "underlying": underlying,
+                "all_strikes": [],
+                "qualified_strikes": [],
+                "expiries": []
+            }), 400
+
         expiry = request.args.get("expiry", None)
 
         def _parse_float(val, fallback=None):

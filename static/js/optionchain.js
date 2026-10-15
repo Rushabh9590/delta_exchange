@@ -57,16 +57,18 @@ async function loadOptionChain(underlying = 'BTC', expiry = '', isBackground = f
   if (ocIsFetching && isBackground) return;
   ocIsFetching = true;
 
+  const cleanAsset = (underlying || 'BTC').toUpperCase();
+  const safeUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
   const prevUnderlying = ocCurrentUnderlying;
   const prevExpiry = ocSelectedExpiry;
-  ocCurrentUnderlying = underlying;
+  ocCurrentUnderlying = safeUnderlying;
   try {
-    localStorage.setItem('delta_oc_underlying', underlying);
+    localStorage.setItem('delta_oc_underlying', safeUnderlying);
   } catch (e) { }
 
   // Update asset switcher buttons in Option Chain header
   document.querySelectorAll('.oc-asset-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.asset === underlying);
+    btn.classList.toggle('active', btn.dataset.asset === safeUnderlying);
   });
 
   const tbody = document.getElementById('ocTbody');

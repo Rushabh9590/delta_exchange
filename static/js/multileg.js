@@ -86,12 +86,13 @@ function onSizeInputChange() {
  * Loads expiration dates and available strikes for selected underlying asset
  */
 async function loadExpiriesForUnderlying(underlying = 'BTC') {
+  const cleanUnderlying = (underlying || 'BTC').toUpperCase() === 'ETH' ? 'ETH' : 'BTC';
   const selExpiry = document.getElementById('selExpiry');
   if (!selExpiry) return;
   selExpiry.innerHTML = '<option value="">Loading expiries from Master Scrip...</option>';
 
   try {
-    const data = await ApiService.getOptionsExpiries(underlying);
+    const data = await ApiService.getOptionsExpiries(cleanUnderlying);
     if (data.success) {
       currentUnderlyingInfo = {
         underlying: data.underlying || underlying,
@@ -252,7 +253,10 @@ function onManualSymbolChange(idx, val) {
 }
 
 function onUnderlyingChange() {
-  const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  let underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  underlying = underlying.toUpperCase() === 'ETH' ? 'ETH' : 'BTC';
+  const sel = document.getElementById('selUnderlying');
+  if (sel && sel.value !== underlying) sel.value = underlying;
   try {
     localStorage.setItem('delta_studio_underlying', underlying);
   } catch (e) { }
