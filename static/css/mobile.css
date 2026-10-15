@@ -268,10 +268,19 @@
     padding: 8px 8px;
   }
 
-  .leg-size-input {
+  .leg-size-group {
     grid-area: size;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .leg-size-input {
     font-size: 0.82rem;
-    padding: 8px 8px;
+    padding: 8px 6px;
+    flex: 1;
+    min-width: 40px;
   }
 
   /* Strategy Margin Requirement Bar Mobile */

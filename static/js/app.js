@@ -394,6 +394,10 @@ function renderDashboardValues() {
   if (shortCount) shortCount.textContent = `${s.shorts_count || 0} Short`;
   const posBadge = document.getElementById('posBadge');
   if (posBadge) posBadge.textContent = `${count} ACTIVE`;
+
+  if (typeof updateStrategyMarginRequirement === 'function') {
+    updateStrategyMarginRequirement();
+  }
 }
 
 // Direct WebSocket Live Stream Instance

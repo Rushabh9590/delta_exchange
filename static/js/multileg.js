@@ -318,36 +318,36 @@ function applyStrategyPreset(presetName, btn = null) {
   legRows = [];
 
   if (presetName === 'short_straddle') {
-    legRows.push({ side: 'sell', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'sell', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else if (presetName === 'long_straddle') {
-    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else if (presetName === 'short_strangle') {
     const otmCall = getClosestStrike(atm * 1.02, expiry);
     const otmPut = getClosestStrike(atm * 0.98, expiry);
-    legRows.push({ side: 'sell', option_type: 'call', strike: otmCall, symbol: `C-${underlying}-${otmCall}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'put', strike: otmPut, symbol: `P-${underlying}-${otmPut}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'sell', option_type: 'call', strike: otmCall, symbol: `C-${underlying}-${otmCall}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'put', strike: otmPut, symbol: `P-${underlying}-${otmPut}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else if (presetName === 'bull_call') {
     const higherStrike = getClosestStrike(atm * 1.03, expiry);
-    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'call', strike: higherStrike, symbol: `C-${underlying}-${higherStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'call', strike: higherStrike, symbol: `C-${underlying}-${higherStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else if (presetName === 'bear_put') {
     const lowerStrike = getClosestStrike(atm * 0.97, expiry);
-    legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'put', strike: lowerStrike, symbol: `P-${underlying}-${lowerStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'buy', option_type: 'put', strike: atm, symbol: `P-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'put', strike: lowerStrike, symbol: `P-${underlying}-${lowerStrike}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else if (presetName === 'iron_condor') {
     const pBuy = getClosestStrike(atm * 0.94, expiry);
     const pSell = getClosestStrike(atm * 0.97, expiry);
     const cSell = getClosestStrike(atm * 1.03, expiry);
     const cBuy = getClosestStrike(atm * 1.06, expiry);
-    legRows.push({ side: 'buy', option_type: 'put', strike: pBuy, symbol: `P-${underlying}-${pBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'put', strike: pSell, symbol: `P-${underlying}-${pSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'sell', option_type: 'call', strike: cSell, symbol: `C-${underlying}-${cSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
-    legRows.push({ side: 'buy', option_type: 'call', strike: cBuy, symbol: `C-${underlying}-${cBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'buy', option_type: 'put', strike: pBuy, symbol: `P-${underlying}-${pBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'put', strike: pSell, symbol: `P-${underlying}-${pSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'sell', option_type: 'call', strike: cSell, symbol: `C-${underlying}-${cSell}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
+    legRows.push({ side: 'buy', option_type: 'call', strike: cBuy, symbol: `C-${underlying}-${cBuy}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   } else {
     // Custom Builder - default 1 Option leg with LIMIT order type
-    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '' });
+    legRows.push({ side: 'buy', option_type: 'call', strike: atm, symbol: `C-${underlying}-${atm}-${expiry}`, order_type: 'limit', size: size, limit_price: '', use_full_margin: false });
   }
 
   renderLegRows();
@@ -362,7 +362,10 @@ function recalculatePresetStrikes() {
 
 function updateAllLegsSize() {
   const sz = parseInt(document.getElementById('inpDefaultSize')?.value) || 1;
-  legRows.forEach(leg => leg.size = sz);
+  legRows.forEach(leg => {
+    leg.size = sz;
+    leg.use_full_margin = false;
+  });
   renderLegRows();
   updateUnderlyingPriceAndLotDisplay();
 }
@@ -381,7 +384,8 @@ function addNewLegRow() {
     symbol: `C-${underlying}-${atm}-${expiry}`,
     order_type: 'limit',
     size: sz,
-    limit_price: ''
+    limit_price: '',
+    use_full_margin: false
   });
   renderLegRows();
   updateUnderlyingPriceAndLotDisplay();
@@ -440,9 +444,163 @@ function updateLegField(idx, field, value) {
     if (field === 'order_type') {
       renderLegRows();
     } else if (field === 'limit_price' || field === 'size') {
+      if (field === 'size') {
+        legRows[idx].use_full_margin = false;
+      }
       updateStrategyMarginRequirement();
     }
   }
+}
+
+/**
+ * Calculates required margin in USD for 1 lot of a specific option leg
+ * Uses Delta Exchange Exact Option Margin formula
+ */
+function getUnitMarginUSDForLeg(leg) {
+  const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  const spotUSD = currentUnderlyingInfo.spot_price || currentUnderlyingInfo.underlying_price || currentUnderlyingInfo.futures_price || currentUnderlyingInfo.ltp || (underlying === 'BTC' ? 86000 : 2500);
+  const contractVal = currentUnderlyingInfo.contract_value || (underlying === 'BTC' ? 0.001 : (underlying === 'ETH' ? 0.01 : 1.0));
+
+  const strike = parseFloat(leg.strike) || spotUSD;
+  const isBuy = (leg.side || 'buy').toLowerCase() === 'buy';
+  const isCall = (leg.option_type || 'call').toLowerCase() === 'call';
+
+  const limPrice = parseFloat(leg.limit_price);
+  const estPrice = (leg.ltp && leg.ltp > 0) ? leg.ltp : (leg.mark_price && leg.mark_price > 0 ? leg.mark_price : 0.1);
+  const premiumUSD = (!isNaN(limPrice) && limPrice > 0) ? limPrice : estPrice;
+
+  if (isBuy) {
+    // Long Option Margin: Premium * 1 * ContractValue
+    return premiumUSD * contractVal;
+  } else {
+    // Short Option Margin (Delta Exchange Exact Formula):
+    // Margin per unit = Premium + Max( 0.05 * Spot - OTM, 0.005 * Spot )
+    let otmAmount = 0;
+    if (isCall) {
+      otmAmount = Math.max(0, strike - spotUSD);
+    } else {
+      otmAmount = Math.max(0, spotUSD - strike);
+    }
+
+    const baseMargin = 0.05 * spotUSD;
+    const minMarginFloor = 0.005 * (isCall ? spotUSD : strike);
+    const otmAdjusted = Math.max(baseMargin - otmAmount, minMarginFloor);
+    const shortMarginPerUnit = premiumUSD + otmAdjusted;
+
+    return shortMarginPerUnit * contractVal;
+  }
+}
+
+/**
+ * Automatically recalculates lot sizes for any legs marked with use_full_margin
+ */
+function recalculateFullMarginLots(skipRender = false) {
+  if (!legRows || legRows.length === 0) return false;
+
+  const fullLegs = legRows.filter(l => l.use_full_margin);
+  if (fullLegs.length === 0) return false;
+
+  const availUSD = currentWallet.usd_available !== undefined ? Number(currentWallet.usd_available) : 0;
+  if (availUSD <= 0) {
+    fullLegs.forEach(l => { l.size = 1; });
+    return true;
+  }
+
+  // Margin reserved for legs that have manual (fixed) lot sizes
+  let fixedMarginUSD = 0;
+  legRows.forEach(l => {
+    if (!l.use_full_margin) {
+      const sz = parseInt(l.size) || 1;
+      fixedMarginUSD += getUnitMarginUSDForLeg(l) * sz;
+    }
+  });
+
+  const remainingAvailUSD = Math.max(0, availUSD - fixedMarginUSD);
+  const totalUnitMargin = fullLegs.reduce((sum, l) => sum + getUnitMarginUSDForLeg(l), 0);
+
+  if (totalUnitMargin > 0) {
+    const calculatedLots = Math.floor(remainingAvailUSD / totalUnitMargin);
+    const finalLots = calculatedLots > 0 ? calculatedLots : 1;
+    let changed = false;
+
+    fullLegs.forEach(l => {
+      if (l.size !== finalLots) {
+        l.size = finalLots;
+        changed = true;
+      }
+    });
+
+    if (changed || skipRender) {
+      fullLegs.forEach(l => {
+        const idx = legRows.indexOf(l);
+        const inp = document.getElementById(`legSizeInp_${idx}`);
+        if (inp) {
+          inp.value = l.size;
+        }
+      });
+      if (!skipRender) {
+        renderLegRows();
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Toggles Full Margin mode on an individual leg
+ */
+function toggleLegFullMargin(idx, isChecked) {
+  const leg = legRows[idx];
+  if (!leg) return;
+
+  leg.use_full_margin = isChecked;
+
+  if (isChecked) {
+    recalculateFullMarginLots(false);
+    updateStrategyMarginRequirement();
+    const lots = leg.size;
+    const legUnit = getUnitMarginUSDForLeg(leg);
+    const estMarginUSD = lots * legUnit;
+    if (typeof showToast === 'function') {
+      showToast(`⚡ Leg #${idx + 1} Full Margin enabled: auto-calculated ${lots} Lots (~${formatMoney(estMarginUSD, selectedCurrency, 2, 2)})`, 'success');
+    }
+  } else {
+    renderLegRows();
+    updateStrategyMarginRequirement();
+    if (typeof showToast === 'function') {
+      showToast(`Leg #${idx + 1} switched to manual lot sizing.`, 'info');
+    }
+  }
+}
+
+function onManualLegSizeChange(idx, val) {
+  const leg = legRows[idx];
+  if (!leg) return;
+  leg.use_full_margin = false;
+  const num = parseInt(val) || 1;
+  leg.size = Math.max(1, num);
+  renderLegRows();
+}
+
+function onManualLegSizeInput(idx, val) {
+  const leg = legRows[idx];
+  if (!leg) return;
+  if (leg.use_full_margin) {
+    leg.use_full_margin = false;
+    const chk = document.getElementById(`legFullMarginChk_${idx}`);
+    if (chk) chk.checked = false;
+    const pill = chk?.closest('.leg-full-margin-pill');
+    if (pill) pill.classList.remove('active');
+    const inp = document.getElementById(`legSizeInp_${idx}`);
+    if (inp) {
+      inp.classList.remove('full-margin-active');
+      inp.readOnly = false;
+    }
+  }
+  const num = parseInt(val) || 1;
+  leg.size = Math.max(1, num);
+  updateStrategyMarginRequirement();
 }
 
 /**
@@ -451,6 +609,9 @@ function updateLegField(idx, field, value) {
  * Long Option: Premium * Size * Contract Value
  */
 function updateStrategyMarginRequirement() {
+  // Recalculate lots dynamically for any leg using Full Margin
+  recalculateFullMarginLots(true);
+
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
   const spotUSD = currentUnderlyingInfo.spot_price || currentUnderlyingInfo.underlying_price || currentUnderlyingInfo.futures_price || currentUnderlyingInfo.ltp || (underlying === 'BTC' ? 86000 : 2500);
   const contractVal = currentUnderlyingInfo.contract_value || (underlying === 'BTC' ? 0.001 : (underlying === 'ETH' ? 0.01 : 1.0));
@@ -704,7 +865,13 @@ function renderLegRows() {
 
         <input type="number" step="any" id="legPriceInp_${idx}" class="leg-price-input" placeholder="Price" value="${leg.limit_price || ''}" ${!isLimit ? 'disabled' : ''} oninput="updateLegField(${idx}, 'limit_price', this.value)" onchange="updateLegField(${idx}, 'limit_price', this.value)" />
 
-        <input type="number" class="leg-size-input" value="${leg.size}" min="1" placeholder="Size" onchange="updateLegField(${idx}, 'size', this.value)" />
+        <div class="leg-size-group">
+          <input type="number" id="legSizeInp_${idx}" class="leg-size-input ${leg.use_full_margin ? 'full-margin-active' : ''}" value="${leg.size}" min="1" placeholder="Size" ${leg.use_full_margin ? 'readonly title="Auto-calculated using full margin. Untick FULL to enter manually."' : ''} oninput="onManualLegSizeInput(${idx}, this.value)" onchange="onManualLegSizeChange(${idx}, this.value)" />
+          <label class="leg-full-margin-pill ${leg.use_full_margin ? 'active' : ''}" title="Tick to use full available margin for this leg">
+            <input type="checkbox" id="legFullMarginChk_${idx}" class="leg-full-margin-chk" ${leg.use_full_margin ? 'checked' : ''} onchange="toggleLegFullMargin(${idx}, this.checked)" />
+            <span class="full-margin-label-text">FULL</span>
+          </label>
+        </div>
 
         <button class="btn-delete-leg" onclick="deleteLegRow(${idx})" title="Delete Leg">&times;</button>
       </div>

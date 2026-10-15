@@ -438,7 +438,8 @@ function addOptionLegToStudio(symbol, side = 'buy', optionType = 'call', strike 
       symbol: symbol,
       order_type: 'limit',
       size: sz,
-      limit_price: limitPrice > 0 ? limitPrice : ''
+      limit_price: limitPrice > 0 ? limitPrice : '',
+      use_full_margin: false
     });
 
     if (typeof renderLegRows === 'function') {

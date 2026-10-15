@@ -266,7 +266,7 @@
 /* Legs Table Header & Dynamic Legs */
 .legs-header-row {
   display: grid;
-  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 85px 38px;
+  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 135px 38px;
   gap: 10px;
   padding: 8px 14px 2px;
   color: var(--text-muted);
@@ -284,7 +284,7 @@
 
 .leg-row {
   display: grid;
-  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 85px 38px;
+  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 135px 38px;
   gap: 10px;
   align-items: center;
   background: var(--bg-card);
@@ -500,7 +500,7 @@
   outline: none;
 }
 
-.leg-price-input, .leg-size-input {
+.leg-price-input {
   font-family: var(--font-mono);
   font-size: 0.82rem;
   background: var(--bg-input);
@@ -510,6 +510,84 @@
   border-radius: var(--radius-sm);
   outline: none;
   width: 100%;
+}
+
+.leg-size-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+
+.leg-size-input {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 7px 6px;
+  border-radius: var(--radius-sm);
+  outline: none;
+  width: 100%;
+  flex: 1;
+  min-width: 44px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.leg-size-input.full-margin-active {
+  border-color: rgba(0, 220, 130, 0.5);
+  background: rgba(0, 220, 130, 0.08);
+  color: var(--accent-green);
+  font-weight: 800;
+  cursor: default;
+}
+
+.leg-full-margin-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  height: 33px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.leg-full-margin-pill:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.leg-full-margin-pill.active {
+  background: rgba(0, 220, 130, 0.15);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 8px rgba(0, 220, 130, 0.25);
+}
+
+.leg-full-margin-chk {
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  accent-color: var(--accent-green);
+  margin: 0;
+}
+
+.full-margin-label-text {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.leg-full-margin-pill.active .full-margin-label-text {
+  color: var(--accent-green);
 }
 
 .leg-price-input:disabled {
