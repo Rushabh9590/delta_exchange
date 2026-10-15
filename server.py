@@ -33,6 +33,7 @@ from multileg import (
     get_master_status,
     start_master_sync_daemon
 )
+from mm_strikes import evaluate_mm_strikes, get_mm_config
 from websocket import DeltaWebSocketManager
 
 # Start background master scrip auto-sync daemon (adaptive 15m default, 45s during 5:30 PM IST rollover window)
@@ -733,6 +734,52 @@ def get_options_chain():
                 ws_mgr.subscribe_symbols(symbols_to_sub)
 
         return jsonify(data)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/strikes", methods=["GET"])
+def get_market_making_strikes():
+    """
+    Fetches live option chain, applies Market Making Strike Selection Criteria
+    (Spread, Mid, Net Edge, Net Edge %, Spread Ticks), and returns qualified strikes.
+    """
+    try:
+        underlying = request.args.get("underlying", "BTC").upper()
+        expiry = request.args.get("expiry", None)
+
+        def _parse_float(val, fallback=None):
+            try:
+                return float(val) if val is not None and str(val).strip() != "" else fallback
+            except (ValueError, TypeError):
+                return fallback
+
+        min_bid = _parse_float(request.args.get("min_bid"))
+        min_ticks = _parse_float(request.args.get("min_ticks"))
+        min_edge = _parse_float(request.args.get("min_edge"))
+
+        client = get_client()
+        data = evaluate_mm_strikes(
+            underlying=underlying,
+            expiry=expiry,
+            min_bid_price=min_bid,
+            min_spread_ticks=min_ticks,
+            min_net_edge_pct=min_edge,
+            client=client
+        )
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/config", methods=["GET"])
+def get_market_making_config():
+    """
+    Returns default Market Making criteria from .env configuration.
+    """
+    try:
+        cfg = get_mm_config()
+        return jsonify({"success": True, "config": cfg})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

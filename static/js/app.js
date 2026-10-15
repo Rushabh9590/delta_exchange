@@ -26,8 +26,8 @@ let serverTimeOffset = 0;
  * Gets the active tab to restore on page reload from URL hash or localStorage
  */
 function getInitialNavTab() {
-  const validTabs = ['positions', 'studio', 'chain'];
-  // 1. Prioritize URL hash (e.g. #positions, #studio, #chain)
+  const validTabs = ['positions', 'studio', 'chain', 'mm'];
+  // 1. Prioritize URL hash (e.g. #positions, #studio, #chain, #mm)
   const hash = (window.location.hash || '').replace('#', '').toLowerCase();
   if (validTabs.includes(hash)) {
     return hash;
@@ -132,21 +132,28 @@ function switchNavTab(tabName, updateUrl = true) {
   document.getElementById('tabNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('tabNavStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('tabNavChain')?.classList.toggle('active', tabName === 'chain');
+  document.getElementById('tabNavMM')?.classList.toggle('active', tabName === 'mm');
 
   // Sidebar drawer menu items
   document.getElementById('drawerNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('drawerNavStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('drawerNavChain')?.classList.toggle('active', tabName === 'chain');
+  document.getElementById('drawerNavMM')?.classList.toggle('active', tabName === 'mm');
 
   // Content views
   document.getElementById('viewPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('viewStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('viewOptionChain')?.classList.toggle('active', tabName === 'chain');
+  document.getElementById('viewMmStrikes')?.classList.toggle('active', tabName === 'mm');
 
   if (tabName === 'chain' && typeof loadOptionChain === 'function') {
     const curAsset = (typeof ocCurrentUnderlying !== 'undefined' && ocCurrentUnderlying) ? ocCurrentUnderlying : (localStorage.getItem('delta_oc_underlying') || 'BTC');
     const curExp = (typeof ocSelectedExpiry !== 'undefined') ? ocSelectedExpiry : '';
     loadOptionChain(curAsset, curExp);
+  } else if (tabName === 'mm' && typeof loadMarketMakingStrikes === 'function') {
+    const curAsset = (typeof mmCurrentUnderlying !== 'undefined' && mmCurrentUnderlying) ? mmCurrentUnderlying : 'BTC';
+    const curExp = (typeof mmSelectedExpiry !== 'undefined') ? mmSelectedExpiry : '';
+    loadMarketMakingStrikes(curAsset, curExp);
   } else if (tabName === 'studio') {
     if (typeof updateUnderlyingPriceAndLotDisplay === 'function') {
       updateUnderlyingPriceAndLotDisplay();

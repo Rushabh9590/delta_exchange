@@ -216,5 +216,27 @@ const ApiService = {
   async refreshMasterScrips() {
     const res = await fetch('/api/master/refresh', { method: 'POST' });
     return await res.json();
+  },
+
+  /**
+   * Fetches market making evaluated strikes
+   */
+  async getMarketMakingStrikes(params = {}) {
+    const q = new URLSearchParams();
+    if (params.underlying) q.set('underlying', params.underlying);
+    if (params.expiry) q.set('expiry', params.expiry);
+    if (params.min_bid !== undefined && params.min_bid !== '') q.set('min_bid', params.min_bid);
+    if (params.min_ticks !== undefined && params.min_ticks !== '') q.set('min_ticks', params.min_ticks);
+    if (params.min_edge !== undefined && params.min_edge !== '') q.set('min_edge', params.min_edge);
+    const res = await fetch(`/api/mm/strikes?${q.toString()}`);
+    return await res.json();
+  },
+
+  /**
+   * Fetches default market making configuration
+   */
+  async getMarketMakingConfig() {
+    const res = await fetch('/api/mm/config');
+    return await res.json();
   }
 };

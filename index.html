@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/static/css/positions.css" />
   <link rel="stylesheet" href="/static/css/multileg.css" />
   <link rel="stylesheet" href="/static/css/optionchain.css" />
+  <link rel="stylesheet" href="/static/css/mm_strikes.css" />
   <link rel="stylesheet" href="/static/css/mobile.css" />
 </head>
 
@@ -93,6 +94,22 @@
         </div>
         <span class="drawer-badge"
           style="background: rgba(0, 210, 255, 0.15); color: #00d2ff; border-color: rgba(0, 210, 255, 0.3);">Real-Time</span>
+      </button>
+
+      <!-- Menu Item 4: Market Making Strike Selection -->
+      <button class="drawer-menu-item" id="drawerNavMM" onclick="navigateToTab('mm')">
+        <div class="drawer-item-icon icon-mm" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <div class="drawer-item-text">
+          <span class="drawer-item-title">Market Making Strikes</span>
+          <span class="drawer-item-desc">Edge & Spread Ticks Filter</span>
+        </div>
+        <span class="drawer-badge" id="drawerMmBadge"
+          style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">MM Edge</span>
       </button>
     </div>
 
@@ -704,6 +721,163 @@
       </div>
     </div>
 
+    <!-- ===================================================================== -->
+    <!-- VIEW 4: MARKET MAKING STRIKE SELECTION CRITERIA                      -->
+    <!-- ===================================================================== -->
+    <div id="viewMmStrikes" class="tab-view">
+      <div class="mm-card">
+        <!-- Header Toolbar -->
+        <div class="mm-header">
+          <div class="mm-title-group">
+            <span class="mm-title">
+              <span>Market Making Strike Selection</span>
+              <span class="mm-badge">Edge & Spread Filter</span>
+            </span>
+          </div>
+
+          <div class="oc-controls-bar">
+            <!-- Asset Tabs -->
+            <div class="mm-asset-tabs">
+              <button type="button" class="mm-asset-btn active" data-asset="BTC" onclick="onMmUnderlyingChange('BTC')">BTC</button>
+              <button type="button" class="mm-asset-btn" data-asset="ETH" onclick="onMmUnderlyingChange('ETH')">ETH</button>
+              <button type="button" class="mm-asset-btn" data-asset="SOL" onclick="onMmUnderlyingChange('SOL')">SOL</button>
+              <button type="button" class="mm-asset-btn" data-asset="XRP" onclick="onMmUnderlyingChange('XRP')">XRP</button>
+            </div>
+
+            <!-- Expiry Selector -->
+            <select class="mm-select" id="mmSelExpiry" onchange="onMmExpiryChange(this.value)">
+              <option value="">Loading expiries...</option>
+            </select>
+
+            <!-- Search Strike -->
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" class="search-input" style="width: 140px;" placeholder="Search strike..." oninput="onMmSearch(this.value)" />
+            </div>
+
+            <!-- Refresh Button -->
+            <button class="btn-refresh" onclick="loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry)" title="Refresh MM Strikes">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Strategy Formula Reference Banner -->
+        <div class="mm-formula-banner">
+          <div class="mm-formula-text">
+            <span>📐 <strong>Calculations:</strong></span>
+            <span class="mm-formula-chip">Spread = Ask − Bid</span>
+            <span class="mm-formula-chip">Mid = (Bid + Ask) / 2</span>
+            <span class="mm-formula-chip">Net Edge = Spread − (2 × Tick)</span>
+            <span class="mm-formula-chip">Net Edge % = (Net Edge / Mid) × 100</span>
+            <span class="mm-formula-chip">Spread Ticks = Spread / Tick</span>
+          </div>
+          <div class="mm-formula-note">
+            *Assumes 2 ticks of trading cost/slippage deduction per Nitin Joshi MM Framework
+          </div>
+        </div>
+
+        <!-- Filter Criteria Strip -->
+        <div class="mm-controls-bar">
+          <div class="mm-filter-group">
+            <span class="mm-filter-label">Min Bid Price ($):</span>
+            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3" oninput="onMmCriteriaChange()" />
+          </div>
+
+          <div class="mm-filter-group">
+            <span class="mm-filter-label">Min Spread Ticks:</span>
+            <input type="number" step="1" min="1" id="mmInpMinTicks" class="mm-filter-input" placeholder="5" oninput="onMmCriteriaChange()" />
+          </div>
+
+          <div class="mm-filter-group">
+            <span class="mm-filter-label">Min Net Edge (%):</span>
+            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0" oninput="onMmCriteriaChange()" />
+          </div>
+
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+            <label class="mm-toggle-label">
+              <input type="checkbox" id="mmChkOnlyQual" class="mm-toggle-checkbox" onchange="toggleMmOnlyQualified(this.checked)" />
+              <span>Show Only Qualified</span>
+            </label>
+
+            <label class="mm-toggle-label" title="Automatically refresh strikes every 5 seconds">
+              <input type="checkbox" id="mmChkAutoRefresh" class="mm-toggle-checkbox" onchange="toggleMmAutoRefresh(this.checked)" />
+              <span>Live Auto-Scan</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Summary Metric Statistics Grid -->
+        <div class="mm-stats-grid">
+          <div class="mm-stat-card">
+            <span class="mm-stat-label">Scanned Contracts</span>
+            <div class="mm-stat-val" id="mmStatScanned">0</div>
+            <div class="mm-stat-sub">Calls & Puts across expiry</div>
+          </div>
+
+          <div class="mm-stat-card" style="border-left: 3px solid #10b981;">
+            <span class="mm-stat-label">Qualified Opportunities</span>
+            <div class="mm-stat-val text-green" id="mmStatQualified">0</div>
+            <div class="mm-stat-sub">Satisfying all 3 criteria</div>
+          </div>
+
+          <div class="mm-stat-card">
+            <span class="mm-stat-label">Max Spread in Ticks</span>
+            <div class="mm-stat-val" id="mmStatMaxTicks" style="color: #fbbf24;">0.0</div>
+            <div class="mm-stat-sub">Top spread width in ticks</div>
+          </div>
+
+          <div class="mm-stat-card">
+            <span class="mm-stat-label">Highest Net Edge %</span>
+            <div class="mm-stat-val text-green" id="mmStatMaxEdge">0.0%</div>
+            <div class="mm-stat-sub">Max net edge after 2 ticks</div>
+          </div>
+
+          <div class="mm-stat-card">
+            <span class="mm-stat-label">Spot & ATM Reference</span>
+            <div class="mm-stat-val" id="mmSpotVal" style="font-size: 1.1rem;">$--</div>
+            <div class="mm-stat-sub">ATM Strike: <span id="mmAtmVal" class="mono-num" style="font-weight:700; color:var(--text-primary); margin-left:4px;">--</span></div>
+          </div>
+        </div>
+
+        <!-- Qualified & Evaluated Opportunities Table -->
+        <div class="mm-table-wrapper">
+          <table class="mm-table">
+            <thead>
+              <tr>
+                <th class="text-left">Symbol</th>
+                <th class="text-center">Option Type</th>
+                <th>Strike ($)</th>
+                <th>Bid ($)</th>
+                <th>Ask ($)</th>
+                <th>Spread ($)</th>
+                <th>Tick</th>
+                <th>Spread Ticks</th>
+                <th>Mid ($)</th>
+                <th>Net Edge ($)</th>
+                <th>Net Edge (%)</th>
+                <th class="text-center">Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="mmTbody">
+              <tr>
+                <td colspan="13" style="text-align: center; padding: 32px; color: var(--text-muted);">
+                  Select an expiry or click Refresh to scan market making strikes.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Footer -->
@@ -734,6 +908,7 @@
   <script src="/static/js/positions.js"></script>
   <script src="/static/js/multileg.js"></script>
   <script src="/static/js/optionchain.js"></script>
+  <script src="/static/js/mm_strikes.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 
