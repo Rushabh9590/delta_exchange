@@ -34,6 +34,8 @@ if str(REPO_PATH) not in sys.path:
 
 from login import get_delta_client, load_credentials
 from multileg import get_option_chain_data, get_options_expiries_and_strikes
+from websocket import DeltaWebSocketManager
+import threading
 
 # Load environment configuration
 load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
@@ -419,6 +421,134 @@ def print_terminal_table(result: dict, show_all: bool = False):
     print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100{COLOR_RESET}\n")
 
 
+def stream_terminal_websocket(
+    underlying: str,
+    expiry: str,
+    min_bid: float,
+    min_ticks: float,
+    min_edge: float,
+    show_all: bool = False
+):
+    """
+    Subscribes all option contracts for the chosen underlying and expiry directly to Delta's WebSocket
+    and streams live tick-by-tick updates to the terminal without periodic REST polling.
+    """
+    client = get_delta_client()
+    print(f"\n{COLOR_CYAN}[INITIALIZING]{COLOR_RESET} Fetching option catalog for {underlying}...")
+    init_res = evaluate_mm_strikes(
+        underlying=underlying,
+        expiry=expiry,
+        min_bid_price=min_bid,
+        min_spread_ticks=min_ticks,
+        min_net_edge_pct=min_edge,
+        client=client
+    )
+
+    all_contracts = {x["symbol"]: x for x in init_res.get("all_strikes", []) if x.get("symbol")}
+    symbols_to_sub = list(all_contracts.keys())
+    spot_symbol = f"{underlying}USD"
+    if spot_symbol not in symbols_to_sub:
+        symbols_to_sub.append(spot_symbol)
+
+    if not symbols_to_sub:
+        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} No option contracts found for {underlying} expiry {expiry}.")
+        return
+
+    print(f"{COLOR_GREEN}[WEBSOCKET CONNECTING]{COLOR_RESET} Subscribing to {len(symbols_to_sub)} contracts live on Delta WebSocket...")
+
+    tick_count = [0]
+    last_render_time = [0.0]
+    render_lock = threading.Lock()
+
+    def on_tick_received(symbol, quote_dict, raw_data):
+        tick_count[0] += 1
+        sym_upper = symbol.upper()
+
+        if sym_upper == spot_symbol:
+            new_spot = quote_dict.get("spot_price") or quote_dict.get("mark_price") or quote_dict.get("ltp")
+            if new_spot:
+                init_res["spot_price"] = float(new_spot)
+
+        if sym_upper in all_contracts:
+            contract = all_contracts[sym_upper]
+            quotes = raw_data.get("quotes") or {}
+            raw_bid = quotes.get("best_bid") if quotes.get("best_bid") is not None else quote_dict.get("bid")
+            raw_ask = quotes.get("best_ask") if quotes.get("best_ask") is not None else quote_dict.get("ask")
+            raw_ltp = raw_data.get("close") if raw_data.get("close") is not None else quote_dict.get("ltp")
+
+            if raw_bid is not None:
+                contract["bid"] = float(raw_bid)
+            if raw_ask is not None:
+                contract["ask"] = float(raw_ask)
+            if raw_ltp is not None:
+                contract["ltp"] = float(raw_ltp)
+
+            # Re-evaluate MM metrics in real-time
+            tick = contract.get("tick_size") or 0.1
+            b = contract.get("bid")
+            a = contract.get("ask")
+            if b is not None and a is not None and b > 0 and a > 0 and a >= b:
+                spread = a - b
+                mid = (b + a) / 2.0
+                net_edge = spread - (2.0 * tick)
+                net_edge_pct = (net_edge / mid * 100.0) if mid > 0 else 0.0
+                spread_ticks = spread / tick if tick > 0 else 0.0
+
+                reasons = []
+                if b < min_bid:
+                    reasons.append(f"Bid < {min_bid}")
+                if spread_ticks < min_ticks:
+                    reasons.append(f"Spread Ticks < {min_ticks}")
+                if net_edge_pct < min_edge:
+                    reasons.append(f"Net Edge % < {min_edge}%")
+
+                contract["spread"] = round(spread, 4)
+                contract["mid_price"] = round(mid, 4)
+                contract["net_edge"] = round(net_edge, 4)
+                contract["net_edge_pct"] = round(net_edge_pct, 2)
+                contract["spread_ticks"] = round(spread_ticks, 1)
+                contract["qualified"] = (len(reasons) == 0)
+                contract["reasons_failed"] = reasons
+
+        now = time.time()
+        # Refresh terminal in-place with slight throttle to avoid flicker
+        if now - last_render_time[0] >= 0.25:
+            last_render_time[0] = now
+            with render_lock:
+                all_list = list(all_contracts.values())
+                qual_list = [x for x in all_list if x.get("qualified")]
+                qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
+
+                init_res["all_strikes"] = all_list
+                init_res["qualified_strikes"] = qual_list
+                init_res["summary"] = {
+                    "total_scanned": len(all_list),
+                    "total_qualified": len(qual_list),
+                    "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
+                    "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
+                    "total_ticks": tick_count[0]
+                }
+                os.system("cls" if os.name == "nt" else "clear")
+                print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts")
+                print_terminal_table(init_res, show_all=show_all)
+
+    ws_manager = DeltaWebSocketManager(
+        symbols=symbols_to_sub,
+        verbose=False,
+        on_tick=on_tick_received
+    )
+    ws_manager.start()
+
+    try:
+        # Initial display
+        print_terminal_table(init_res, show_all=show_all)
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print(f"\n{COLOR_YELLOW}[WEBSOCKET STOPPED]{COLOR_RESET} Exiting live WebSocket market making stream.\n")
+        ws_manager.stop()
+
+
 def run_cli():
     """CLI entry point for running standalone Market Making Strike Selection scanner."""
     defaults = get_mm_config()
@@ -462,13 +592,7 @@ def run_cli():
     parser.add_argument(
         "-w", "--watch",
         action="store_true",
-        help="Continuously monitor and re-evaluate strikes in terminal"
-    )
-    parser.add_argument(
-        "-i", "--interval",
-        type=int,
-        default=5,
-        help="Watch refresh interval in seconds. Default: 5"
+        help="Continuously stream live tick-by-tick market making evaluation from WebSocket"
     )
 
     args = parser.parse_args()
@@ -487,22 +611,15 @@ def run_cli():
         )
         print_terminal_table(res, show_all=args.all)
     else:
-        # Continuous watcher loop
-        print(f"\n{COLOR_CYAN}[STARTING LIVE SCANNER]{COLOR_RESET} Refreshing every {args.interval}s. Press Ctrl+C to stop.\n")
-        try:
-            while True:
-                res = evaluate_mm_strikes(
-                    underlying=args.underlying,
-                    expiry=args.expiry,
-                    min_bid_price=args.min_bid,
-                    min_spread_ticks=args.min_ticks,
-                    min_net_edge_pct=args.min_edge,
-                    client=client
-                )
-                print_terminal_table(res, show_all=args.all)
-                time.sleep(args.interval)
-        except KeyboardInterrupt:
-            print(f"\n{COLOR_YELLOW}[SCANNER STOPPED]{COLOR_RESET} Exiting market making monitor.\n")
+        # Live tick-by-tick WebSocket streaming
+        stream_terminal_websocket(
+            underlying=args.underlying,
+            expiry=args.expiry,
+            min_bid=args.min_bid,
+            min_ticks=args.min_ticks,
+            min_edge=args.min_edge,
+            show_all=args.all
+        )
 
 
 if __name__ == "__main__":

@@ -806,10 +806,10 @@
               <span>Show Only Qualified</span>
             </label>
 
-            <label class="mm-toggle-label" title="Automatically refresh strikes every 5 seconds">
-              <input type="checkbox" id="mmChkAutoRefresh" class="mm-toggle-checkbox" onchange="toggleMmAutoRefresh(this.checked)" />
-              <span>Live Auto-Scan</span>
-            </label>
+            <div class="mm-ws-status-badge" title="Real-time Delta Exchange WebSocket tick-by-tick stream">
+              <span class="spot-pulse-dot"></span>
+              <span id="mmWsStatusText">Live WebSocket Ticks</span>
+            </div>
           </div>
         </div>
 

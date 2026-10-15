@@ -448,6 +448,11 @@ function initDeltaWebSocket() {
         if (typeof handleOptionChainTickUpdate === 'function') {
           handleOptionChainTickUpdate(data);
         }
+
+        // Live tick-by-tick streaming for Market Making Strike Selection
+        if (typeof handleMmStrikesTickUpdate === 'function') {
+          handleMmStrikesTickUpdate(data);
+        }
       } catch (err) { }
     };
 

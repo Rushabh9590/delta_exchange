@@ -60,10 +60,11 @@ class DeltaWebSocketManager:
     Thread-safe WebSocket Manager that streams live market data for Delta Exchange symbols.
     Maintains real-time price quotes, mark prices, and orderbooks.
     """
-    def __init__(self, symbols=None, ws_url=None, verbose=False):
+    def __init__(self, symbols=None, ws_url=None, verbose=False, on_tick=None):
         self.symbols = symbols or ["BTCUSD"]
         self.ws_url = ws_url or get_ws_url()
         self.verbose = verbose
+        self.on_tick = on_tick
         self.market_data = {}  # {symbol: {'ltp': float, 'mark_price': float, 'bid': float, 'ask': float, 'bids': [], 'asks': []}}
         self._lock = threading.Lock()
         self.ws_app = None
@@ -157,6 +158,12 @@ class DeltaWebSocketManager:
                             pass
 
                     self.market_data[symbol]["timestamp"] = time.time()
+
+                if self.on_tick:
+                    try:
+                        self.on_tick(symbol, self.market_data[symbol], data)
+                    except Exception:
+                        pass
 
                 if self.verbose:
                     spot_disp = self.market_data[symbol].get("spot_price") or self.market_data[symbol].get("mark_price") or self.market_data[symbol].get("ltp")
