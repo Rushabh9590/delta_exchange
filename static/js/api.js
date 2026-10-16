@@ -302,6 +302,58 @@ const ApiService = {
       body: JSON.stringify({ trade_id: tradeId })
     });
     return await res.json();
+  },
+
+  /**
+   * Fetches Telegram notification settings and threshold
+   */
+  async getTelegramConfig() {
+    const res = await fetch('/api/telegram/config');
+    return await res.json();
+  },
+
+  /**
+   * Updates Telegram notification settings (threshold seconds, enabled, credentials)
+   */
+  async saveTelegramConfig(payload = {}) {
+    const res = await fetch('/api/telegram/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  /**
+   * Sends a test verification message to Telegram
+   */
+  async testTelegramAlert(payload = {}) {
+    const res = await fetch('/api/telegram/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  /**
+   * Fetches User Profile settings (BTC/ETH lot sizes + Telegram settings)
+   */
+  async getProfileSettings() {
+    const res = await fetch('/api/settings/profile');
+    return await res.json();
+  },
+
+  /**
+   * Saves User Profile settings (BTC/ETH lot sizes + Telegram settings) to .env
+   */
+  async saveProfileSettings(payload = {}) {
+    const res = await fetch('/api/settings/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
   }
 };
 

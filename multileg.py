@@ -330,15 +330,39 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
     except Exception as e:
         clean_err = str(e)
         try:
+            err_dict = None
             resp = getattr(e, "response", None)
             if resp is not None:
-                err_json = resp.json().get("error", {})
-                code = err_json.get("code")
-                ctx = err_json.get("context", {})
+                err_dict = resp.json().get("error", {})
+            elif isinstance(getattr(e, "args", None), (tuple, list)) and len(e.args) > 0:
+                arg0 = e.args[0]
+                if isinstance(arg0, dict):
+                    err_dict = arg0.get("error") or arg0
+                elif isinstance(arg0, str) and "insufficient_margin" in arg0:
+                    import ast
+                    try:
+                        parsed = ast.literal_eval(arg0)
+                        if isinstance(parsed, dict):
+                            err_dict = parsed.get("error") or parsed
+                    except Exception:
+                        pass
+
+            if not err_dict and "insufficient_margin" in clean_err:
+                import ast
+                try:
+                    parsed = ast.literal_eval(clean_err)
+                    if isinstance(parsed, dict):
+                        err_dict = parsed.get("error") or parsed
+                except Exception:
+                    pass
+
+            if err_dict and isinstance(err_dict, dict):
+                code = err_dict.get("code")
+                ctx = err_dict.get("context", {})
                 if code == "insufficient_margin":
                     avail = float(ctx.get("available_balance", 0))
                     req = float(ctx.get("required_additional_balance", 0))
-                    clean_err = f"Insufficient Margin: Available ${avail:.2f} USD, required additional ${req:.2f} USD."
+                    clean_err = f"Insufficient Margin: Available ${avail:.2f} USD, required additional ${req:.2f} USD. Please reduce size to match available margin."
                 elif code:
                     clean_err = f"{code}: {ctx}" if ctx else str(code)
         except Exception:

@@ -193,7 +193,8 @@ class MMTradeCycle:
                 self.buy_fill_event.set()
             elif state == "cancelled":
                 self.state = "CANCELLED"
-                self.log("[WS-STREAM] BUY order cancelled on exchange.")
+                self.stop_requested = True
+                self.log("[WS-STREAM] BUY order cancelled on exchange. Stopping trade cycle.")
                 self.buy_fill_event.set()
         except Exception as e:
             self.log(f"Warning in WS buy callback: {e}")
@@ -325,6 +326,9 @@ class MMTradeCycle:
         """
         Allows uploading/updating the limit price of the active order (Buy or Sell).
         """
+        if self.stop_requested or self.state in ("CANCELLED", "ERROR", "COMPLETED_PROFIT", "COMPLETED_COST"):
+            return {"success": False, "error": f"Trade already finished or cancelled ({self.state})"}
+
         valid_price = align_price(float(new_price), self.tick_size)
         self.log(f"Requested limit price upload: {valid_price}")
 
@@ -365,8 +369,38 @@ class MMTradeCycle:
     def _edit_or_replace_order(self, order_id: int, new_price: float, side: str, reduce_only: bool = False) -> dict:
         """Edits an order in-place or cancels and re-places if edit is unsupported. Thread-safe."""
         with self._edit_lock:
+            # Check if cycle was already cancelled or stopped
+            if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
+                return {"success": False, "error": f"Trade already terminated with state '{self.state}'"}
+
+            # 1. First, check if the current order was already closed/filled or cancelled on Delta
             try:
-                # Try Delta REST edit_order
+                cur_order = self.client.get_order_by_id(int(order_id))
+                if cur_order:
+                    st = cur_order.get("state")
+                    if st == "closed":
+                        avg_fill = float(cur_order.get("average_fill_price") or new_price)
+                        if side == "sell":
+                            self.sell_fill_price = avg_fill
+                            self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                            self.sell_fill_event.set()
+                        else:
+                            self.buy_fill_price = avg_fill
+                            self.buy_fill_time = datetime.now(timezone.utc).isoformat()
+                            self.buy_fill_event.set()
+                        self.log(f"Order {order_id} already executed/filled on exchange at {avg_fill}!")
+                        return {"success": True, "order": cur_order, "filled": True}
+                    elif st == "cancelled":
+                        if side == "buy":
+                            self.state = "CANCELLED"
+                            self.stop_requested = True
+                            self.log(f"BUY order {order_id} was cancelled on exchange. Stopping trade cycle (will not re-place).")
+                            return {"success": False, "cancelled": True, "error": "Order cancelled on exchange"}
+            except Exception:
+                pass
+
+            # 2. Try Delta REST edit_order
+            try:
                 edit_payload = {
                     "id": int(order_id),
                     "product_id": int(self.product_id),
@@ -377,22 +411,112 @@ class MMTradeCycle:
                 if res and isinstance(res, dict) and res.get("id"):
                     return {"success": True, "order": res}
             except Exception as edit_err:
-                self.log(f"Edit API call failed ({edit_err}), attempting cancel & re-place...")
+                err_text = str(edit_err)
+                self.log(f"Edit API call failed ({err_text}), checking order status...")
 
-            # Fallback: Cancel and re-place
+                # If user stopped the trade or trade was cancelled, do not attempt to re-place
+                if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
+                    return {"success": False, "error": f"Trade in state '{self.state}'"}
+
+                # If Delta rejected edit with 'open_order_not_found', check if order was cancelled or closed
+                if "open_order_not_found" in err_text or "order_not_found" in err_text:
+                    try:
+                        cur_order = self.client.get_order_by_id(int(order_id))
+                        if cur_order:
+                            st = cur_order.get("state")
+                            if st == "cancelled":
+                                if side == "buy":
+                                    self.state = "CANCELLED"
+                                    self.stop_requested = True
+                                    self.log(f"BUY order {order_id} was cancelled on exchange. Will NOT re-place.")
+                                    return {"success": False, "cancelled": True, "error": "Order was cancelled on exchange"}
+                            elif st == "closed":
+                                avg_fill = float(cur_order.get("average_fill_price") or new_price)
+                                if side == "buy":
+                                    self.buy_fill_price = avg_fill
+                                    self.buy_fill_time = datetime.now(timezone.utc).isoformat()
+                                    self.buy_fill_event.set()
+                                else:
+                                    self.sell_fill_price = avg_fill
+                                    self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                                    self.sell_fill_event.set()
+                                return {"success": True, "order": cur_order, "filled": True}
+                    except Exception:
+                        pass
+
+                    # For a BUY order, if it's not open on Delta, user cancelled it: abort!
+                    if side == "buy":
+                        self.state = "CANCELLED"
+                        self.stop_requested = True
+                        self.log(f"BUY order {order_id} is no longer open on exchange. User cancellation detected. Stopping trade.")
+                        return {"success": False, "cancelled": True, "error": "BUY order not found on exchange"}
+
+            # 3. Fallback: Cancel and re-place
+            # Final check before re-placing: never re-place a cancelled trade
+            if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
+                return {"success": False, "error": f"Cannot re-place: trade is in state '{self.state}'"}
+
             try:
-                self.client.cancel_order(product_id=self.product_id, order_id=int(order_id))
-                time.sleep(0.2)
-                new_order = self.client.place_order(
-                    product_id=self.product_id,
-                    size=self.size,
-                    side=side,
-                    limit_price=str(new_price),
-                    order_type=OrderType.LIMIT,
-                    time_in_force=TimeInForce.GTC,
-                    post_only="true",
-                    reduce_only="true" if reduce_only else "false"
-                )
+                try:
+                    self.client.cancel_order(product_id=self.product_id, order_id=int(order_id))
+                except Exception:
+                    pass
+                time.sleep(0.15)
+
+                if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
+                    return {"success": False, "error": f"Cannot re-place: trade is in state '{self.state}'"}
+
+                new_order = None
+                post_only_success = False
+
+                # Step 3a: Attempt maker post-only limit order
+                try:
+                    new_order = self.client.place_order(
+                        product_id=self.product_id,
+                        size=self.size,
+                        side=side,
+                        limit_price=str(new_price),
+                        order_type=OrderType.LIMIT,
+                        time_in_force=TimeInForce.GTC,
+                        post_only="true",
+                        reduce_only="true" if reduce_only else "false"
+                    )
+                    # Check if Delta accepted then immediately auto-cancelled due to crossing
+                    if new_order and new_order.get("state") == "cancelled" and new_order.get("cancellation_reason") == "immediate_execution_post_only":
+                        post_only_success = False
+                    else:
+                        post_only_success = True
+                except Exception as po_err:
+                    post_only_success = False
+                    if not (reduce_only or side == "sell"):
+                        return {"success": False, "error": str(po_err)}
+
+                # Step 3b: If post-only rejected on an EXIT order, execute with post_only=false for immediate fill!
+                if not post_only_success and (reduce_only or side == "sell"):
+                    self.log(f"Notice: Exit price {new_price} crosses resting bid. Executing taker/marketable limit fill (post_only=False)...")
+                    new_order = self.client.place_order(
+                        product_id=self.product_id,
+                        size=self.size,
+                        side=side,
+                        limit_price=str(new_price),
+                        order_type=OrderType.LIMIT,
+                        time_in_force=TimeInForce.GTC,
+                        post_only="false",
+                        reduce_only="true" if reduce_only else "false"
+                    )
+
+                if not new_order or not new_order.get("id"):
+                    return {"success": False, "error": "Failed to re-place order"}
+
+                # If trade was cancelled while placing, cancel the newly placed order immediately!
+                if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
+                    try:
+                        self.client.cancel_order(product_id=self.product_id, order_id=new_order.get("id"))
+                    except Exception:
+                        pass
+                    return {"success": False, "error": "Trade was cancelled during replacement"}
+
+                # Update listener IDs
                 if side == "buy":
                     if self.private_ws and self.buy_order_id:
                         self.private_ws.remove_order_listener(self.buy_order_id, self._on_buy_order_update)
@@ -405,6 +529,20 @@ class MMTradeCycle:
                     self.sell_order_id = new_order.get("id")
                     if self.private_ws and self.sell_order_id:
                         self.private_ws.add_order_listener(self.sell_order_id, self._on_sell_order_update)
+
+                # Check if newly placed order filled immediately
+                if new_order.get("state") == "closed":
+                    avg_fill = float(new_order.get("average_fill_price") or new_price)
+                    if side == "sell":
+                        self.sell_fill_price = avg_fill
+                        self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                        self.sell_fill_event.set()
+                    else:
+                        self.buy_fill_price = avg_fill
+                        self.buy_fill_time = datetime.now(timezone.utc).isoformat()
+                        self.buy_fill_event.set()
+                    self.log(f"Re-placed {side.upper()} order executed immediately on exchange at {avg_fill}!")
+
                 return {"success": True, "order": new_order}
             except Exception as replace_err:
                 return {"success": False, "error": str(replace_err)}
@@ -850,6 +988,21 @@ class MMTradeCycle:
                             self.log(f"COST-TO-COST EXIT! SELL filled at {self.sell_fill_price}. Realized PnL = ${self.realized_pnl:.5f} USD (Breakeven)")
                         return
 
+                    # If order was cancelled on exchange, verify if position is already closed or re-place
+                    if state == "cancelled":
+                        try:
+                            pos = self.client.get_position(self.product_id)
+                            if pos and int(pos.get("size") or 0) == 0:
+                                self.state = "COMPLETED_PROFIT"
+                                self.log("Position size is 0 on exchange. MM cycle completed.")
+                                return
+                        except Exception:
+                            pass
+                        self.log(f"Notice: Sell order {self.sell_order_id} was cancelled on exchange. Re-placing exit SELL order to maintain protection...")
+                        if self._phase_3_place_sell():
+                            time.sleep(0.5)
+                            continue
+
                     # Fetch live competitor quotes from orderbook (excludes our own order)
                     ext_ask = self.get_external_best_ask()
                     ext_bid = self.get_external_best_bid()
@@ -899,7 +1052,21 @@ class MMTradeCycle:
                                     self.upload_limit_price(ideal_sell)
 
                 except Exception as e:
-                    self.log(f"Warning in exit monitor / ask peg: {e}")
+                    err_msg = str(e)
+                    self.log(f"Warning in exit monitor / ask peg: {err_msg}")
+                    if "order_not_found" in err_msg or "open_order_not_found" in err_msg:
+                        try:
+                            pos = self.client.get_position(self.product_id)
+                            if pos and int(pos.get("size") or 0) == 0:
+                                self.state = "COMPLETED_PROFIT"
+                                self.log("Position size is 0 on exchange. MM cycle completed.")
+                                return
+                        except Exception:
+                            pass
+                        self.log("Exit order not found on exchange. Re-placing SELL order...")
+                        if self._phase_3_place_sell():
+                            time.sleep(0.5)
+                            continue
 
             if self.stop_requested:
                 self.log("Manual stop requested while in exit phase. Note: You hold 1 lot long position.")

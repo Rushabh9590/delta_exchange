@@ -26,6 +26,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure local python-rest-client package directory is accessible in sys.path
 BASE_DIR = Path(__file__).resolve().parent
 REPO_PATH = BASE_DIR / "python-rest-client"
@@ -40,6 +47,7 @@ from multileg import (
     sync_master_scrips
 )
 from websocket import DeltaWebSocketManager
+from telegram_notify import check_strike_qual_alert, reset_strike_alert, get_telegram_config, get_recent_alerts
 import threading
 
 # Load environment configuration
@@ -56,6 +64,65 @@ COLOR_MAGENTA = "\033[95m"
 COLOR_DIM = "\033[90m"
 COLOR_BG_GREEN = "\033[42m\033[30m"
 COLOR_BG_DARK = "\033[100m"
+
+# Real-time continuous qualification duration tracker: symbol -> qualification start timestamp
+_QUALIFIED_SINCE_MAP: dict[str, float] = {}
+
+
+def format_qual_duration(seconds: float | int | None) -> str:
+    """
+    Formats continuous qualification duration into Style 2A:
+      - Under 60s: '45s'
+      - 1m to 59m: '2m 14s'
+      - >= 1 hour: '1h 02m 15s'
+      - Not qualified / None: '--'
+    """
+    if seconds is None or seconds < 0:
+        return "--"
+    total_sec = int(seconds)
+    if total_sec < 60:
+        return f"{total_sec}s"
+    minutes, secs = divmod(total_sec, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs:02d}s"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours}h {mins:02d}m {secs:02d}s"
+
+
+_MM_SCANNER_RUNNING = False
+_MM_SCANNER_LOCK = threading.Lock()
+
+
+def start_mm_background_scanner(interval_seconds: float = 4.0):
+    """
+    Launches an automated background daemon scanner thread that periodically
+    evaluates BTC and ETH option chains for qualified strikes and dispatches
+    Telegram alerts 24/7 without requiring the browser or any web tab to be open.
+    """
+    global _MM_SCANNER_RUNNING
+    with _MM_SCANNER_LOCK:
+        if _MM_SCANNER_RUNNING:
+            return
+        _MM_SCANNER_RUNNING = True
+
+    def _worker():
+        print(f"{COLOR_GREEN}[MM TELEGRAM SCANNER DAEMON]{COLOR_RESET} Background scanner active (Interval: {interval_seconds}s). 24/7 Telegram alerts running without browser.", flush=True)
+        time.sleep(2.0)
+        while True:
+            try:
+                cfg = get_telegram_config()
+                if cfg.get("enabled") and cfg.get("is_configured"):
+                    for asset in ["BTC", "ETH"]:
+                        try:
+                            evaluate_mm_strikes(underlying=asset)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            time.sleep(interval_seconds)
+
+    t = threading.Thread(target=_worker, daemon=True, name="MM-Telegram-Scanner-Daemon")
+    t.start()
 
 
 def get_mm_config() -> dict:
@@ -77,14 +144,40 @@ def get_mm_config() -> dict:
     except (ValueError, TypeError):
         min_net_edge_pct = 50.0
 
-    underlying = os.getenv("MM_DEFAULT_UNDERLYING", "BTC").strip().upper()
+    underlying = os.getenv("MM_DEFAULT_UNDERLYING", "ALL").strip().upper()
+
+    try:
+        lot_size_btc = max(1, int(os.getenv("MM_LOT_SIZE_BTC", "1")))
+    except (ValueError, TypeError):
+        lot_size_btc = 1
+
+    try:
+        lot_size_eth = max(1, int(os.getenv("MM_LOT_SIZE_ETH", "1")))
+    except (ValueError, TypeError):
+        lot_size_eth = 1
 
     return {
         "min_bid_price": min_bid,
         "min_spread_ticks": min_ticks,
         "min_net_edge_pct": min_net_edge_pct,
-        "underlying": underlying
+        "underlying": underlying,
+        "lot_size_btc": lot_size_btc,
+        "lot_size_eth": lot_size_eth
     }
+
+
+def get_auto_trade_lot_size(asset: str) -> int:
+    """Returns the configured auto-trade lot size for the given underlying asset (BTC or ETH)."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
+    except Exception:
+        pass
+    cfg = get_mm_config()
+    asset_upper = str(asset).upper()
+    if "ETH" in asset_upper:
+        return cfg.get("lot_size_eth", 1)
+    return cfg.get("lot_size_btc", 1)
 
 
 def calculate_mm_metrics(
@@ -170,7 +263,8 @@ def evaluate_mm_strikes(
     min_bid = min_bid_price if min_bid_price is not None else defaults["min_bid_price"]
     min_ticks = min_spread_ticks if min_spread_ticks is not None else defaults["min_spread_ticks"]
     min_edge = min_net_edge_pct if min_net_edge_pct is not None else defaults["min_net_edge_pct"]
-    asset = (underlying or defaults["underlying"]).strip().upper()
+    default_asset = defaults["underlying"] if defaults["underlying"] in ["BTC", "ETH"] else "BTC"
+    asset = (underlying or default_asset).strip().upper()
 
     if asset not in ["BTC", "ETH"]:
         return {
@@ -228,9 +322,21 @@ def evaluate_mm_strikes(
                 min_net_edge_pct=min_edge
             )
 
+            call_sym = call_contract.get("symbol")
+            now_eval = time.time()
+            if metrics["qualified"]:
+                if call_sym not in _QUALIFIED_SINCE_MAP:
+                    _QUALIFIED_SINCE_MAP[call_sym] = now_eval
+                call_dur = now_eval - _QUALIFIED_SINCE_MAP[call_sym]
+                call_time_str = format_qual_duration(call_dur)
+            else:
+                _QUALIFIED_SINCE_MAP.pop(call_sym, None)
+                call_dur = None
+                call_time_str = "--"
+
             item = {
                 "product_id": call_contract.get("product_id"),
-                "symbol": call_contract.get("symbol"),
+                "symbol": call_sym,
                 "underlying": asset,
                 "option_type": "CALL",
                 "type_badge": "CE",
@@ -249,12 +355,17 @@ def evaluate_mm_strikes(
                 "volume": call_contract.get("volume", 0.0),
                 "open_interest": call_contract.get("open_interest", 0.0),
                 "qualified": metrics["qualified"],
+                "qual_duration_sec": call_dur,
+                "qual_time_str": call_time_str,
                 "reasons_failed": metrics["reasons_failed"],
                 "is_atm": (strike_val == atm_strike)
             }
             all_evaluated.append(item)
             if metrics["qualified"]:
                 qualified_strikes.append(item)
+                check_strike_qual_alert(item, call_dur)
+            else:
+                reset_strike_alert(call_sym)
 
         # Evaluate PUT
         put_contract = row.get("put")
@@ -272,9 +383,21 @@ def evaluate_mm_strikes(
                 min_net_edge_pct=min_edge
             )
 
+            put_sym = put_contract.get("symbol")
+            now_eval = time.time()
+            if metrics["qualified"]:
+                if put_sym not in _QUALIFIED_SINCE_MAP:
+                    _QUALIFIED_SINCE_MAP[put_sym] = now_eval
+                put_dur = now_eval - _QUALIFIED_SINCE_MAP[put_sym]
+                put_time_str = format_qual_duration(put_dur)
+            else:
+                _QUALIFIED_SINCE_MAP.pop(put_sym, None)
+                put_dur = None
+                put_time_str = "--"
+
             item = {
                 "product_id": put_contract.get("product_id"),
-                "symbol": put_contract.get("symbol"),
+                "symbol": put_sym,
                 "underlying": asset,
                 "option_type": "PUT",
                 "type_badge": "PE",
@@ -293,12 +416,17 @@ def evaluate_mm_strikes(
                 "volume": put_contract.get("volume", 0.0),
                 "open_interest": put_contract.get("open_interest", 0.0),
                 "qualified": metrics["qualified"],
+                "qual_duration_sec": put_dur,
+                "qual_time_str": put_time_str,
                 "reasons_failed": metrics["reasons_failed"],
                 "is_atm": (strike_val == atm_strike)
             }
             all_evaluated.append(item)
             if metrics["qualified"]:
                 qualified_strikes.append(item)
+                check_strike_qual_alert(item, put_dur)
+            else:
+                reset_strike_alert(put_sym)
 
     # Sort qualified by Net Edge % descending, then by Spread Ticks descending
     qualified_strikes.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
@@ -349,20 +477,23 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
             return
         now_ts = time.time()
         active_symbols = {s.get("symbol") for s in result.get("qualified_strikes", [])}
-        past_flashes = [
-            f for f in recent_flashes 
-            if f.get("symbol") not in active_symbols and (now_ts - f.get("timestamp", 0)) < 120
-        ]
+        latest_by_sym = {}
+        for f in recent_flashes:
+            sym = f.get("symbol")
+            if sym and f.get("underlying", underlying) == underlying and sym not in active_symbols and (now_ts - f.get("timestamp", 0)) < 120:
+                latest_by_sym[sym] = f
+        past_flashes = sorted(latest_by_sym.values(), key=lambda x: x.get("timestamp", 0))
         if past_flashes:
             print(f"\n  {COLOR_BOLD}{COLOR_YELLOW}⚡ RECENT OPPORTUNITIES LOG (Flashed & disappeared within last 2 min):{COLOR_RESET}")
-            print("  " + "-" * 110)
-            f_hdr = f"  {'Time':<9} {'Symbol':<22} {'Type':<5} {'Strike':<8} {'Bid':<8} {'Ask':<8} {'Spread':<8} {'Ticks':<7} {'Edge %':<9} {'Seen Ago'}"
+            print("  " + "-" * 126)
+            f_hdr = f"  {'Time':<9} {'Symbol':<22} {'Type':<5} {'Strike':<8} {'Bid':<8} {'Ask':<8} {'Spread':<8} {'Ticks':<7} {'Edge %':<9} {'Was Qual':<12} {'Seen Ago'}"
             print(f"  {COLOR_DIM}{f_hdr}{COLOR_RESET}")
-            print("  " + "-" * 110)
+            print("  " + "-" * 126)
             for f in past_flashes[-5:]:
                 age_s = max(0, int(now_ts - f.get("timestamp", 0)))
                 t_badge = f.get("type_badge", "CE")
                 t_col = COLOR_CYAN if t_badge == "CE" else COLOR_MAGENTA
+                was_qual = f.get("was_qual_str", "<1s")
                 row = (
                     f"  {f.get('time_str'):<9} "
                     f"{f.get('symbol'):<22} "
@@ -373,19 +504,20 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
                     f"{f.get('spread', 0):<8.2f} "
                     f"{f.get('spread_ticks', 0):<7.1f} "
                     f"{COLOR_GREEN}{f.get('net_edge_pct', 0):>6.1f}%{COLOR_RESET}   "
+                    f"{COLOR_CYAN}{was_qual:<12}{COLOR_RESET} "
                     f"{COLOR_YELLOW}{age_s}s ago{COLOR_RESET}"
                 )
                 print(row)
-            print("  " + "-" * 110)
+            print("  " + "-" * 126)
 
-    # Header Banner
-    print("\n" + "=" * 115)
+    # Header Banner (Width: 128 characters)
+    print("\n" + "=" * 128)
     if not is_multi:
         print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKE SELECTION CRITERIA{COLOR_RESET}")
         print(f"{COLOR_DIM}  Doc Source: Nitin Joshi Framework | Time: {now_str} IST{COLOR_RESET}")
     else:
         print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{underlying}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
-    print("=" * 115)
+    print("=" * 128)
 
     # Criteria Strip
     print(
@@ -400,7 +532,7 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         f"Spread Ticks >= {COLOR_GREEN}{criteria.get('min_spread_ticks')}{COLOR_RESET}  |  "
         f"Net Edge % >= {COLOR_GREEN}{criteria.get('min_net_edge_pct')}%{COLOR_RESET}"
     )
-    print("-" * 115)
+    print("-" * 128)
 
     # Summary Stats
     total_scanned = summary.get("total_scanned", 0)
@@ -414,9 +546,9 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         f"{COLOR_BOLD}Max Spread Ticks:{COLOR_RESET} {COLOR_CYAN}{max_ticks:.1f}{COLOR_RESET}  |  "
         f"{COLOR_BOLD}Top Net Edge:{COLOR_RESET} {COLOR_GREEN}{max_edge:.2f}%{COLOR_RESET}"
     )
-    print("-" * 115)
+    print("-" * 128)
 
-    # Table Header
+    # Table Header with Qual Time (Style 2A) column
     cols_header = (
         f"{'Symbol':<22} "
         f"{'Type':<5} "
@@ -429,10 +561,11 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         f"{'Mid ($)':<9} "
         f"{'Net Edge':<9} "
         f"{'Edge %':<9} "
+        f"{'Qual Time':<12} "
         f"{'Status'}"
     )
     print(f"{COLOR_BOLD}{cols_header}{COLOR_RESET}")
-    print("-" * 115)
+    print("-" * 128)
 
     if not strikes_to_show:
         if not show_all:
@@ -441,7 +574,7 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         else:
             print(f"  {COLOR_RED}No options found for this expiry.{COLOR_RESET}")
         _render_recent_flashes()
-        print("=" * 115 + "\n")
+        print("=" * 128 + "\n")
         return
 
     # Rows
@@ -458,14 +591,19 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         mid = s.get("mid_price", 0.0)
         net_edge = s.get("net_edge", 0.0)
         edge_pct = s.get("net_edge_pct", 0.0)
+        qual_time_str = s.get("qual_time_str") or "--"
+        if not is_qual:
+            qual_time_str = "--"
 
         # Color coding
         if is_qual:
             row_color = COLOR_GREEN
             status_badge = f"{COLOR_BG_GREEN} QUALIFIED {COLOR_RESET}"
+            qual_display = f"{COLOR_YELLOW}{qual_time_str:<12}{COLOR_RESET}"
         else:
             row_color = COLOR_DIM
             status_badge = f"{COLOR_DIM}NOT MET{COLOR_RESET}"
+            qual_display = f"{COLOR_DIM}{qual_time_str:<12}{COLOR_RESET}"
 
         type_color = COLOR_CYAN if type_str == "CE" else COLOR_MAGENTA
 
@@ -481,13 +619,205 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
             f"{mid:<9.2f} "
             f"{net_edge:<9.2f} "
             f"{row_color}{edge_pct:>6.1f}%{COLOR_RESET}   "
+            f"{qual_display} "
             f"{status_badge}"
         )
         print(row_str)
 
-    print("=" * 115)
+    print("=" * 128)
     _render_recent_flashes()
-    print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100{COLOR_RESET}\n")
+    print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100 | Qual Time: Style 2A continuous uptime{COLOR_RESET}\n")
+
+
+def print_combined_terminal_table(underlying_data: dict, show_all: bool = False, recent_flashes: list = None):
+    """
+    Renders a unified, single ASCII table combining strikes from multiple underlyings (e.g. BTC and ETH).
+    Displays dual-asset metrics side-by-side in header, merges and ranks opportunities by Net Edge %,
+    and fits cleanly on a single screen without vertical scrolling.
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    assets_list = list(underlying_data.keys())
+    assets_str = " & ".join(assets_list)
+
+    # Aggregate qualified and all strikes
+    all_qual_strikes = []
+    all_scanned_strikes = []
+    for asset_name, r in underlying_data.items():
+        all_qual_strikes.extend(r.get("qualified_strikes", []))
+        all_scanned_strikes.extend(r.get("all_strikes", []))
+
+    strikes_to_show = all_scanned_strikes if show_all else all_qual_strikes
+    # Rank: qualified first (if show_all), then net_edge_pct desc, spread_ticks desc
+    strikes_to_show.sort(key=lambda x: (x.get("qualified", False), x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+
+    total_scanned = sum(r.get("summary", {}).get("total_scanned", 0) for r in underlying_data.values())
+    total_qual = len(all_qual_strikes)
+    qual_breakdown = ", ".join(f"{len(r.get('qualified_strikes', []))} {a}" for a, r in underlying_data.items())
+    max_ticks = max((x["spread_ticks"] for x in all_qual_strikes), default=0.0)
+    max_edge = max((x["net_edge_pct"] for x in all_qual_strikes), default=0.0)
+
+    first_res = next(iter(underlying_data.values()))
+    criteria = first_res.get("criteria", {})
+
+    def _render_recent_flashes():
+        if not recent_flashes:
+            return
+        now_ts = time.time()
+        active_symbols = {s.get("symbol") for s in all_qual_strikes}
+        latest_by_sym = {}
+        for f in recent_flashes:
+            sym = f.get("symbol")
+            if sym and sym not in active_symbols and (now_ts - f.get("timestamp", 0)) < 120:
+                latest_by_sym[sym] = f
+        past_flashes = sorted(latest_by_sym.values(), key=lambda x: x.get("timestamp", 0))
+        if past_flashes:
+            print(f"\n  {COLOR_BOLD}{COLOR_YELLOW}⚡ RECENT OPPORTUNITIES LOG (Flashed & disappeared within last 2 min):{COLOR_RESET}")
+            print("  " + "-" * 126)
+            f_hdr = f"  {'Time':<9} {'Asset':<6} {'Symbol':<22} {'Type':<5} {'Strike':<8} {'Bid':<8} {'Ask':<8} {'Spread':<8} {'Ticks':<7} {'Edge %':<9} {'Was Qual':<11} {'Seen Ago'}"
+            print(f"  {COLOR_DIM}{f_hdr}{COLOR_RESET}")
+            print("  " + "-" * 126)
+            for f in past_flashes[-6:]:
+                age_s = max(0, int(now_ts - f.get("timestamp", 0)))
+                t_badge = f.get("type_badge", "CE")
+                t_col = COLOR_CYAN if t_badge == "CE" else COLOR_MAGENTA
+                f_asset = f.get("underlying") or ("BTC" if "BTC" in f.get("symbol", "") else "ETH")
+                a_col = COLOR_YELLOW if f_asset == "BTC" else COLOR_MAGENTA
+                was_qual = f.get("was_qual_str", "<1s")
+                row = (
+                    f"  {f.get('time_str'):<9} "
+                    f"{a_col}{f_asset:<6}{COLOR_RESET} "
+                    f"{f.get('symbol'):<22} "
+                    f"{t_col}{t_badge:<5}{COLOR_RESET} "
+                    f"{f.get('strike', 0):<8.0f} "
+                    f"{f.get('bid', 0):<8.2f} "
+                    f"{f.get('ask', 0):<8.2f} "
+                    f"{f.get('spread', 0):<8.2f} "
+                    f"{f.get('spread_ticks', 0):<7.1f} "
+                    f"{COLOR_GREEN}{f.get('net_edge_pct', 0):>6.1f}%{COLOR_RESET}   "
+                    f"{COLOR_CYAN}{was_qual:<11}{COLOR_RESET} "
+                    f"{COLOR_YELLOW}{age_s}s ago{COLOR_RESET}"
+                )
+                print(row)
+            print("  " + "-" * 126)
+
+    # 1. Header Banner (Width: 128 characters)
+    print("\n" + "=" * 128)
+    print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{assets_str}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
+    print("=" * 128)
+
+    # 2. Side-by-side Dual Asset Strip (Fits comfortably within 126 cols)
+    asset_parts = []
+    for a_name, r in underlying_data.items():
+        s = r.get("spot_price", 0.0)
+        atm = r.get("atm_strike", "--")
+        exp = r.get("selected_expiry", "--")
+        col = COLOR_YELLOW if a_name == "BTC" else (COLOR_MAGENTA if a_name == "ETH" else COLOR_CYAN)
+        asset_parts.append(f"{COLOR_BOLD}{col}{a_name:<3}{COLOR_RESET}  |  {COLOR_BOLD}Spot:{COLOR_RESET} ${s:,.2f}  |  {COLOR_BOLD}ATM:{COLOR_RESET} {atm}  |  {COLOR_BOLD}Exp:{COLOR_RESET} {COLOR_YELLOW}{exp}{COLOR_RESET}")
+    print("  " + "    ||    ".join(asset_parts))
+
+    # 3. Filter Criteria
+    print(
+        f"  {COLOR_BOLD}Filter Criteria:{COLOR_RESET} "
+        f"Bid >= {COLOR_GREEN}{criteria.get('min_bid_price')}{COLOR_RESET}  |  "
+        f"Spread Ticks >= {COLOR_GREEN}{criteria.get('min_spread_ticks')}{COLOR_RESET}  |  "
+        f"Net Edge % >= {COLOR_GREEN}{criteria.get('min_net_edge_pct')}%{COLOR_RESET}"
+    )
+    print("-" * 128)
+
+    # 4. Summary Stats
+    print(
+        f"  {COLOR_BOLD}Total Scanned:{COLOR_RESET} {total_scanned} Contracts  |  "
+        f"{COLOR_BOLD}QUALIFIED:{COLOR_RESET} {COLOR_BG_GREEN} {total_qual} Opportunities ({qual_breakdown}) {COLOR_RESET}  |  "
+        f"{COLOR_BOLD}Max Spread Ticks:{COLOR_RESET} {COLOR_CYAN}{max_ticks:.1f}{COLOR_RESET}  |  "
+        f"{COLOR_BOLD}Top Net Edge:{COLOR_RESET} {COLOR_GREEN}{max_edge:.2f}%{COLOR_RESET}"
+    )
+    print("-" * 128)
+
+    # 5. Table Header with Asset column
+    cols_header = (
+        f"{'Asset':<6} "
+        f"{'Symbol':<22} "
+        f"{'Type':<5} "
+        f"{'Strike':<8} "
+        f"{'Bid ($)':<8} "
+        f"{'Ask ($)':<8} "
+        f"{'Spread':<8} "
+        f"{'Tick':<6} "
+        f"{'Ticks':<7} "
+        f"{'Mid ($)':<8} "
+        f"{'Net Edge':<9} "
+        f"{'Edge %':<9} "
+        f"{'Qual Time':<11} "
+        f"{'Status'}"
+    )
+    print(f"{COLOR_BOLD}{cols_header}{COLOR_RESET}")
+    print("-" * 128)
+
+    # 6. Table Rows
+    if not strikes_to_show:
+        if not show_all:
+            print(f"  {COLOR_YELLOW}No strikes met the strict qualification criteria across {assets_str} at this moment.{COLOR_RESET}")
+            print(f"  {COLOR_DIM}Tip: Try relaxing criteria with --min-bid 0.1 --min-ticks 2 --min-edge 20 or view all with --all{COLOR_RESET}")
+        else:
+            print(f"  {COLOR_RED}No options found for these expiries.{COLOR_RESET}")
+        print("=" * 128)
+        _render_recent_flashes()
+        print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100 | Qual Time: Style 2A continuous uptime{COLOR_RESET}\n")
+        return
+
+    for s in strikes_to_show:
+        is_qual = s.get("qualified", False)
+        asset_label = s.get("underlying") or ("BTC" if "BTC" in s.get("symbol", "") else "ETH")
+        asset_col = COLOR_YELLOW if asset_label == "BTC" else COLOR_MAGENTA
+        type_str = s.get("type_badge", "CE")
+        sym = s.get("symbol", "")
+        strike_val = s.get("strike", 0.0)
+        bid = s.get("bid", 0.0)
+        ask = s.get("ask", 0.0)
+        spread = s.get("spread", 0.0)
+        tick = s.get("tick_size", 0.1 if asset_label == "BTC" else 0.05)
+        ticks = s.get("spread_ticks", 0.0)
+        mid = s.get("mid_price", 0.0)
+        net_edge = s.get("net_edge", 0.0)
+        edge_pct = s.get("net_edge_pct", 0.0)
+        qual_time_str = s.get("qual_time_str") or "--"
+        if not is_qual:
+            qual_time_str = "--"
+
+        # Color coding
+        if is_qual:
+            row_color = COLOR_GREEN
+            status_badge = f"{COLOR_BG_GREEN} QUALIFIED {COLOR_RESET}"
+            qual_display = f"{COLOR_YELLOW}{qual_time_str:<11}{COLOR_RESET}"
+        else:
+            row_color = COLOR_DIM
+            status_badge = f"{COLOR_DIM}NOT MET{COLOR_RESET}"
+            qual_display = f"{COLOR_DIM}{qual_time_str:<11}{COLOR_RESET}"
+
+        type_color = COLOR_CYAN if type_str == "CE" else COLOR_MAGENTA
+        ticks_col = COLOR_YELLOW if ticks >= criteria.get('min_spread_ticks', 5) else ''
+
+        row_str = (
+            f"{asset_col}{asset_label:<6}{COLOR_RESET} "
+            f"{sym:<22} "
+            f"{type_color}{type_str:<5}{COLOR_RESET} "
+            f"{strike_val:<8.0f} "
+            f"{bid:<8.2f} "
+            f"{ask:<8.2f} "
+            f"{spread:<8.2f} "
+            f"{tick:<6.2f} "
+            f"{ticks_col}{ticks:<7.1f}{COLOR_RESET} "
+            f"{mid:<8.2f} "
+            f"{net_edge:<9.2f} "
+            f"{row_color}{edge_pct:>6.1f}%{COLOR_RESET}   "
+            f"{qual_display} "
+            f"{status_badge}"
+        )
+        print(row_str)
+
+    print("=" * 128)
+    _render_recent_flashes()
+    print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100 | Qual Time: Style 2A continuous uptime{COLOR_RESET}\n")
 
 
 def stream_terminal_websocket(
@@ -589,6 +919,102 @@ def stream_terminal_websocket(
         render_lock = threading.Lock()
         is_multi = len(underlying_data) > 1
 
+        def _render_screen():
+            now_render = time.time()
+            for asset in underlying_data:
+                all_list = [c for a, c in all_contracts.values() if a == asset]
+                qual_list = [x for x in all_list if x.get("qualified")]
+
+                # Live timer update on qualified strikes so seconds/minutes increment smoothly
+                for x in qual_list:
+                    x_sym = x.get("symbol")
+                    if x_sym in _QUALIFIED_SINCE_MAP:
+                        x["qual_duration_sec"] = now_render - _QUALIFIED_SINCE_MAP[x_sym]
+                        x["qual_time_str"] = format_qual_duration(x["qual_duration_sec"])
+                        # Real-time Telegram alert check (>= threshold duration)
+                        check_strike_qual_alert(x, x["qual_duration_sec"])
+                for x in all_list:
+                    if not x.get("qualified"):
+                        x["qual_time_str"] = "--"
+                        reset_strike_alert(x.get("symbol"))
+
+                qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
+
+                underlying_data[asset]["all_strikes"] = all_list
+                underlying_data[asset]["qualified_strikes"] = qual_list
+                underlying_data[asset]["summary"] = {
+                    "total_scanned": len(all_list),
+                    "total_qualified": len(qual_list),
+                    "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
+                    "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
+                    "total_ticks": tick_count[0]
+                }
+
+            # Auto-trading trigger logic on qualified strike
+            if auto_trade:
+                if active_trade_holder[0] is not None and not active_trade_holder[0].is_running:
+                    active_trade_holder[0] = None
+
+                if active_trade_holder[0] is None:
+                    combined_qual = []
+                    for d in underlying_data.values():
+                        combined_qual.extend(d.get("qualified_strikes", []))
+                    if combined_qual:
+                        combined_qual.sort(key=lambda x: (x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+                        top_opp = combined_qual[0]
+                        active_acct = (account or os.getenv("ACTIVE_ACCOUNT", "main")).lower()
+                        opp_asset = top_opp.get("underlying") or ("BTC" if "BTC" in top_opp["symbol"] else "ETH")
+                        trade_size = get_auto_trade_lot_size(opp_asset)
+                        active_trade_holder[0] = mm_engine.start_trade(
+                            symbol=top_opp["symbol"],
+                            size=trade_size,
+                            account=active_acct
+                        )
+
+            os.system("cls" if os.name == "nt" else "clear")
+            print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title}) | Refresh: {refresh_interval}s")
+
+            tg_cfg = get_telegram_config()
+            if tg_cfg.get("is_configured") and tg_cfg.get("enabled"):
+                tg_status = f"{COLOR_GREEN}ACTIVE (Threshold: {tg_cfg['notify_secs']}s){COLOR_RESET}"
+            elif tg_cfg.get("is_configured"):
+                tg_status = f"{COLOR_YELLOW}PAUSED (Disabled in Settings){COLOR_RESET}"
+            else:
+                tg_status = f"{COLOR_DIM}SETUP REQUIRED (Bot Token/Chat ID missing){COLOR_RESET}"
+
+            recent_alerts = get_recent_alerts(limit=2)
+            recent_str = ""
+            if recent_alerts:
+                recent_items = [f"{a['symbol']} ({a['duration_str']} at {a['time']})" for a in recent_alerts]
+                recent_str = f" | {COLOR_GREEN}🚀 Sent: {', '.join(recent_items)}{COLOR_RESET}"
+
+            print(f" ✈️ Telegram Alerts: {tg_status}{recent_str}")
+
+            # Print Auto-Trade Live Banner if active
+            if auto_trade:
+                acct_label = (account or os.getenv("ACTIVE_ACCOUNT", "main")).upper()
+                curr = active_trade_holder[0]
+                if curr and curr.is_running:
+                    cost_str = f"${curr.buy_fill_price:.2f}" if curr.buy_fill_price else "Pending Buy Fill"
+                    target_str = f"${curr.sell_limit_price:.2f}" if curr.sell_limit_price else "--"
+                    print("=" * 128)
+                    print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS {curr.size}-LOT MM TRADE ACTIVE]{COLOR_RESET} Symbol: {COLOR_CYAN}{curr.symbol}{COLOR_RESET} | Account: {COLOR_YELLOW}[{acct_label}]{COLOR_RESET} ({curr.size} Lot{'s' if curr.size > 1 else ''})")
+                    print(f"    State: {COLOR_BOLD}{curr.state}{COLOR_RESET} | Entry Cost: {cost_str} | Sell Target: {target_str} | Realized PnL: ${curr.realized_pnl:.5f} USD")
+                    print(f"    Rule: {COLOR_BOLD}{COLOR_BG_GREEN} Strictly NO Stop-Loss, NO Timeout • Cost-to-Cost or Wait {COLOR_RESET} ({curr.status_message})")
+                    print("=" * 128)
+                else:
+                    print("=" * 128)
+                    btc_sz = get_auto_trade_lot_size('BTC')
+                    eth_sz = get_auto_trade_lot_size('ETH')
+                    print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS AUTO-TRADE ACTIVE]{COLOR_RESET} Listening on [{acct_label}]... Auto-executes MM cycle using configured lot sizes (BTC: {btc_sz} lot / ETH: {eth_sz} lot) when qualified strike appears.")
+                    print("=" * 128)
+
+            if is_multi:
+                print_combined_terminal_table(underlying_data, show_all=show_all, recent_flashes=recent_flashes)
+            else:
+                for asset, res in underlying_data.items():
+                    print_terminal_table(res, show_all=show_all, is_multi=False, recent_flashes=recent_flashes)
+
         def on_tick_received(symbol, quote_dict, raw_data):
             tick_count[0] += 1
             sym_upper = symbol.upper()
@@ -637,17 +1063,45 @@ def stream_terminal_websocket(
                     contract["net_edge"] = round(net_edge, 4)
                     contract["net_edge_pct"] = round(net_edge_pct, 2)
                     contract["spread_ticks"] = round(spread_ticks, 1)
-                    contract["qualified"] = (len(reasons) == 0)
+
+                    now_ts = time.time()
+                    c_sym = contract.get("symbol")
+                    is_qual = (len(reasons) == 0)
+                    contract["qualified"] = is_qual
                     contract["reasons_failed"] = reasons
+
+                    # Real-time continuous qualification duration tracking (Style 2A)
+                    if is_qual:
+                        if c_sym not in _QUALIFIED_SINCE_MAP:
+                            _QUALIFIED_SINCE_MAP[c_sym] = now_ts
+                        elapsed_s = now_ts - _QUALIFIED_SINCE_MAP[c_sym]
+                        contract["qual_duration_sec"] = elapsed_s
+                        contract["qual_time_str"] = format_qual_duration(elapsed_s)
+                        check_strike_qual_alert(contract, elapsed_s)
+                    else:
+                        was_dur = (now_ts - _QUALIFIED_SINCE_MAP.pop(c_sym)) if c_sym in _QUALIFIED_SINCE_MAP else None
+                        if was_dur is not None:
+                            contract["was_qual_str"] = format_qual_duration(was_dur)
+                            # Update the symbol's flash record with its final duration and exit timestamp
+                            for f in recent_flashes:
+                                if f.get("symbol") == c_sym:
+                                    f["was_qual_str"] = contract["was_qual_str"]
+                                    f["timestamp"] = now_ts
+                                    f["time_str"] = datetime.now().strftime("%H:%M:%S")
+                                    break
+                        contract["qual_duration_sec"] = None
+                        contract["qual_time_str"] = "--"
+                        reset_strike_alert(c_sym)
 
                     # Track flashes that qualify so user can see them even if they disappear quickly
                     if contract["qualified"]:
                         now_f = time.time()
                         last_f = contract.get("_last_flash_ts", 0)
-                        if now_f - last_f > 3.0:
+                        if now_f - last_f > 1.0:
                             contract["_last_flash_ts"] = now_f
-                            recent_flashes.append({
+                            flash_entry = {
                                 "symbol": contract.get("symbol"),
+                                "underlying": asset,
                                 "type_badge": contract.get("type_badge"),
                                 "strike": contract.get("strike"),
                                 "bid": contract.get("bid"),
@@ -655,73 +1109,25 @@ def stream_terminal_websocket(
                                 "spread": contract.get("spread"),
                                 "spread_ticks": contract.get("spread_ticks"),
                                 "net_edge_pct": contract.get("net_edge_pct"),
+                                "was_qual_str": contract.get("qual_time_str", "1s"),
                                 "time_str": datetime.now().strftime("%H:%M:%S"),
                                 "timestamp": now_f,
-                            })
-                            if len(recent_flashes) > 20:
-                                recent_flashes.pop(0)
+                            }
+                            # Update existing entry for this symbol in-place so only the last log is maintained
+                            existing_idx = next((i for i, f in enumerate(recent_flashes) if f.get("symbol") == contract.get("symbol")), None)
+                            if existing_idx is not None:
+                                recent_flashes[existing_idx] = flash_entry
+                            else:
+                                recent_flashes.append(flash_entry)
+                                if len(recent_flashes) > 20:
+                                    recent_flashes.pop(0)
 
             now = time.time()
             # Refresh terminal in-place with throttle to avoid Windows terminal flickering/tearing
             if now - last_render_time[0] >= refresh_interval:
                 last_render_time[0] = now
                 with render_lock:
-                    for asset in underlying_data:
-                        all_list = [c for a, c in all_contracts.values() if a == asset]
-                        qual_list = [x for x in all_list if x.get("qualified")]
-                        qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
-
-                        underlying_data[asset]["all_strikes"] = all_list
-                        underlying_data[asset]["qualified_strikes"] = qual_list
-                        underlying_data[asset]["summary"] = {
-                            "total_scanned": len(all_list),
-                            "total_qualified": len(qual_list),
-                            "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
-                            "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
-                            "total_ticks": tick_count[0]
-                        }
-
-                    # Auto-trading trigger logic on qualified strike
-                    if auto_trade:
-                        if active_trade_holder[0] is not None and not active_trade_holder[0].is_running:
-                            active_trade_holder[0] = None
-
-                        if active_trade_holder[0] is None:
-                            combined_qual = []
-                            for d in underlying_data.values():
-                                combined_qual.extend(d.get("qualified_strikes", []))
-                            if combined_qual:
-                                combined_qual.sort(key=lambda x: (x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
-                                top_opp = combined_qual[0]
-                                active_acct = (account or os.getenv("ACTIVE_ACCOUNT", "main")).lower()
-                                active_trade_holder[0] = mm_engine.start_trade(
-                                    symbol=top_opp["symbol"],
-                                    size=1,
-                                    account=active_acct
-                                )
-
-                    os.system("cls" if os.name == "nt" else "clear")
-                    print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title}) | Refresh: {refresh_interval}s")
-
-                    # Print Auto-Trade Live Banner if active
-                    if auto_trade:
-                        acct_label = (account or os.getenv("ACTIVE_ACCOUNT", "main")).upper()
-                        curr = active_trade_holder[0]
-                        if curr and curr.is_running:
-                            cost_str = f"${curr.buy_fill_price:.2f}" if curr.buy_fill_price else "Pending Buy Fill"
-                            target_str = f"${curr.sell_limit_price:.2f}" if curr.sell_limit_price else "--"
-                            print("=" * 115)
-                            print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS 1-LOT MM TRADE ACTIVE]{COLOR_RESET} Symbol: {COLOR_CYAN}{curr.symbol}{COLOR_RESET} | Account: {COLOR_YELLOW}[{acct_label}]{COLOR_RESET} (1 Lot)")
-                            print(f"    State: {COLOR_BOLD}{curr.state}{COLOR_RESET} | Entry Cost: {cost_str} | Sell Target: {target_str} | Realized PnL: ${curr.realized_pnl:.5f} USD")
-                            print(f"    Rule: {COLOR_BOLD}{COLOR_BG_GREEN} Strictly NO Stop-Loss, NO Timeout • Cost-to-Cost or Wait {COLOR_RESET} ({curr.status_message})")
-                            print("=" * 115)
-                        else:
-                            print("=" * 115)
-                            print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS AUTO-TRADE ACTIVE]{COLOR_RESET} Listening on [{acct_label}]... Auto-executes 1-lot MM cycle when qualified strike appears.")
-                            print("=" * 115)
-
-                    for asset, res in underlying_data.items():
-                        print_terminal_table(res, show_all=show_all, is_multi=is_multi, recent_flashes=recent_flashes)
+                    _render_screen()
 
         ws_manager = DeltaWebSocketManager(
             symbols=symbols_to_sub,
@@ -733,11 +1139,20 @@ def stream_terminal_websocket(
         rollover_triggered = False
         try:
             # Initial display
-            for asset, res in underlying_data.items():
-                print_terminal_table(res, show_all=show_all, is_multi=is_multi, recent_flashes=recent_flashes)
+            if is_multi:
+                print_combined_terminal_table(underlying_data, show_all=show_all, recent_flashes=recent_flashes)
+            else:
+                for asset, res in underlying_data.items():
+                    print_terminal_table(res, show_all=show_all, is_multi=False, recent_flashes=recent_flashes)
 
             while True:
-                time.sleep(2)
+                time.sleep(0.5)
+                now_check = time.time()
+                # Continuous smooth timer refresh even when market ticks are quiet
+                if now_check - last_render_time[0] >= refresh_interval:
+                    last_render_time[0] = now_check
+                    with render_lock:
+                        _render_screen()
                 # Auto-check if any currently streamed expiry has reached expiration (17:30 IST / 12:00 UTC)
                 for asset, exp_str in active_expiries.items():
                     if exp_str and is_expiry_expired(exp_str):
@@ -775,7 +1190,7 @@ def run_cli():
         "-u", "--underlying",
         type=str.upper,
         choices=["BTC", "ETH", "ALL", "BOTH"],
-        default=defaults["underlying"] if defaults["underlying"] in ["BTC", "ETH"] else "BTC",
+        default=defaults["underlying"] if defaults["underlying"] in ["BTC", "ETH", "ALL", "BOTH"] else "ALL",
         help=f"Underlying asset symbol (BTC, ETH, or ALL to scan both). Default: {defaults['underlying']}"
     )
     parser.add_argument(
@@ -911,11 +1326,14 @@ def run_cli():
         from mm_execution import mm_engine
         active_acct = (args.account or os.getenv("ACTIVE_ACCOUNT", "main")).lower()
         print("\n" + "=" * 70)
-        print(f" {COLOR_BOLD}{COLOR_GREEN}DELTA EXCHANGE AUTONOMOUS 1-LOT MM TRADING ENGINE{COLOR_RESET}")
+        btc_sz = get_auto_trade_lot_size('BTC')
+        eth_sz = get_auto_trade_lot_size('ETH')
+        print(f" {COLOR_BOLD}{COLOR_GREEN}DELTA EXCHANGE AUTONOMOUS MM TRADING ENGINE{COLOR_RESET}")
         print(f" Underlyings:  {COLOR_CYAN}{', '.join(underlyings)}{COLOR_RESET}")
         print(f" Account:      {COLOR_YELLOW}{active_acct.upper()}{COLOR_RESET}")
+        print(f" Lot Sizes:    {COLOR_BOLD}BTC: {btc_sz} lot | ETH: {eth_sz} lot{COLOR_RESET}")
         print(f" Criteria:     Bid >= {args.min_bid} | Ticks >= {args.min_ticks} | Edge >= {args.min_edge}%")
-        print(f" Strategy:     {COLOR_GREEN}1-Lot Buy Maker -> Sell Maker (Strictly 1 Trade at a time){COLOR_RESET}")
+        print(f" Strategy:     {COLOR_GREEN}Buy Maker -> Sell Maker (Strictly 1 Trade at a time){COLOR_RESET}")
         print(f" Price Drops:  {COLOR_BOLD}{COLOR_BG_GREEN} STRICTLY NO STOP LOSS, NO TIMEOUT -> EXIT COST-TO-COST OR WAIT {COLOR_RESET}")
         print("=" * 70 + "\n")
 
@@ -965,13 +1383,14 @@ def run_cli():
                     bid = best.get("bid", 0)
                     ask = best.get("ask", 0)
 
+                    trade_size = get_auto_trade_lot_size("BTC" if "BTC" in sym else "ETH")
                     print(f"\n⚡ {COLOR_BOLD}{COLOR_GREEN}[QUALIFIED OPPORTUNITY FOUND]{COLOR_RESET} {COLOR_CYAN}{sym}{COLOR_RESET}")
                     print(f"   Bid: ${bid} | Ask: ${ask} | Spread Ticks: {ticks:.1f} | Net Edge: {edge:.1f}%")
-                    print(f"   Auto-launching 1-Lot MM Trade on [{active_acct.upper()}]...")
+                    print(f"   Auto-launching {trade_size}-Lot MM Trade on [{active_acct.upper()}]...")
 
                     current_trade = mm_engine.start_trade(
                         symbol=sym,
-                        size=1,
+                        size=trade_size,
                         account=active_acct
                     )
                 else:
@@ -992,16 +1411,30 @@ def run_cli():
         print(f"{COLOR_YELLOW}[NOTICE]{COLOR_RESET} Expiry '{scan_expiry}' expired at 17:30 IST. Auto-evaluating next active expiry...")
         scan_expiry = None
 
-    for sym in underlyings:
-        res = evaluate_mm_strikes(
-            underlying=sym,
-            expiry=scan_expiry,
-            min_bid_price=args.min_bid,
-            min_spread_ticks=args.min_ticks,
-            min_net_edge_pct=args.min_edge,
-            client=client
-        )
-        print_terminal_table(res, show_all=args.all, is_multi=is_multi)
+    if is_multi:
+        combined_data = {}
+        for sym in underlyings:
+            res = evaluate_mm_strikes(
+                underlying=sym,
+                expiry=scan_expiry,
+                min_bid_price=args.min_bid,
+                min_spread_ticks=args.min_ticks,
+                min_net_edge_pct=args.min_edge,
+                client=client
+            )
+            combined_data[sym] = res
+        print_combined_terminal_table(combined_data, show_all=args.all)
+    else:
+        for sym in underlyings:
+            res = evaluate_mm_strikes(
+                underlying=sym,
+                expiry=scan_expiry,
+                min_bid_price=args.min_bid,
+                min_spread_ticks=args.min_ticks,
+                min_net_edge_pct=args.min_edge,
+                client=client
+            )
+            print_terminal_table(res, show_all=args.all, is_multi=False)
         
         # Print tip on qualified strikes
         qual_count = len(res.get("qualified_strikes", []))

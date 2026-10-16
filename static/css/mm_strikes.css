@@ -503,6 +503,51 @@
 }
 
 /* ==============================================================================
+   USER PROFILE & SETTINGS PILL BUTTON (Navbar)
+   ============================================================================== */
+.btn-profile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.btn-profile-pill:hover {
+  background: rgba(56, 189, 248, 0.24);
+  border-color: #38bdf8;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-profile-pill:active {
+  transform: translateY(0);
+}
+
+.btn-profile-pill .profile-icon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.profile-settings-card code {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  color: #10b981;
+}
+
+/* ==============================================================================
    1-LOT MM BUTTON & TRADE MONITOR STYLES
    ============================================================================== */
 .mm-btn-1lot {

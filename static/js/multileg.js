@@ -487,7 +487,7 @@ function getUnitMarginUSDForLeg(leg) {
     }
 
     const baseMargin = 0.05 * spotUSD;
-    const minMarginFloor = 0.005 * (isCall ? spotUSD : strike);
+    const minMarginFloor = 0.005 * spotUSD;
     const otmAdjusted = Math.max(baseMargin - otmAmount, minMarginFloor);
     const shortMarginPerUnit = premiumUSD + otmAdjusted;
 
@@ -523,7 +523,9 @@ function recalculateFullMarginLots(skipRender = false) {
   const totalUnitMargin = fullLegs.reduce((sum, l) => sum + getUnitMarginUSDForLeg(l), 0);
 
   if (totalUnitMargin > 0) {
-    const calculatedLots = Math.floor(remainingAvailUSD / totalUnitMargin);
+    // 5% reserved buffer: calculate lots using 95% of available margin so 5% stays reserved
+    const safeAvailUSD = remainingAvailUSD * 0.95;
+    const calculatedLots = Math.floor(safeAvailUSD / totalUnitMargin);
     const finalLots = calculatedLots > 0 ? calculatedLots : 1;
     let changed = false;
 
@@ -687,12 +689,13 @@ function updateStrategyMarginRequirement() {
   }
 
   if (healthBadge && healthText) {
+    const hasFullMargin = legRows.some(l => l.use_full_margin);
     if (totalRequiredMarginUSD === 0 && legRows.length === 0) {
       healthBadge.className = 'margin-health-badge sufficient';
       healthText.textContent = 'Ready to Build';
     } else if (isSufficient) {
       healthBadge.className = 'margin-health-badge sufficient';
-      healthText.textContent = 'Margin Sufficient';
+      healthText.textContent = hasFullMargin ? 'Margin Sufficient (5% Reserved)' : 'Margin Sufficient';
     } else {
       healthBadge.className = 'margin-health-badge insufficient';
       const shortfall = totalRequiredMarginUSD - availUSD;
@@ -888,6 +891,25 @@ function renderLegRows() {
 }
 
 /**
+ * Formats order execution error messages for human display
+ */
+function formatOrderError(err) {
+  if (!err) return 'Unknown error';
+  const errStr = typeof err === 'object' ? JSON.stringify(err) : String(err);
+  if (errStr.includes('insufficient_margin')) {
+    const matchAvail = errStr.match(/'available_balance':\s*'([0-9.]+)'/) || errStr.match(/"available_balance":\s*"([0-9.]+)"/);
+    const matchReq = errStr.match(/'required_additional_balance':\s*'([0-9.]+)'/) || errStr.match(/"required_additional_balance":\s*"([0-9.]+)"/);
+    if (matchAvail && matchReq) {
+      const avail = parseFloat(matchAvail[1]);
+      const addReq = parseFloat(matchReq[1]);
+      return `Insufficient Margin: Available $${avail.toFixed(2)}, required additional $${addReq.toFixed(2)} USD. Try reducing size slightly to maintain margin reserve.`;
+    }
+    return 'Insufficient Margin: Balance lower than Delta Portfolio Margin requirement. Please reduce lot size slightly.';
+  }
+  return errStr;
+}
+
+/**
  * 1-Click Multi-Leg Trade Execution with pre-trade confirmation summary
  */
 async function executeMultiLegTrade() {
@@ -932,10 +954,10 @@ async function executeMultiLegTrade() {
       showToast(`🚀 All ${data.successful_legs} legs executed successfully!`, 'success');
     } else if (data.overall_status === 'PARTIAL') {
       const legErr = data.error || (data.results && data.results.find(r => r && r.error)?.error) || '';
-      showToast(`⚠️ Partial execution: ${data.successful_legs} succeeded, ${data.failed_legs} failed. ${legErr}`, 'error');
+      showToast(`⚠️ Partial execution: ${data.successful_legs} succeeded, ${data.failed_legs} failed. ${formatOrderError(legErr)}`, 'error');
     } else {
       const legErr = data.error || (data.results && data.results.find(r => r && r.error)?.error) || 'Check details';
-      showToast(`❌ Execution failed: ${legErr}`, 'error');
+      showToast(`❌ Execution failed: ${formatOrderError(legErr)}`, 'error');
     }
 
     fetchDashboardData(true);

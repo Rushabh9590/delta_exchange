@@ -5,12 +5,15 @@
  * ==============================================================================
  */
 
-let mmCurrentUnderlying = 'BTC';
+let mmCurrentUnderlying = 'ALL';
 let mmSelectedExpiry = '';
 let mmLastData = null;
 let mmOnlyQualified = true;
 let mmSearchTerm = '';
 let mmIsLoading = false;
+
+window.profileLotSizeBtc = 1;
+window.profileLotSizeEth = 1;
 
 /**
  * Initializes the Market Making Strike Selection module on page load
@@ -40,6 +43,30 @@ async function initMarketMakingModule() {
         mmCurrentUnderlying = cfg.underlying;
       }
     }
+
+    // Load User Profile Settings (BTC & ETH lot sizes + Telegram alerts)
+    try {
+      const profRes = await ApiService.getProfileSettings();
+      if (profRes && profRes.success) {
+        window.profileLotSizeBtc = profRes.lot_size_btc || 1;
+        window.profileLotSizeEth = profRes.lot_size_eth || 1;
+
+        const tgCfg = profRes.telegram;
+        if (tgCfg) {
+          const inpSec = document.getElementById('mmInpTgSec');
+          if (inpSec && tgCfg.notify_secs !== undefined) {
+            inpSec.value = tgCfg.notify_secs;
+          }
+          const chkTg = document.getElementById('mmChkTgEnabled');
+          if (chkTg && tgCfg.enabled !== undefined) {
+            chkTg.checked = tgCfg.enabled;
+          }
+          updateTgStatusBadges(tgCfg);
+        }
+      }
+    } catch (e) {
+      console.warn('[MM] Could not load User Profile settings:', e);
+    }
   } catch (e) {
     console.warn('[MM] Could not load default config:', e);
   }
@@ -53,9 +80,9 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
   if (isBackground && mmIsLoading) return;
   if (underlying) {
     const cleanAsset = underlying.toUpperCase();
-    mmCurrentUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
-  } else if (mmCurrentUnderlying !== 'ETH') {
-    mmCurrentUnderlying = 'BTC';
+    mmCurrentUnderlying = ['ALL', 'BTC', 'ETH'].includes(cleanAsset) ? cleanAsset : 'ALL';
+  } else if (!['ALL', 'BTC', 'ETH'].includes(mmCurrentUnderlying)) {
+    mmCurrentUnderlying = 'ALL';
   }
   if (expiry !== null) mmSelectedExpiry = expiry;
 
@@ -290,9 +317,12 @@ function buildMmRowHtml(item) {
     ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
     : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
 
+  const asset = item.underlying || (item.symbol && item.symbol.includes('BTC') ? 'BTC' : 'ETH');
+  const assetTag = `<span class="mm-asset-tag ${asset === 'ETH' ? 'tag-eth' : 'tag-btc'}" style="font-size:0.65rem; font-weight:700; padding:1px 5px; border-radius:3px; margin-right:5px; letter-spacing:0.3px; ${asset === 'ETH' ? 'background:rgba(99,102,241,0.18); color:#a5b4fc; border:1px solid rgba(99,102,241,0.35);' : 'background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.35);'}">${asset}</span>`;
+
   return `
     <tr id="mmRow_${item.symbol}" class="${rowClass}">
-      <td class="col-symbol text-left font-mono" style="font-weight: 600; font-size: 0.76rem; letter-spacing: -0.2px;">${item.symbol}</td>
+      <td class="col-symbol text-left font-mono" style="font-weight: 600; font-size: 0.76rem; letter-spacing: -0.2px;">${assetTag}${item.symbol}</td>
       <td class="col-type text-center"><span class="mm-type-badge ${typeClass}">${badgeText}</span></td>
       <td class="col-strike text-right" style="font-weight: 700; color: ${item.is_atm ? 'var(--yellow)' : 'inherit'};">${item.strike}${item.is_atm ? ' (ATM)' : ''}</td>
       <td class="col-bid text-right text-green" id="mmBid_${item.symbol}">${bid}</td>
@@ -514,8 +544,8 @@ function handleMmStrikesTickUpdate(data) {
  * Handles switching underlying asset
  */
 function onMmUnderlyingChange(asset) {
-  const cleanAsset = (asset || 'BTC').toUpperCase();
-  mmCurrentUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
+  const cleanAsset = (asset || 'ALL').toUpperCase();
+  mmCurrentUnderlying = ['ALL', 'BTC', 'ETH'].includes(cleanAsset) ? cleanAsset : 'ALL';
   mmSelectedExpiry = '';
   loadMarketMakingStrikes(mmCurrentUnderlying, '');
 }
@@ -698,8 +728,32 @@ function open1LotMmModalBySymbol(symbol) {
   if (inpBuy) inpBuy.value = recBuy.toFixed(2);
   if (inpSell) inpSell.value = recSell.toFixed(2);
 
+  const isBtc = (item.symbol || '').includes('BTC');
+  const defaultSize = isBtc ? (window.profileLotSizeBtc || 1) : (window.profileLotSizeEth || 1);
+  const inpSize = document.getElementById('mmModalInpSize');
+  const noteUnit = document.getElementById('mmModalLotUnitNote');
+  if (inpSize) inpSize.value = defaultSize;
+  if (noteUnit) noteUnit.textContent = isBtc ? '1 lot = 0.001 BTC' : '1 lot = 0.01 ETH';
+
+  const btnLaunch = document.getElementById('btnLaunchMmTrade');
+  if (btnLaunch) {
+    btnLaunch.textContent = `⚡ Launch MM Order (${defaultSize} Lot${defaultSize > 1 ? 's' : ''})`;
+  }
+
   if (modal) {
     modal.style.display = 'flex';
+  }
+}
+
+/**
+ * Updates launch button text when size input changes
+ */
+function onMmModalSizeChange() {
+  const inpSize = document.getElementById('mmModalInpSize');
+  const btnLaunch = document.getElementById('btnLaunchMmTrade');
+  const size = Math.max(1, parseInt(inpSize?.value || '1'));
+  if (btnLaunch) {
+    btnLaunch.textContent = `⚡ Launch MM Order (${size} Lot${size > 1 ? 's' : ''})`;
   }
 }
 
@@ -710,7 +764,7 @@ function close1LotMmModal() {
 }
 
 /**
- * Launches the 1-Lot MM Trade Cycle on Delta Exchange
+ * Launches the MM Trade Cycle on Delta Exchange with configured lot size
  */
 async function confirmAndLaunch1LotTrade() {
   if (!mmSelectedTradeItem) {
@@ -719,6 +773,9 @@ async function confirmAndLaunch1LotTrade() {
   }
 
   const btn = document.getElementById('btnLaunchMmTrade');
+  const inpSize = document.getElementById('mmModalInpSize');
+  const tradeSize = Math.max(1, parseInt(inpSize?.value || '1'));
+
   if (btn) {
     btn.disabled = true;
     btn.textContent = '🚀 Placing Order...';
@@ -736,7 +793,7 @@ async function confirmAndLaunch1LotTrade() {
   try {
     const payload = {
       symbol: selectedSymbol,
-      size: 1,
+      size: tradeSize,
       entry_price: buyPrice,
       target_exit_price: sellPrice,
       account: activeAcct
@@ -747,7 +804,7 @@ async function confirmAndLaunch1LotTrade() {
     if (res && res.success) {
       close1LotMmModal();
       if (typeof showToast === 'function') {
-        showToast(`⚡ 1-Lot MM Cycle launched for ${selectedSymbol} on [${activeAcct.toUpperCase()}]!`, 'success');
+        showToast(`⚡ ${tradeSize}-Lot MM Cycle launched for ${selectedSymbol} on [${activeAcct.toUpperCase()}]!`, 'success');
       }
       pollActiveMmTrades();
     } else {
@@ -762,7 +819,7 @@ async function confirmAndLaunch1LotTrade() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '⚡ Launch 1-Lot MM Order';
+      btn.textContent = `⚡ Launch MM Order (${tradeSize} Lot${tradeSize > 1 ? 's' : ''})`;
     }
   }
 }
@@ -897,6 +954,279 @@ async function cancelActiveTrade(tradeId) {
     }
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+/**
+ * Updates the Drawer Status Badge and Modal Status Indicator
+ */
+function updateTgStatusBadges(cfg) {
+  const badge = document.getElementById('drawerTgStatusBadge');
+  const indicator = document.getElementById('tgModalStatusIndicator');
+  if (!cfg) return;
+
+  const isConfigured = Boolean(cfg.is_configured);
+  const isEnabled = Boolean(cfg.enabled);
+
+  if (badge) {
+    if (!isConfigured) {
+      badge.textContent = 'Setup';
+      badge.style.background = 'rgba(56, 189, 248, 0.15)';
+      badge.style.color = '#38bdf8';
+      badge.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+    } else if (isEnabled) {
+      badge.textContent = 'ON';
+      badge.style.background = 'rgba(16, 185, 129, 0.2)';
+      badge.style.color = '#10b981';
+      badge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+    } else {
+      badge.textContent = 'OFF';
+      badge.style.background = 'rgba(239, 68, 68, 0.15)';
+      badge.style.color = '#ef4444';
+      badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    }
+  }
+
+  if (indicator) {
+    if (!isConfigured) {
+      indicator.innerHTML = '<span style="color: #fbbf24;">⚠️ Bot not configured</span>';
+    } else if (isEnabled) {
+      indicator.innerHTML = '<span style="color: #10b981; font-weight: 700;">● ALERTS ON</span>';
+    } else {
+      indicator.innerHTML = '<span style="color: #ef4444; font-weight: 700;">○ ALERTS OFF</span>';
+    }
+  }
+}
+
+/**
+ * Syncs color of tgModalEnabled select dropdown
+ */
+function onTgModalEnabledChange() {
+  const enSelect = document.getElementById('tgModalEnabled');
+  if (!enSelect) return;
+  if (enSelect.value === 'true') {
+    enSelect.style.color = '#10b981';
+  } else {
+    enSelect.style.color = '#ef4444';
+  }
+}
+
+/**
+ * Handles changes to the Telegram alert duration or enabled toggle in the criteria bar
+ */
+async function onMmTgConfigChange() {
+  const inpSec = document.getElementById('mmInpTgSec');
+  const chk = document.getElementById('mmChkTgEnabled');
+  const notifySecs = parseInt(inpSec ? inpSec.value : '100') || 100;
+  const enabled = chk ? chk.checked : true;
+
+  try {
+    const res = await ApiService.saveTelegramConfig({
+      notify_secs: notifySecs,
+      enabled: enabled
+    });
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast(`Telegram alerts ${enabled ? 'Enabled (ON)' : 'Disabled (OFF)'}`, 'success');
+      }
+      updateTgStatusBadges(res.config);
+    }
+  } catch (e) {
+    console.error('Failed to update Telegram settings:', e);
+  }
+}
+
+/**
+ * Opens User Profile & Settings modal (Lot Sizes & Telegram configuration)
+ */
+async function openProfileModal() {
+  const modal = document.getElementById('telegramModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const fb = document.getElementById('tgModalFeedback');
+  if (fb) fb.style.display = 'none';
+
+  // Fetch & populate User Profile & Telegram configuration
+  try {
+    const res = await ApiService.getProfileSettings();
+    if (res && res.success) {
+      window.profileLotSizeBtc = res.lot_size_btc || 1;
+      window.profileLotSizeEth = res.lot_size_eth || 1;
+
+      const inpBtc = document.getElementById('profileLotSizeBtc');
+      const inpEth = document.getElementById('profileLotSizeEth');
+      if (inpBtc) inpBtc.value = window.profileLotSizeBtc;
+      if (inpEth) inpEth.value = window.profileLotSizeEth;
+
+      const cfg = res.telegram || {};
+      const tokenInp = document.getElementById('tgModalBotToken');
+      const chatInp = document.getElementById('tgModalChatId');
+      const secInp = document.getElementById('tgModalNotifySec');
+      const enSelect = document.getElementById('tgModalEnabled');
+
+      if (tokenInp) tokenInp.value = cfg.bot_token || '';
+      if (chatInp) chatInp.value = cfg.chat_id || '';
+      if (secInp) secInp.value = cfg.notify_secs || 100;
+      if (enSelect) {
+        enSelect.value = cfg.enabled ? 'true' : 'false';
+        onTgModalEnabledChange();
+      }
+
+      updateTgStatusBadges(cfg);
+    }
+  } catch (e) {
+    console.error('Error opening Profile & Settings modal:', e);
+  }
+}
+
+// Backwards-compatibility alias
+const openTelegramModal = openProfileModal;
+
+/**
+ * Toggles visibility of the bot token in the modal
+ */
+function toggleTgTokenVisibility() {
+  const tokenInp = document.getElementById('tgModalBotToken');
+  if (!tokenInp) return;
+  tokenInp.type = tokenInp.type === 'password' ? 'text' : 'password';
+}
+
+/**
+ * Closes User Profile & Settings modal
+ */
+function closeProfileModal() {
+  const modal = document.getElementById('telegramModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// Backwards-compatibility alias
+const closeTelegramModal = closeProfileModal;
+
+/**
+ * Saves User Profile (Traded Lot Sizes) & Telegram settings to .env
+ */
+async function saveProfileSettingsFromModal() {
+  const lotBtc = Math.max(1, parseInt(document.getElementById('profileLotSizeBtc')?.value || '1'));
+  const lotEth = Math.max(1, parseInt(document.getElementById('profileLotSizeEth')?.value || '1'));
+
+  const token = document.getElementById('tgModalBotToken')?.value.trim();
+  const chatId = document.getElementById('tgModalChatId')?.value.trim();
+  const sec = parseInt(document.getElementById('tgModalNotifySec')?.value || '100');
+  const enabled = document.getElementById('tgModalEnabled')?.value === 'true';
+
+  const fb = document.getElementById('tgModalFeedback');
+
+  try {
+    const res = await ApiService.saveProfileSettings({
+      lot_size_btc: lotBtc,
+      lot_size_eth: lotEth,
+      bot_token: token,
+      chat_id: chatId,
+      notify_secs: sec,
+      enabled: enabled
+    });
+
+    if (res && res.success) {
+      window.profileLotSizeBtc = res.lot_size_btc || lotBtc;
+      window.profileLotSizeEth = res.lot_size_eth || lotEth;
+
+      // Sync criteria strip inputs
+      const barSec = document.getElementById('mmInpTgSec');
+      if (barSec) barSec.value = sec;
+      const barEn = document.getElementById('mmChkTgEnabled');
+      if (barEn) barEn.checked = enabled;
+
+      if (res.telegram) {
+        updateTgStatusBadges(res.telegram);
+      }
+
+      if (fb) {
+        fb.style.display = 'block';
+        fb.style.background = 'rgba(16, 185, 129, 0.15)';
+        fb.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+        fb.style.color = '#10b981';
+        fb.innerHTML = `✅ Profile &amp; Settings saved to .env! (BTC: <strong>${window.profileLotSizeBtc} lot</strong>, ETH: <strong>${window.profileLotSizeEth} lot</strong>)`;
+      }
+      if (typeof showToast === 'function') {
+        showToast(`Profile & Settings saved! BTC: ${window.profileLotSizeBtc} lot, ETH: ${window.profileLotSizeEth} lot`, 'success');
+      }
+      setTimeout(closeProfileModal, 1200);
+    } else {
+      if (fb) {
+        fb.style.display = 'block';
+        fb.style.background = 'rgba(239, 68, 68, 0.15)';
+        fb.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+        fb.style.color = '#ef4444';
+        fb.innerHTML = `❌ Failed to save: ${res?.error || 'Unknown error'}`;
+      }
+    }
+  } catch (e) {
+    if (fb) {
+      fb.style.display = 'block';
+      fb.style.background = 'rgba(239, 68, 68, 0.15)';
+      fb.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+      fb.style.color = '#ef4444';
+      fb.innerHTML = `❌ Error: ${e.message}`;
+    }
+  }
+}
+
+// Backwards-compatibility alias
+const saveTelegramSettingsFromModal = saveProfileSettingsFromModal;
+
+/**
+ * Sends a test verification message to Telegram
+ */
+async function sendTelegramTestAlert() {
+  const token = document.getElementById('tgModalBotToken')?.value.trim();
+  const chatId = document.getElementById('tgModalChatId')?.value.trim();
+  const fb = document.getElementById('tgModalFeedback');
+  const btn = document.getElementById('btnTgTest');
+
+  if (fb) {
+    fb.style.display = 'block';
+    fb.style.background = 'rgba(56, 189, 248, 0.15)';
+    fb.style.border = '1px solid rgba(56, 189, 248, 0.4)';
+    fb.style.color = '#38bdf8';
+    fb.innerHTML = '⏳ Sending test message to Telegram...';
+  }
+
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await ApiService.testTelegramAlert({
+      bot_token: token,
+      chat_id: chatId
+    });
+
+    if (res && res.success) {
+      if (fb) {
+        fb.style.background = 'rgba(16, 185, 129, 0.15)';
+        fb.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+        fb.style.color = '#10b981';
+        fb.innerHTML = '🚀 <strong>Test message delivered successfully to your Telegram chat!</strong>';
+      }
+      if (typeof showToast === 'function') {
+        showToast('Test message sent to Telegram!', 'success');
+      }
+    } else {
+      if (fb) {
+        fb.style.background = 'rgba(239, 68, 68, 0.15)';
+        fb.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+        fb.style.color = '#ef4444';
+        fb.innerHTML = `❌ Telegram error: ${res?.error || 'Check Bot Token & Chat ID'}`;
+      }
+    }
+  } catch (e) {
+    if (fb) {
+      fb.style.background = 'rgba(239, 68, 68, 0.15)';
+      fb.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+      fb.style.color = '#ef4444';
+      fb.innerHTML = `❌ Network Error: ${e.message}`;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

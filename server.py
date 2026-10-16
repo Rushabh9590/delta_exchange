@@ -33,12 +33,16 @@ from multileg import (
     get_master_status,
     start_master_sync_daemon
 )
-from mm_strikes import evaluate_mm_strikes, get_mm_config
+from mm_strikes import evaluate_mm_strikes, get_mm_config, start_mm_background_scanner
 from mm_execution import mm_engine
 from websocket import DeltaWebSocketManager
+from telegram_notify import get_telegram_config, save_telegram_config, send_test_alert
 
 # Start background master scrip auto-sync daemon (adaptive 15m default, 45s during 5:30 PM IST rollover window)
 start_master_sync_daemon(interval_seconds=900)
+
+# Start 24/7 MM Telegram Alert scanner daemon (scans BTC & ETH continuously without requiring browser to be open)
+start_mm_background_scanner(interval_seconds=4.0)
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
@@ -763,13 +767,14 @@ def get_market_making_strikes():
     """
     Fetches live option chain, applies Market Making Strike Selection Criteria
     (Spread, Mid, Net Edge, Net Edge %, Spread Ticks), and returns qualified strikes.
+    Supports underlying="ALL", "BTC", or "ETH".
     """
     try:
-        underlying = request.args.get("underlying", "BTC").strip().upper()
-        if underlying not in ["BTC", "ETH"]:
+        underlying = request.args.get("underlying", "ALL").strip().upper()
+        if underlying not in ["ALL", "BTC", "ETH"]:
             return jsonify({
                 "success": False,
-                "error": f"Option contracts are only available for BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
+                "error": f"Option contracts are only available for ALL, BTC and ETH on Delta Exchange. '{underlying}' has no option contracts.",
                 "underlying": underlying,
                 "all_strikes": [],
                 "qualified_strikes": [],
@@ -789,6 +794,63 @@ def get_market_making_strikes():
         min_edge = _parse_float(request.args.get("min_edge"))
 
         client = get_client()
+
+        if underlying == "ALL":
+            btc_data = evaluate_mm_strikes(
+                underlying="BTC",
+                expiry=expiry,
+                min_bid_price=min_bid,
+                min_spread_ticks=min_ticks,
+                min_net_edge_pct=min_edge,
+                client=client
+            )
+            eth_data = evaluate_mm_strikes(
+                underlying="ETH",
+                expiry=expiry,
+                min_bid_price=min_bid,
+                min_spread_ticks=min_ticks,
+                min_net_edge_pct=min_edge,
+                client=client
+            )
+
+            all_strikes = (btc_data.get("all_strikes") or []) + (eth_data.get("all_strikes") or [])
+            qualified_strikes = (btc_data.get("qualified_strikes") or []) + (eth_data.get("qualified_strikes") or [])
+            # Sort qualified strikes by top net edge % and spread ticks
+            qualified_strikes.sort(key=lambda x: (x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+
+            btc_sum = btc_data.get("summary") or {}
+            eth_sum = eth_data.get("summary") or {}
+            summary = {
+                "total_scanned": btc_sum.get("total_scanned", 0) + eth_sum.get("total_scanned", 0),
+                "total_qualified": len(qualified_strikes),
+                "max_spread_ticks": max(btc_sum.get("max_spread_ticks", 0), eth_sum.get("max_spread_ticks", 0)),
+                "max_net_edge_pct": max(btc_sum.get("max_net_edge_pct", 0), eth_sum.get("max_net_edge_pct", 0)),
+            }
+
+            merged_expiries = []
+            seen_exp = set()
+            for exp in (btc_data.get("expiries") or []) + (eth_data.get("expiries") or []):
+                e_val = exp.get("expiry")
+                if e_val and e_val not in seen_exp:
+                    seen_exp.add(e_val)
+                    merged_expiries.append(exp)
+
+            data = {
+                "success": True,
+                "underlying": "ALL",
+                "selected_expiry": btc_data.get("selected_expiry") or eth_data.get("selected_expiry"),
+                "spot_price": btc_data.get("spot_price", 0.0),
+                "btc_spot": btc_data.get("spot_price", 0.0),
+                "eth_spot": eth_data.get("spot_price", 0.0),
+                "criteria": btc_data.get("criteria"),
+                "summary": summary,
+                "qualified_strikes": qualified_strikes,
+                "all_strikes": all_strikes,
+                "expiries": merged_expiries,
+                "timestamp": time.time()
+            }
+            return jsonify(data)
+
         data = evaluate_mm_strikes(
             underlying=underlying,
             expiry=expiry,
@@ -810,6 +872,152 @@ def get_market_making_config():
     try:
         cfg = get_mm_config()
         return jsonify({"success": True, "config": cfg})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==============================================================================
+# TELEGRAM NOTIFICATIONS CONFIGURATION API
+# ==============================================================================
+
+@app.route("/api/telegram/config", methods=["GET"])
+def get_telegram_settings():
+    """
+    Returns current Telegram alert configuration and threshold.
+    """
+    try:
+        cfg = get_telegram_config()
+        return jsonify({"success": True, "config": cfg})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/telegram/config", methods=["POST"])
+def update_telegram_settings():
+    """
+    Updates Telegram alert threshold (seconds), enabled status, and credentials.
+    """
+    try:
+        data = request.get_json() or {}
+        bot_token = data.get("bot_token")
+        chat_id = data.get("chat_id")
+        notify_secs = data.get("notify_secs")
+        enabled = data.get("enabled")
+
+        updated = save_telegram_config(
+            bot_token=bot_token if bot_token is not None else None,
+            chat_id=chat_id if chat_id is not None else None,
+            notify_secs=notify_secs,
+            enabled=enabled
+        )
+        return jsonify({"success": True, "config": updated})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/telegram/test", methods=["POST"])
+def test_telegram_settings():
+    """
+    Sends an instant verification message to Telegram chat.
+    """
+    try:
+        data = request.get_json() or {}
+        bot_token = data.get("bot_token")
+        chat_id = data.get("chat_id")
+        res = send_test_alert(bot_token=bot_token, chat_id=chat_id)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==============================================================================
+# USER PROFILE & AUTOMATION SETTINGS API
+# ==============================================================================
+
+@app.route("/api/settings/profile", methods=["GET"])
+def get_profile_settings():
+    """
+    Returns user profile trading settings: BTC & ETH auto-trade lot sizes and Telegram settings.
+    """
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
+        
+        try:
+            lot_btc = max(1, int(os.getenv("MM_LOT_SIZE_BTC", "1")))
+        except (ValueError, TypeError):
+            lot_btc = 1
+
+        try:
+            lot_eth = max(1, int(os.getenv("MM_LOT_SIZE_ETH", "1")))
+        except (ValueError, TypeError):
+            lot_eth = 1
+
+        tg_cfg = get_telegram_config()
+        
+        return jsonify({
+            "success": True,
+            "lot_size_btc": lot_btc,
+            "lot_size_eth": lot_eth,
+            "telegram": tg_cfg
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/settings/profile", methods=["POST"])
+def update_profile_settings():
+    """
+    Updates user profile: saves BTC & ETH lot sizes and Telegram settings to .env.
+    """
+    try:
+        from dotenv import set_key
+        env_file = str(BASE_DIR / ".env")
+        data = request.get_json() or {}
+        
+        lot_btc = data.get("lot_size_btc")
+        lot_eth = data.get("lot_size_eth")
+        
+        if lot_btc is not None:
+            try:
+                val_btc = max(1, int(lot_btc))
+                set_key(env_file, "MM_LOT_SIZE_BTC", str(val_btc))
+                os.environ["MM_LOT_SIZE_BTC"] = str(val_btc)
+            except (ValueError, TypeError):
+                pass
+                
+        if lot_eth is not None:
+            try:
+                val_eth = max(1, int(lot_eth))
+                set_key(env_file, "MM_LOT_SIZE_ETH", str(val_eth))
+                os.environ["MM_LOT_SIZE_ETH"] = str(val_eth)
+            except (ValueError, TypeError):
+                pass
+
+        # Update Telegram settings if provided
+        tg_updated = save_telegram_config(
+            bot_token=data.get("bot_token"),
+            chat_id=data.get("chat_id"),
+            notify_secs=data.get("notify_secs"),
+            enabled=data.get("enabled")
+        )
+
+        try:
+            cur_btc = max(1, int(os.getenv("MM_LOT_SIZE_BTC", "1")))
+        except (ValueError, TypeError):
+            cur_btc = 1
+
+        try:
+            cur_eth = max(1, int(os.getenv("MM_LOT_SIZE_ETH", "1")))
+        except (ValueError, TypeError):
+            cur_eth = 1
+
+        return jsonify({
+            "success": True,
+            "lot_size_btc": cur_btc,
+            "lot_size_eth": cur_eth,
+            "telegram": tg_updated
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
