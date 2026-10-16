@@ -232,16 +232,42 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
   background: rgba(0, 0, 0, 0.15);
-  max-height: 580px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.mm-table-wrapper::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.mm-table-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
 }
 
 .mm-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.82rem;
-  text-align: right;
+  font-size: 0.79rem;
   white-space: nowrap;
 }
+
+/* Explicit fixed column widths guaranteeing zero shifting when toggling qualified filter */
+.mm-table .col-symbol  { width: 175px; min-width: 175px; max-width: 175px; }
+.mm-table .col-type    { width: 68px;  min-width: 68px;  max-width: 68px;  }
+.mm-table .col-strike  { width: 78px;  min-width: 78px;  max-width: 78px;  }
+.mm-table .col-bid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
+.mm-table .col-ask     { width: 84px;  min-width: 84px;  max-width: 84px;  }
+.mm-table .col-spread  { width: 74px;  min-width: 74px;  max-width: 74px;  }
+.mm-table .col-tick    { width: 56px;  min-width: 56px;  max-width: 56px;  }
+.mm-table .col-ticks   { width: 68px;  min-width: 68px;  max-width: 68px;  }
+.mm-table .col-mid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
+.mm-table .col-edge    { width: 78px;  min-width: 78px;  max-width: 78px;  }
+.mm-table .col-edgepct { width: 74px;  min-width: 74px;  max-width: 74px;  }
+.mm-table .col-status  { width: 110px; min-width: 110px; max-width: 110px; }
+.mm-table .col-action  { width: 110px; min-width: 110px; max-width: 110px; }
 
 .mm-table th {
   position: sticky;
@@ -249,12 +275,17 @@
   background: #14171d;
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.72rem;
+  font-size: 0.70rem;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 10px 12px;
+  letter-spacing: 0.4px;
+  padding: 8px 8px;
   border-bottom: 2px solid var(--border-card);
   z-index: 10;
+}
+
+.mm-table th.text-right,
+.mm-table td.text-right {
+  text-align: right;
 }
 
 .mm-table th.text-left,
@@ -268,7 +299,7 @@
 }
 
 .mm-table td {
-  padding: 9px 12px;
+  padding: 7px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font-family: var(--font-mono);
   color: var(--text-secondary);
@@ -284,6 +315,35 @@
 
 .mm-table tr.row-qualified:hover td {
   background: rgba(16, 185, 129, 0.08);
+}
+
+/* Pin Action column so it is always 100% visible and never clipped */
+.mm-table th.col-action,
+.mm-table td.col-action {
+  position: sticky;
+  right: 0;
+  background: #12151b;
+  box-shadow: -4px 0 8px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+  padding-right: 10px;
+  padding-left: 6px;
+}
+
+.mm-table th.col-action {
+  z-index: 15;
+  background: #14171d;
+}
+
+.mm-table tr:hover td.col-action {
+  background: #181c24;
+}
+
+.mm-table tr.row-qualified td.col-action {
+  background: #121d1b;
+}
+
+.mm-table tr.row-qualified:hover td.col-action {
+  background: #152723;
 }
 
 /* Badges & Highlights */
@@ -314,6 +374,8 @@
   border-radius: 9999px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 88px;
   gap: 4px;
   cursor: default;
 }
@@ -388,5 +450,251 @@
 .tick-flash-down {
   background: rgba(239, 68, 68, 0.25) !important;
   transition: background 0.1s ease;
+}
+
+/* ==============================================================================
+   ACCOUNT SWITCHER PILL (Navbar)
+   ============================================================================== */
+.account-switch-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  padding: 2px 6px;
+  font-size: 0.76rem;
+}
+
+.account-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding-left: 4px;
+}
+
+.acct-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.acct-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.acct-btn.active {
+  background: #10b981;
+  color: #000;
+  box-shadow: 0 1px 6px rgba(16, 185, 129, 0.4);
+}
+
+.acct-btn.active.main {
+  background: #38bdf8;
+  color: #000;
+  box-shadow: 0 1px 6px rgba(56, 189, 248, 0.4);
+}
+
+/* ==============================================================================
+   1-LOT MM BUTTON & TRADE MONITOR STYLES
+   ============================================================================== */
+.mm-btn-1lot {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.35));
+  border: 1px solid rgba(16, 185, 129, 0.6);
+  color: #34d399;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mm-btn-1lot:hover {
+  background: #10b981;
+  color: #000;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Active MM Trades Monitor Container */
+.mm-trades-panel {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: var(--radius-md, 8px);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mm-trades-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.mm-trade-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.mm-trade-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid #10b981;
+  border-radius: 6px;
+  padding: 6px 14px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  width: 100%;
+}
+
+.mm-trade-card.waiting-cost {
+  border-left-color: #fbbf24;
+}
+
+.mm-strip-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mm-trade-symbol {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.mm-strip-chip {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mm-strip-status-chip {
+  max-width: 360px;
+}
+
+.mm-status-text {
+  color: #cbd5e1;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.mm-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.mm-trade-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+}
+
+.mm-trade-badge.buying {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.mm-trade-badge.selling {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.mm-trade-badge.cost-wait {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.mm-trade-badge.done {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+}
+
+.mm-upload-input {
+  width: 75px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+}
+
+.mm-btn-upload {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mm-btn-upload:hover {
+  background: #38bdf8;
+  color: #000;
+}
+
+.mm-btn-cancel {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mm-btn-cancel:hover {
+  background: #ef4444;
+  color: #fff;
 }
 

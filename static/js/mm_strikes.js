@@ -8,7 +8,7 @@
 let mmCurrentUnderlying = 'BTC';
 let mmSelectedExpiry = '';
 let mmLastData = null;
-let mmOnlyQualified = false;
+let mmOnlyQualified = true;
 let mmSearchTerm = '';
 let mmIsLoading = false;
 
@@ -16,6 +16,10 @@ let mmIsLoading = false;
  * Initializes the Market Making Strike Selection module on page load
  */
 async function initMarketMakingModule() {
+  const chk = document.getElementById('mmChkOnlyQual');
+  if (chk) chk.checked = true;
+  mmOnlyQualified = true;
+
   try {
     const res = await ApiService.getMarketMakingConfig();
     if (res && res.success && res.config) {
@@ -45,7 +49,8 @@ async function initMarketMakingModule() {
  * Fetches initial contract definitions for underlying and expiry,
  * and immediately subscribes all option contracts to the live WebSocket stream.
  */
-async function loadMarketMakingStrikes(underlying = null, expiry = null) {
+async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackground = false) {
+  if (isBackground && mmIsLoading) return;
   if (underlying) {
     const cleanAsset = underlying.toUpperCase();
     mmCurrentUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
@@ -64,7 +69,7 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null) {
   });
 
   const tbody = document.getElementById('mmTbody');
-  if (tbody && !mmLastData) {
+  if (tbody && !mmLastData && !isBackground) {
     tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--text-muted);"><span class="spinner"></span> Loading & subscribing to live WebSocket options stream for ${mmCurrentUnderlying}...</td></tr>`;
   }
 
@@ -206,6 +211,14 @@ function getActiveMmCriteria() {
 }
 
 /**
+ * Toggles whether only qualified strikes are displayed
+ */
+function toggleMmOnlyQualified(isChecked) {
+  mmOnlyQualified = !!isChecked;
+  renderMmTableRows();
+}
+
+/**
  * Renders individual table rows based on filters and search
  */
 function renderMmTableRows() {
@@ -213,6 +226,9 @@ function renderMmTableRows() {
 
   const tbody = document.getElementById('mmTbody');
   if (!tbody) return;
+
+  const chk = document.getElementById('mmChkOnlyQual');
+  if (chk) mmOnlyQualified = chk.checked;
 
   const list = mmOnlyQualified ? (mmLastData.qualified_strikes || []) : (mmLastData.all_strikes || []);
 
@@ -254,7 +270,7 @@ function buildMmRowHtml(item) {
   const isQual = item.qualified;
   const isCall = item.option_type === 'CALL';
   const typeClass = isCall ? 'mm-type-ce' : 'mm-type-pe';
-  const badgeText = isCall ? 'CE (Call)' : 'PE (Put)';
+  const badgeText = isCall ? 'CALL' : 'PUT';
   const rowClass = isQual ? 'row-qualified' : '';
 
   const bid = item.bid !== null && item.bid > 0 ? item.bid.toFixed(2) : '--';
@@ -276,21 +292,21 @@ function buildMmRowHtml(item) {
 
   return `
     <tr id="mmRow_${item.symbol}" class="${rowClass}">
-      <td class="text-left font-mono" style="font-weight: 600;">${item.symbol}</td>
-      <td class="text-center"><span class="mm-type-badge ${typeClass}">${badgeText}</span></td>
-      <td class="text-right" style="font-weight: 700; color: ${item.is_atm ? 'var(--yellow)' : 'inherit'};">${item.strike}${item.is_atm ? ' (ATM)' : ''}</td>
-      <td class="text-right text-green" id="mmBid_${item.symbol}">${bid}</td>
-      <td class="text-right text-red" id="mmAsk_${item.symbol}">${ask}</td>
-      <td class="text-right" id="mmSpread_${item.symbol}" style="font-weight: 600;">${spread}</td>
-      <td class="text-right text-muted">${tick}</td>
-      <td class="text-right ticks-highlight" id="mmTicks_${item.symbol}">${ticks}</td>
-      <td class="text-right" id="mmMid_${item.symbol}">${mid}</td>
-      <td class="text-right" id="mmEdge_${item.symbol}" style="font-weight: 600;">${netEdge}</td>
-      <td class="text-right ${edgeClass}" id="mmEdgePct_${item.symbol}" style="font-size: 0.88rem;">${edgePct}</td>
-      <td class="text-center" id="mmStatus_${item.symbol}">${statusBadge}</td>
-      <td class="text-center">
-        <button type="button" class="mm-btn-studio" onclick="addMmStrikeToStudio('${item.symbol}', '${isCall ? 'buy' : 'sell'}', '${isCall ? 'call' : 'put'}', ${item.strike}, '${item.expiry}', ${item.bid || item.ask || 0})">
-          <span>+ Trade</span>
+      <td class="col-symbol text-left font-mono" style="font-weight: 600; font-size: 0.76rem; letter-spacing: -0.2px;">${item.symbol}</td>
+      <td class="col-type text-center"><span class="mm-type-badge ${typeClass}">${badgeText}</span></td>
+      <td class="col-strike text-right" style="font-weight: 700; color: ${item.is_atm ? 'var(--yellow)' : 'inherit'};">${item.strike}${item.is_atm ? ' (ATM)' : ''}</td>
+      <td class="col-bid text-right text-green" id="mmBid_${item.symbol}">${bid}</td>
+      <td class="col-ask text-right text-red" id="mmAsk_${item.symbol}">${ask}</td>
+      <td class="col-spread text-right" id="mmSpread_${item.symbol}" style="font-weight: 600;">${spread}</td>
+      <td class="col-tick text-right text-muted">${tick}</td>
+      <td class="col-ticks text-right ticks-highlight" id="mmTicks_${item.symbol}">${ticks}</td>
+      <td class="col-mid text-right" id="mmMid_${item.symbol}">${mid}</td>
+      <td class="col-edge text-right" id="mmEdge_${item.symbol}" style="font-weight: 600;">${netEdge}</td>
+      <td class="col-edgepct text-right ${edgeClass}" id="mmEdgePct_${item.symbol}" style="font-size: 0.88rem;">${edgePct}</td>
+      <td class="col-status text-center" id="mmStatus_${item.symbol}">${statusBadge}</td>
+      <td class="col-action text-center" style="white-space: nowrap;">
+        <button type="button" class="mm-btn-1lot" onclick="open1LotMmModalBySymbol('${item.symbol}')" title="⚡ Launch 1-Lot MM Cycle (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
+          <span>⚡ 1-Lot MM</span>
         </button>
       </td>
     </tr>
@@ -308,7 +324,7 @@ function handleMmStrikesTickUpdate(data) {
   if (!sym) return;
 
   // Check if tick belongs to our current active underlying/expiry
-  const item = mmLastData.all_strikes.find(x => x.symbol.toUpperCase() === sym);
+  const item = mmLastData.all_strikes.find(x => x && x.symbol && x.symbol.toUpperCase() === sym);
   if (!item) return;
 
   const quotes = data.quotes || {};
@@ -350,6 +366,7 @@ function handleMmStrikesTickUpdate(data) {
   if (!changed) return;
 
   // Recalculate MM criteria in real-time
+  const prevQualified = item.qualified === true;
   const criteria = getActiveMmCriteria();
   const tick = item.tick_size || 0.1;
   const bid = item.bid;
@@ -363,7 +380,7 @@ function handleMmStrikesTickUpdate(data) {
     item.spread_ticks = tick > 0 ? (item.spread / tick) : 0.0;
 
     const reasons = [];
-    if (bid < criteria.min_bid_price) reasons.append ? reasons.push(`Bid ${bid.toFixed(2)} < ${criteria.min_bid_price}`) : reasons.push(`Bid < ${criteria.min_bid_price}`);
+    if (bid < criteria.min_bid_price) reasons.push(`Bid ${bid.toFixed(2)} < ${criteria.min_bid_price}`);
     if (item.spread_ticks < criteria.min_spread_ticks) reasons.push(`Spread Ticks < ${criteria.min_spread_ticks}`);
     if (item.net_edge_pct < criteria.min_net_edge_pct) reasons.push(`Net Edge % < ${criteria.min_net_edge_pct}%`);
 
@@ -378,6 +395,9 @@ function handleMmStrikesTickUpdate(data) {
     item.qualified = false;
     item.reasons_failed = ['No valid bid/ask quotes'];
   }
+
+  const isNowQualified = item.qualified === true;
+  const qualStatusChanged = (prevQualified !== isNowQualified);
 
   // Update mmLastData.qualified_strikes list
   mmLastData.qualified_strikes = mmLastData.all_strikes
@@ -404,13 +424,48 @@ function handleMmStrikesTickUpdate(data) {
   const elDrawerBadge = document.getElementById('drawerMmBadge');
   if (elDrawerBadge) elDrawerBadge.textContent = `${qualCount} Opps`;
 
-  // Update DOM Row in-place for 0-latency microsecond rendering
+  // Sync checkbox state
+  const chk = document.getElementById('mmChkOnlyQual');
+  if (chk) {
+    mmOnlyQualified = chk.checked;
+  }
+
   const elRow = document.getElementById(`mmRow_${sym}`);
-  if (elRow) {
-    if (mmOnlyQualified && !item.qualified) {
-      elRow.style.display = 'none';
+
+  // Auto-render rows dynamically when qualification status changes
+  if (mmOnlyQualified) {
+    // 1. If contract is qualified but missing from table DOM or just qualified, render immediately!
+    if (isNowQualified && (!elRow || qualStatusChanged)) {
+      renderMmTableRows();
+      const newRow = document.getElementById(`mmRow_${sym}`);
+      if (newRow) {
+        const flashClass = isBidHigher ? 'tick-flash-up' : 'tick-flash-down';
+        newRow.classList.add(flashClass);
+        setTimeout(() => newRow.classList.remove(flashClass), 500);
+      }
       return;
     }
+
+    // 2. If contract disqualified and was in the table:
+    if (!isNowQualified && (elRow || qualStatusChanged)) {
+      renderMmTableRows();
+      return;
+    }
+
+    // 3. If unqualified and not displayed, done
+    if (!isNowQualified) {
+      return;
+    }
+  } else {
+    // When showing ALL strikes:
+    if (!elRow) {
+      renderMmTableRows();
+      return;
+    }
+  }
+
+  // Update existing row in-place for 0-latency microsecond rendering
+  if (elRow) {
     elRow.style.display = '';
 
     const elBid = document.getElementById(`mmBid_${sym}`);
@@ -580,7 +635,277 @@ function addMmStrikeToStudio(symbol, side, optionType, strike, expiry, price) {
   }
 }
 
+// ==============================================================================
+// 1-LOT MARKET MAKING TRADE CONTROLLER & MODAL
+// ==============================================================================
+
+let mmActiveTradesCache = [];
+let mmSelectedTradeItem = null;
+let mmTradePollTimer = null;
+
+/**
+ * Opens 1-Lot MM Trade Setup Modal for a selected strike
+ */
+function open1LotMmModalBySymbol(symbol) {
+  if (!symbol) return;
+  const sym = symbol.toUpperCase();
+  let item = null;
+
+  if (mmLastData && mmLastData.all_strikes) {
+    item = mmLastData.all_strikes.find(x => x && x.symbol && x.symbol.toUpperCase() === sym);
+  }
+
+  if (!item) {
+    if (typeof showToast === 'function') showToast(`Could not find details for ${sym}`, 'error');
+    return;
+  }
+
+  mmSelectedTradeItem = item;
+
+  const modal = document.getElementById('mmTradeModal');
+  const elSymbol = document.getElementById('mmModalSymbol');
+  const elAccount = document.getElementById('mmModalAccount');
+  const elBid = document.getElementById('mmModalBid');
+  const elAsk = document.getElementById('mmModalAsk');
+  const inpBuy = document.getElementById('mmModalInpBuyPrice');
+  const inpSell = document.getElementById('mmModalInpSellPrice');
+
+  if (elSymbol) elSymbol.textContent = item.symbol;
+  if (elAccount) {
+    const activeAcct = (window.currentActiveAccount || 'sub').toUpperCase();
+    elAccount.textContent = activeAcct;
+  }
+
+  const tick = item.tick_size || 0.1;
+  const bidVal = item.bid !== null && item.bid > 0 ? item.bid : 0;
+  const askVal = item.ask !== null && item.ask > 0 ? item.ask : 0;
+
+  if (elBid) elBid.textContent = bidVal > 0 ? `$${bidVal.toFixed(2)}` : '--';
+  if (elAsk) elAsk.textContent = askVal > 0 ? `$${askVal.toFixed(2)}` : '--';
+
+  // Calculate default recommended entry price: Best Bid + 1 Tick (if below ask), else Best Bid
+  let recBuy = bidVal > 0 ? bidVal : 1.0;
+  if (askVal > 0 && (bidVal + tick) < askVal) {
+    recBuy = bidVal + tick;
+  }
+  recBuy = Math.round(recBuy / tick) * tick;
+
+  // Calculate default recommended target exit: Best Ask - 1 Tick
+  let recSell = askVal > 0 ? (askVal - tick) : (recBuy + 1.0);
+  if (recSell <= recBuy) recSell = recBuy + tick;
+  recSell = Math.round(recSell / tick) * tick;
+
+  if (inpBuy) inpBuy.value = recBuy.toFixed(2);
+  if (inpSell) inpSell.value = recSell.toFixed(2);
+
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+}
+
+function close1LotMmModal() {
+  const modal = document.getElementById('mmTradeModal');
+  if (modal) modal.style.display = 'none';
+  mmSelectedTradeItem = null;
+}
+
+/**
+ * Launches the 1-Lot MM Trade Cycle on Delta Exchange
+ */
+async function confirmAndLaunch1LotTrade() {
+  if (!mmSelectedTradeItem) {
+    showToast('No strike selected', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnLaunchMmTrade');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '🚀 Placing Order...';
+  }
+
+  const inpBuy = document.getElementById('mmModalInpBuyPrice');
+  const inpSell = document.getElementById('mmModalInpSellPrice');
+
+  const buyPrice = inpBuy && inpBuy.value ? parseFloat(inpBuy.value) : null;
+  const sellPrice = inpSell && inpSell.value ? parseFloat(inpSell.value) : null;
+  const activeAcct = window.currentActiveAccount || 'sub';
+
+  const selectedSymbol = mmSelectedTradeItem ? mmSelectedTradeItem.symbol : '';
+
+  try {
+    const payload = {
+      symbol: selectedSymbol,
+      size: 1,
+      entry_price: buyPrice,
+      target_exit_price: sellPrice,
+      account: activeAcct
+    };
+
+    const res = await ApiService.startMMTrade(payload);
+
+    if (res && res.success) {
+      close1LotMmModal();
+      if (typeof showToast === 'function') {
+        showToast(`⚡ 1-Lot MM Cycle launched for ${selectedSymbol} on [${activeAcct.toUpperCase()}]!`, 'success');
+      }
+      pollActiveMmTrades();
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(`Trade failed: ${res?.error || 'Unknown error'}`, 'error');
+      }
+    }
+  } catch (err) {
+    if (typeof showToast === 'function') {
+      showToast(`Error: ${err.message}`, 'error');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Launch 1-Lot MM Order';
+    }
+  }
+}
+
+/**
+ * Polls active MM trades from server every 2.5s
+ */
+async function pollActiveMmTrades() {
+  try {
+    const res = await ApiService.getActiveMMTrades();
+    if (res && res.success && Array.isArray(res.trades)) {
+      mmActiveTradesCache = res.trades;
+      renderActiveMmTrades(res.trades);
+    }
+  } catch (e) {
+    // Quietly ignore background poll error
+  }
+}
+
+/**
+ * Renders active MM trade cards in dashboard
+ */
+function renderActiveMmTrades(trades) {
+  const panel = document.getElementById('mmActiveTradesPanel');
+  const listEl = document.getElementById('mmActiveTradesList');
+  if (!panel || !listEl) return;
+
+  // Filter ONLY active running trades (exclude completed, cancelled, closed)
+  const activeTrades = (trades || []).filter(t => 
+    t && t.is_running && !['COMPLETED_PROFIT', 'COMPLETED_COST', 'CANCELLED', 'ERROR'].includes(t.state)
+  );
+
+  if (activeTrades.length === 0) {
+    panel.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'flex';
+
+  let html = '';
+  activeTrades.forEach(t => {
+    let stateBadge = '';
+    let cardClass = 'mm-trade-card';
+
+    if (t.state === 'BUY_OPEN' || t.state === 'PLACING_BUY') {
+      stateBadge = `<span class="mm-trade-badge buying">🎯 BUY PEG: #1 Bid @ $${t.buy_limit_price || '--'}</span>`;
+    } else if (t.state === 'BUY_FILLED') {
+      stateBadge = `<span class="mm-trade-badge selling">BUY FILLED @ $${t.buy_fill_price || '--'}</span>`;
+    } else if (t.state === 'SELL_OPEN' || t.state === 'PLACING_SELL') {
+      stateBadge = `<span class="mm-trade-badge selling">🚀 SELL PEG: Float @ $${t.sell_limit_price || '--'}</span>`;
+    } else if (t.state === 'WAITING_COST_TO_COST') {
+      stateBadge = `<span class="mm-trade-badge cost-wait">🛡️ COST FLOOR: Breakeven @ $${t.cost_to_cost_price || '--'}</span>`;
+      cardClass += ' waiting-cost';
+    } else if (t.state === 'COMPLETED_PROFIT') {
+      stateBadge = `<span class="mm-trade-badge done">PROFIT EXIT +$${t.realized_pnl.toFixed(4)}</span>`;
+    } else if (t.state === 'COMPLETED_COST') {
+      stateBadge = `<span class="mm-trade-badge done">COST-TO-COST BREAKEVEN</span>`;
+    } else if (t.state === 'CANCELLED') {
+      stateBadge = `<span class="mm-trade-badge" style="background: rgba(255,255,255,0.1); color: #94a3b8;">CANCELLED</span>`;
+    } else {
+      stateBadge = `<span class="mm-trade-badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">${t.state}</span>`;
+    }
+
+    const curBidStr = t.current_bid ? `$${t.current_bid.toFixed(2)}` : '--';
+    const curAskStr = t.current_ask ? `$${t.current_ask.toFixed(2)}` : '--';
+    const costStr = t.buy_fill_price ? `$${t.buy_fill_price.toFixed(2)}` : 'Pending Buy';
+    const activeOrderPrice = t.sell_limit_price || t.buy_limit_price || 0;
+
+    html += `
+      <div class="${cardClass} mm-trade-strip" id="card_${t.trade_id}">
+        <div class="mm-strip-left">
+          <span class="mm-trade-symbol">${t.symbol}</span>
+          ${stateBadge}
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (1 Lot)</strong></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Bid / Ask:</span> <span class="text-green">${curBidStr}</span> / <span class="text-red">${curAskStr}</span></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
+          <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
+        </div>
+
+        ${t.is_running ? `
+          <div class="mm-strip-actions">
+            <span style="font-size: 0.72rem; color: #94a3b8;">Price:</span>
+            <input type="number" step="${t.tick_size || 0.1}" class="mm-upload-input" id="inpUpload_${t.trade_id}" value="${activeOrderPrice > 0 ? activeOrderPrice.toFixed(2) : ''}" placeholder="Price" />
+            <button type="button" class="mm-btn-upload" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
+            <button type="button" class="mm-btn-cancel" onclick="cancelActiveTrade('${t.trade_id}')">Stop</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
+}
+
+/**
+ * Uploads/updates the limit price on an active MM trade
+ */
+async function uploadActiveTradePrice(tradeId) {
+  const inp = document.getElementById(`inpUpload_${tradeId}`);
+  if (!inp || !inp.value) {
+    showToast('Enter valid price to upload', 'error');
+    return;
+  }
+  const price = parseFloat(inp.value);
+  try {
+    const res = await ApiService.uploadMMPrice(tradeId, price);
+    if (res && res.success) {
+      showToast(`Uploaded new limit price $${price} for trade`, 'success');
+      pollActiveMmTrades();
+    } else {
+      showToast(`Upload failed: ${res?.error || 'Unknown error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+/**
+ * Cancels an active trade
+ */
+async function cancelActiveTrade(tradeId) {
+  if (!confirm('Cancel this active trade order?')) return;
+  try {
+    const res = await ApiService.cancelMMTrade(tradeId);
+    if (res && res.success) {
+      showToast('Trade stop requested', 'normal');
+      pollActiveMmTrades();
+    } else {
+      showToast(`Cancel failed: ${res?.error || 'Error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
 // Auto-initialize config when script loads
 document.addEventListener('DOMContentLoaded', () => {
   initMarketMakingModule();
+  pollActiveMmTrades();
+  if (!mmTradePollTimer) {
+    mmTradePollTimer = setInterval(pollActiveMmTrades, 2500);
+  }
 });
+

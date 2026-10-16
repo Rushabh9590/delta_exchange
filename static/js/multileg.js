@@ -931,9 +931,11 @@ async function executeMultiLegTrade() {
     if (data.overall_status === 'SUCCESS') {
       showToast(`🚀 All ${data.successful_legs} legs executed successfully!`, 'success');
     } else if (data.overall_status === 'PARTIAL') {
-      showToast(`⚠️ Partial execution: ${data.successful_legs} succeeded, ${data.failed_legs} failed.`, 'error');
+      const legErr = data.error || (data.results && data.results.find(r => r && r.error)?.error) || '';
+      showToast(`⚠️ Partial execution: ${data.successful_legs} succeeded, ${data.failed_legs} failed. ${legErr}`, 'error');
     } else {
-      showToast(`❌ Execution failed: ${data.error || 'Check details'}`, 'error');
+      const legErr = data.error || (data.results && data.results.find(r => r && r.error)?.error) || 'Check details';
+      showToast(`❌ Execution failed: ${legErr}`, 'error');
     }
 
     fetchDashboardData(true);

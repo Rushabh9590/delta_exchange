@@ -33,7 +33,12 @@ if str(REPO_PATH) not in sys.path:
     sys.path.insert(0, str(REPO_PATH))
 
 from login import get_delta_client, load_credentials
-from multileg import get_option_chain_data, get_options_expiries_and_strikes
+from multileg import (
+    get_option_chain_data,
+    get_options_expiries_and_strikes,
+    is_expiry_expired,
+    sync_master_scrips
+)
 from websocket import DeltaWebSocketManager
 import threading
 
@@ -325,7 +330,7 @@ def evaluate_mm_strikes(
     }
 
 
-def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = False):
+def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = False, recent_flashes: list = None):
     """
     Renders a formatted, colored ASCII table of selected strikes on terminal.
     """
@@ -338,6 +343,40 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
     strikes_to_show = result.get("all_strikes", []) if show_all else result.get("qualified_strikes", [])
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _render_recent_flashes():
+        if not recent_flashes:
+            return
+        now_ts = time.time()
+        active_symbols = {s.get("symbol") for s in result.get("qualified_strikes", [])}
+        past_flashes = [
+            f for f in recent_flashes 
+            if f.get("symbol") not in active_symbols and (now_ts - f.get("timestamp", 0)) < 120
+        ]
+        if past_flashes:
+            print(f"\n  {COLOR_BOLD}{COLOR_YELLOW}⚡ RECENT OPPORTUNITIES LOG (Flashed & disappeared within last 2 min):{COLOR_RESET}")
+            print("  " + "-" * 110)
+            f_hdr = f"  {'Time':<9} {'Symbol':<22} {'Type':<5} {'Strike':<8} {'Bid':<8} {'Ask':<8} {'Spread':<8} {'Ticks':<7} {'Edge %':<9} {'Seen Ago'}"
+            print(f"  {COLOR_DIM}{f_hdr}{COLOR_RESET}")
+            print("  " + "-" * 110)
+            for f in past_flashes[-5:]:
+                age_s = max(0, int(now_ts - f.get("timestamp", 0)))
+                t_badge = f.get("type_badge", "CE")
+                t_col = COLOR_CYAN if t_badge == "CE" else COLOR_MAGENTA
+                row = (
+                    f"  {f.get('time_str'):<9} "
+                    f"{f.get('symbol'):<22} "
+                    f"{t_col}{t_badge:<5}{COLOR_RESET} "
+                    f"{f.get('strike', 0):<8.0f} "
+                    f"{f.get('bid', 0):<8.2f} "
+                    f"{f.get('ask', 0):<8.2f} "
+                    f"{f.get('spread', 0):<8.2f} "
+                    f"{f.get('spread_ticks', 0):<7.1f} "
+                    f"{COLOR_GREEN}{f.get('net_edge_pct', 0):>6.1f}%{COLOR_RESET}   "
+                    f"{COLOR_YELLOW}{age_s}s ago{COLOR_RESET}"
+                )
+                print(row)
+            print("  " + "-" * 110)
 
     # Header Banner
     print("\n" + "=" * 115)
@@ -401,6 +440,7 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
             print(f"  {COLOR_DIM}Tip: Try relaxing criteria with --min-bid 0.1 --min-ticks 2 --min-edge 20 or view all with --all{COLOR_RESET}")
         else:
             print(f"  {COLOR_RED}No options found for this expiry.{COLOR_RESET}")
+        _render_recent_flashes()
         print("=" * 115 + "\n")
         return
 
@@ -446,6 +486,7 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
         print(row_str)
 
     print("=" * 115)
+    _render_recent_flashes()
     print(f"{COLOR_DIM} Formula Reminder: Net Edge = Spread - (2*Tick) | Net Edge % = (Net Edge / Mid)*100{COLOR_RESET}\n")
 
 
@@ -455,12 +496,16 @@ def stream_terminal_websocket(
     min_bid: float = 0.3,
     min_ticks: float = 5.0,
     min_edge: float = 50.0,
-    show_all: bool = False
+    show_all: bool = False,
+    auto_trade: bool = False,
+    account: str = None,
+    refresh_interval: float = 0.8
 ):
     """
     Subscribes all option contracts for the chosen underlying(s) and expiry directly to Delta's WebSocket
     and streams live tick-by-tick updates to the terminal without periodic REST polling.
     Supports single asset ('BTC' or 'ETH') or multiple assets (['BTC', 'ETH'] or 'ALL' / 'BOTH').
+    When auto_trade is True, automatically executes 1-lot MM trades on top qualified strikes.
     """
     if isinstance(underlying, str):
         if underlying.upper() in ["ALL", "BOTH"]:
@@ -472,146 +517,251 @@ def stream_terminal_websocket(
     else:
         assets = ["BTC"]
 
-    client = get_delta_client()
-    underlying_data = {}
-    all_contracts = {}
-    symbols_to_sub = []
+    active_trade_holder = [None]
+    if auto_trade:
+        from mm_execution import mm_engine
 
-    for asset in assets:
-        print(f"\n{COLOR_CYAN}[INITIALIZING]{COLOR_RESET} Fetching option catalog for {asset}...")
-        init_res = evaluate_mm_strikes(
-            underlying=asset,
-            expiry=expiry,
-            min_bid_price=min_bid,
-            min_spread_ticks=min_ticks,
-            min_net_edge_pct=min_edge,
-            client=client
+    target_expiry = expiry
+
+    while True:
+        # Check if requested expiry has already expired (past 17:30 IST)
+        if target_expiry and is_expiry_expired(target_expiry):
+            print(f"\n{COLOR_YELLOW}[EXPIRY ROLLOVER]{COLOR_RESET} Expiry '{target_expiry}' expired at 17:30 IST. Auto-rolling to next active expiry...")
+            target_expiry = None
+
+        client = get_delta_client(account=account)
+        underlying_data = {}
+        all_contracts = {}
+        symbols_to_sub = []
+        recent_flashes = []
+        active_expiries = {}
+
+        # Refresh master scrips to catch newly launched Delta option contracts
+        try:
+            sync_master_scrips(client=client, force=True)
+        except Exception:
+            pass
+
+        for asset in assets:
+            print(f"\n{COLOR_CYAN}[INITIALIZING]{COLOR_RESET} Fetching active option catalog for {asset}...")
+            init_res = evaluate_mm_strikes(
+                underlying=asset,
+                expiry=target_expiry,
+                min_bid_price=min_bid,
+                min_spread_ticks=min_ticks,
+                min_net_edge_pct=min_edge,
+                client=client
+            )
+
+            if not init_res.get("success", True):
+                print(f"{COLOR_RED}[ERROR]{COLOR_RESET} {init_res.get('error', f'Failed to fetch {asset} options')}")
+                continue
+
+            strikes = init_res.get("all_strikes", [])
+            if not strikes:
+                print(f"{COLOR_RED}[WARNING]{COLOR_RESET} No active option contracts found for {asset}.")
+                continue
+
+            underlying_data[asset] = init_res
+            active_expiries[asset] = init_res.get("selected_expiry")
+
+            for x in strikes:
+                sym = x.get("symbol")
+                if sym:
+                    all_contracts[sym] = (asset, x)
+                    symbols_to_sub.append(sym)
+
+            spot_symbol = f"{asset}USD"
+            if spot_symbol not in symbols_to_sub:
+                symbols_to_sub.append(spot_symbol)
+
+        if not underlying_data:
+            print(f"{COLOR_RED}[ERROR]{COLOR_RESET} No active option contracts found to stream. Retrying in 5s...")
+            time.sleep(5)
+            continue
+
+        exp_labels = [f"{a}:{exp}" for a, exp in active_expiries.items() if exp]
+        asset_title = " & ".join(underlying_data.keys())
+        print(f"{COLOR_GREEN}[WEBSOCKET CONNECTING]{COLOR_RESET} Subscribing {len(symbols_to_sub)} contracts live ({asset_title} | Expiry: {', '.join(exp_labels)})...")
+
+        tick_count = [0]
+        last_render_time = [0.0]
+        render_lock = threading.Lock()
+        is_multi = len(underlying_data) > 1
+
+        def on_tick_received(symbol, quote_dict, raw_data):
+            tick_count[0] += 1
+            sym_upper = symbol.upper()
+
+            for asset in underlying_data:
+                if sym_upper == f"{asset}USD":
+                    new_spot = quote_dict.get("spot_price") or quote_dict.get("mark_price") or quote_dict.get("ltp")
+                    if new_spot:
+                        underlying_data[asset]["spot_price"] = float(new_spot)
+
+            if sym_upper in all_contracts:
+                asset, contract = all_contracts[sym_upper]
+                quotes = raw_data.get("quotes") or {}
+                raw_bid = quotes.get("best_bid") if quotes.get("best_bid") is not None else quote_dict.get("bid")
+                raw_ask = quotes.get("best_ask") if quotes.get("best_ask") is not None else quote_dict.get("ask")
+                raw_ltp = raw_data.get("close") if raw_data.get("close") is not None else quote_dict.get("ltp")
+
+                if raw_bid is not None:
+                    contract["bid"] = float(raw_bid)
+                if raw_ask is not None:
+                    contract["ask"] = float(raw_ask)
+                if raw_ltp is not None:
+                    contract["ltp"] = float(raw_ltp)
+
+                # Re-evaluate MM metrics in real-time
+                tick = contract.get("tick_size") or (0.1 if asset == "BTC" else 0.05)
+                b = contract.get("bid")
+                a = contract.get("ask")
+                if b is not None and a is not None and b > 0 and a > 0 and a >= b:
+                    spread = a - b
+                    mid = (b + a) / 2.0
+                    net_edge = spread - (2.0 * tick)
+                    net_edge_pct = (net_edge / mid * 100.0) if mid > 0 else 0.0
+                    spread_ticks = spread / tick if tick > 0 else 0.0
+
+                    reasons = []
+                    if b < min_bid:
+                        reasons.append(f"Bid < {min_bid}")
+                    if spread_ticks < min_ticks:
+                        reasons.append(f"Spread Ticks < {min_ticks}")
+                    if net_edge_pct < min_edge:
+                        reasons.append(f"Net Edge % < {min_edge}%")
+
+                    contract["spread"] = round(spread, 4)
+                    contract["mid_price"] = round(mid, 4)
+                    contract["net_edge"] = round(net_edge, 4)
+                    contract["net_edge_pct"] = round(net_edge_pct, 2)
+                    contract["spread_ticks"] = round(spread_ticks, 1)
+                    contract["qualified"] = (len(reasons) == 0)
+                    contract["reasons_failed"] = reasons
+
+                    # Track flashes that qualify so user can see them even if they disappear quickly
+                    if contract["qualified"]:
+                        now_f = time.time()
+                        last_f = contract.get("_last_flash_ts", 0)
+                        if now_f - last_f > 3.0:
+                            contract["_last_flash_ts"] = now_f
+                            recent_flashes.append({
+                                "symbol": contract.get("symbol"),
+                                "type_badge": contract.get("type_badge"),
+                                "strike": contract.get("strike"),
+                                "bid": contract.get("bid"),
+                                "ask": contract.get("ask"),
+                                "spread": contract.get("spread"),
+                                "spread_ticks": contract.get("spread_ticks"),
+                                "net_edge_pct": contract.get("net_edge_pct"),
+                                "time_str": datetime.now().strftime("%H:%M:%S"),
+                                "timestamp": now_f,
+                            })
+                            if len(recent_flashes) > 20:
+                                recent_flashes.pop(0)
+
+            now = time.time()
+            # Refresh terminal in-place with throttle to avoid Windows terminal flickering/tearing
+            if now - last_render_time[0] >= refresh_interval:
+                last_render_time[0] = now
+                with render_lock:
+                    for asset in underlying_data:
+                        all_list = [c for a, c in all_contracts.values() if a == asset]
+                        qual_list = [x for x in all_list if x.get("qualified")]
+                        qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
+
+                        underlying_data[asset]["all_strikes"] = all_list
+                        underlying_data[asset]["qualified_strikes"] = qual_list
+                        underlying_data[asset]["summary"] = {
+                            "total_scanned": len(all_list),
+                            "total_qualified": len(qual_list),
+                            "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
+                            "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
+                            "total_ticks": tick_count[0]
+                        }
+
+                    # Auto-trading trigger logic on qualified strike
+                    if auto_trade:
+                        if active_trade_holder[0] is not None and not active_trade_holder[0].is_running:
+                            active_trade_holder[0] = None
+
+                        if active_trade_holder[0] is None:
+                            combined_qual = []
+                            for d in underlying_data.values():
+                                combined_qual.extend(d.get("qualified_strikes", []))
+                            if combined_qual:
+                                combined_qual.sort(key=lambda x: (x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+                                top_opp = combined_qual[0]
+                                active_acct = (account or os.getenv("ACTIVE_ACCOUNT", "main")).lower()
+                                active_trade_holder[0] = mm_engine.start_trade(
+                                    symbol=top_opp["symbol"],
+                                    size=1,
+                                    account=active_acct
+                                )
+
+                    os.system("cls" if os.name == "nt" else "clear")
+                    print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title}) | Refresh: {refresh_interval}s")
+
+                    # Print Auto-Trade Live Banner if active
+                    if auto_trade:
+                        acct_label = (account or os.getenv("ACTIVE_ACCOUNT", "main")).upper()
+                        curr = active_trade_holder[0]
+                        if curr and curr.is_running:
+                            cost_str = f"${curr.buy_fill_price:.2f}" if curr.buy_fill_price else "Pending Buy Fill"
+                            target_str = f"${curr.sell_limit_price:.2f}" if curr.sell_limit_price else "--"
+                            print("=" * 115)
+                            print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS 1-LOT MM TRADE ACTIVE]{COLOR_RESET} Symbol: {COLOR_CYAN}{curr.symbol}{COLOR_RESET} | Account: {COLOR_YELLOW}[{acct_label}]{COLOR_RESET} (1 Lot)")
+                            print(f"    State: {COLOR_BOLD}{curr.state}{COLOR_RESET} | Entry Cost: {cost_str} | Sell Target: {target_str} | Realized PnL: ${curr.realized_pnl:.5f} USD")
+                            print(f"    Rule: {COLOR_BOLD}{COLOR_BG_GREEN} Strictly NO Stop-Loss, NO Timeout • Cost-to-Cost or Wait {COLOR_RESET} ({curr.status_message})")
+                            print("=" * 115)
+                        else:
+                            print("=" * 115)
+                            print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS AUTO-TRADE ACTIVE]{COLOR_RESET} Listening on [{acct_label}]... Auto-executes 1-lot MM cycle when qualified strike appears.")
+                            print("=" * 115)
+
+                    for asset, res in underlying_data.items():
+                        print_terminal_table(res, show_all=show_all, is_multi=is_multi, recent_flashes=recent_flashes)
+
+        ws_manager = DeltaWebSocketManager(
+            symbols=symbols_to_sub,
+            verbose=False,
+            on_tick=on_tick_received
         )
+        ws_manager.start()
 
-        if not init_res.get("success", True):
-            print(f"{COLOR_RED}[ERROR]{COLOR_RESET} {init_res.get('error', f'Failed to fetch {asset} options')}")
-            continue
+        rollover_triggered = False
+        try:
+            # Initial display
+            for asset, res in underlying_data.items():
+                print_terminal_table(res, show_all=show_all, is_multi=is_multi, recent_flashes=recent_flashes)
 
-        strikes = init_res.get("all_strikes", [])
-        if not strikes:
-            print(f"{COLOR_RED}[WARNING]{COLOR_RESET} No active option contracts found for {asset}.")
-            continue
+            while True:
+                time.sleep(2)
+                # Auto-check if any currently streamed expiry has reached expiration (17:30 IST / 12:00 UTC)
+                for asset, exp_str in active_expiries.items():
+                    if exp_str and is_expiry_expired(exp_str):
+                        print(f"\n\n{'=' * 90}")
+                        print(f" {COLOR_BOLD}{COLOR_YELLOW}🔄 [EXPIRY ROLLOVER DETECTED]{COLOR_RESET} Expiry '{exp_str}' for {asset} expired at 17:30 IST!")
+                        print(f"    Auto-rolling stream to next active upcoming expiry...")
+                        print(f"{'=' * 90}\n")
+                        rollover_triggered = True
+                        break
 
-        underlying_data[asset] = init_res
-        for x in strikes:
-            sym = x.get("symbol")
-            if sym:
-                all_contracts[sym] = (asset, x)
-                symbols_to_sub.append(sym)
+                if rollover_triggered:
+                    break
 
-        spot_symbol = f"{asset}USD"
-        if spot_symbol not in symbols_to_sub:
-            symbols_to_sub.append(spot_symbol)
+        except KeyboardInterrupt:
+            print(f"\n{COLOR_YELLOW}[WEBSOCKET STOPPED]{COLOR_RESET} Exiting live WebSocket market making stream.\n")
+            ws_manager.stop()
+            if auto_trade and active_trade_holder[0] and active_trade_holder[0].is_running:
+                print(f"[NOTICE] Active trade for {active_trade_holder[0].symbol} is currently in state '{active_trade_holder[0].state}'.")
+            return
 
-    if not underlying_data:
-        print(f"{COLOR_RED}[ERROR]{COLOR_RESET} No option contracts found to stream.")
-        return
-
-    asset_title = " & ".join(underlying_data.keys())
-    print(f"{COLOR_GREEN}[WEBSOCKET CONNECTING]{COLOR_RESET} Subscribing to {len(symbols_to_sub)} contracts live on Delta WebSocket ({asset_title})...")
-
-    tick_count = [0]
-    last_render_time = [0.0]
-    render_lock = threading.Lock()
-    is_multi = len(underlying_data) > 1
-
-    def on_tick_received(symbol, quote_dict, raw_data):
-        tick_count[0] += 1
-        sym_upper = symbol.upper()
-
-        for asset in underlying_data:
-            if sym_upper == f"{asset}USD":
-                new_spot = quote_dict.get("spot_price") or quote_dict.get("mark_price") or quote_dict.get("ltp")
-                if new_spot:
-                    underlying_data[asset]["spot_price"] = float(new_spot)
-
-        if sym_upper in all_contracts:
-            asset, contract = all_contracts[sym_upper]
-            quotes = raw_data.get("quotes") or {}
-            raw_bid = quotes.get("best_bid") if quotes.get("best_bid") is not None else quote_dict.get("bid")
-            raw_ask = quotes.get("best_ask") if quotes.get("best_ask") is not None else quote_dict.get("ask")
-            raw_ltp = raw_data.get("close") if raw_data.get("close") is not None else quote_dict.get("ltp")
-
-            if raw_bid is not None:
-                contract["bid"] = float(raw_bid)
-            if raw_ask is not None:
-                contract["ask"] = float(raw_ask)
-            if raw_ltp is not None:
-                contract["ltp"] = float(raw_ltp)
-
-            # Re-evaluate MM metrics in real-time
-            tick = contract.get("tick_size") or (0.1 if asset == "BTC" else 0.05)
-            b = contract.get("bid")
-            a = contract.get("ask")
-            if b is not None and a is not None and b > 0 and a > 0 and a >= b:
-                spread = a - b
-                mid = (b + a) / 2.0
-                net_edge = spread - (2.0 * tick)
-                net_edge_pct = (net_edge / mid * 100.0) if mid > 0 else 0.0
-                spread_ticks = spread / tick if tick > 0 else 0.0
-
-                reasons = []
-                if b < min_bid:
-                    reasons.append(f"Bid < {min_bid}")
-                if spread_ticks < min_ticks:
-                    reasons.append(f"Spread Ticks < {min_ticks}")
-                if net_edge_pct < min_edge:
-                    reasons.append(f"Net Edge % < {min_edge}%")
-
-                contract["spread"] = round(spread, 4)
-                contract["mid_price"] = round(mid, 4)
-                contract["net_edge"] = round(net_edge, 4)
-                contract["net_edge_pct"] = round(net_edge_pct, 2)
-                contract["spread_ticks"] = round(spread_ticks, 1)
-                contract["qualified"] = (len(reasons) == 0)
-                contract["reasons_failed"] = reasons
-
-        now = time.time()
-        # Refresh terminal in-place with slight throttle to avoid flicker
-        if now - last_render_time[0] >= 0.25:
-            last_render_time[0] = now
-            with render_lock:
-                for asset in underlying_data:
-                    all_list = [c for a, c in all_contracts.values() if a == asset]
-                    qual_list = [x for x in all_list if x.get("qualified")]
-                    qual_list.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
-
-                    underlying_data[asset]["all_strikes"] = all_list
-                    underlying_data[asset]["qualified_strikes"] = qual_list
-                    underlying_data[asset]["summary"] = {
-                        "total_scanned": len(all_list),
-                        "total_qualified": len(qual_list),
-                        "max_spread_ticks": max((x["spread_ticks"] for x in qual_list), default=0.0),
-                        "max_net_edge_pct": max((x["net_edge_pct"] for x in qual_list), default=0.0),
-                        "total_ticks": tick_count[0]
-                    }
-
-                os.system("cls" if os.name == "nt" else "clear")
-                print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title})")
-                for asset, res in underlying_data.items():
-                    print_terminal_table(res, show_all=show_all, is_multi=is_multi)
-
-    ws_manager = DeltaWebSocketManager(
-        symbols=symbols_to_sub,
-        verbose=False,
-        on_tick=on_tick_received
-    )
-    ws_manager.start()
-
-    try:
-        # Initial display
-        for asset, res in underlying_data.items():
-            print_terminal_table(res, show_all=show_all, is_multi=is_multi)
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print(f"\n{COLOR_YELLOW}[WEBSOCKET STOPPED]{COLOR_RESET} Exiting live WebSocket market making stream.\n")
+        # Stop previous ws_manager before rolling to next expiry
         ws_manager.stop()
+        time.sleep(1)
+        target_expiry = None  # Ensure next iteration picks next active upcoming expiry
 
 
 def run_cli():
@@ -666,38 +816,200 @@ def run_cli():
         action="store_true",
         help="Continuously stream live tick-by-tick market making evaluation from WebSocket"
     )
+    parser.add_argument(
+        "-t", "--trade",
+        type=str,
+        default=None,
+        help="Execute 1-lot MM trade on a specific strike (e.g. --trade P-BTC-79400-151026)"
+    )
+    parser.add_argument(
+        "--auto-trade",
+        action="store_true",
+        help="Automatically scan and trade qualified opportunities as soon as they appear"
+    )
+    parser.add_argument(
+        "--account",
+        choices=["main", "sub"],
+        default=None,
+        help="Account to execute trade on ('main' or 'sub'). Default: ACTIVE_ACCOUNT from .env"
+    )
+    parser.add_argument(
+        "--price",
+        type=float,
+        default=None,
+        help="Upload/specify custom entry Limit Buy price"
+    )
+    parser.add_argument(
+        "--target",
+        type=float,
+        default=None,
+        help="Upload/specify custom target Limit Sell exit price"
+    )
+    parser.add_argument(
+        "--refresh",
+        type=float,
+        default=0.8,
+        help="Terminal screen refresh throttle interval in seconds (default: 0.8s)"
+    )
 
     args = parser.parse_args()
+
+    # Direct 1-Lot MM Trade Execution on specified strike
+    if args.trade:
+        from mm_execution import mm_engine
+        print("\n" + "=" * 70)
+        print(f" {COLOR_BOLD}{COLOR_GREEN}DELTA EXCHANGE 1-LOT MARKET MAKING EXECUTION{COLOR_RESET}")
+        print(f" Symbol:       {COLOR_CYAN}{args.trade}{COLOR_RESET}")
+        print(f" Size:         {COLOR_BOLD}1 Lot (1 Contract){COLOR_RESET}")
+        print(f" Account:      {COLOR_YELLOW}{(args.account or os.getenv('ACTIVE_ACCOUNT', 'main')).upper()}{COLOR_RESET}")
+        print(f" Strategy:     {COLOR_GREEN}1st BUY Maker (Post-Only) -> 2nd SELL Maker (Post-Only){COLOR_RESET}")
+        print(f" Price Drops:  {COLOR_BOLD}{COLOR_BG_GREEN} STRICTLY NO STOP LOSS, NO TIMEOUT -> EXIT COST-TO-COST OR WAIT {COLOR_RESET}")
+        print("=" * 70 + "\n")
+
+        trade = mm_engine.start_trade(
+            symbol=args.trade,
+            size=1,
+            entry_price=args.price,
+            target_exit_price=args.target,
+            account=args.account
+        )
+
+        try:
+            while trade.is_running:
+                time.sleep(2)
+            print("\n" + "=" * 70)
+            print(f" {COLOR_BOLD}MM Trade Final Result:{COLOR_RESET} {trade.state}")
+            print(f" Realized PnL: ${trade.realized_pnl:.5f} USD")
+            print("=" * 70)
+        except KeyboardInterrupt:
+            print("\n[STOP] User interrupted. Cancelling trade...")
+            trade.stop()
+        return
 
     watch_both = args.both or (args.underlying in ["ALL", "BOTH"])
     underlyings = ["BTC", "ETH"] if watch_both else [args.underlying]
 
-    client = get_delta_client()
+    client = get_delta_client(account=args.account)
 
-    if not args.watch:
-        # One-shot scan
-        is_multi = len(underlyings) > 1
-        for sym in underlyings:
-            res = evaluate_mm_strikes(
-                underlying=sym,
-                expiry=args.expiry,
-                min_bid_price=args.min_bid,
-                min_spread_ticks=args.min_ticks,
-                min_net_edge_pct=args.min_edge,
-                client=client
-            )
-            print_terminal_table(res, show_all=args.all, is_multi=is_multi)
-    else:
-        # Live tick-by-tick WebSocket streaming
+    # 1. Live WebSocket Watch (with or without --auto-trade)
+    if args.watch:
         stream_terminal_websocket(
             underlying=underlyings,
             expiry=args.expiry,
             min_bid=args.min_bid,
             min_ticks=args.min_ticks,
             min_edge=args.min_edge,
-            show_all=args.all
+            show_all=args.all,
+            auto_trade=args.auto_trade,
+            account=args.account,
+            refresh_interval=args.refresh
         )
+        return
+
+    # 2. Standalone Autonomous Auto-Trader (REST scanner loop)
+    if args.auto_trade:
+        from mm_execution import mm_engine
+        active_acct = (args.account or os.getenv("ACTIVE_ACCOUNT", "main")).lower()
+        print("\n" + "=" * 70)
+        print(f" {COLOR_BOLD}{COLOR_GREEN}DELTA EXCHANGE AUTONOMOUS 1-LOT MM TRADING ENGINE{COLOR_RESET}")
+        print(f" Underlyings:  {COLOR_CYAN}{', '.join(underlyings)}{COLOR_RESET}")
+        print(f" Account:      {COLOR_YELLOW}{active_acct.upper()}{COLOR_RESET}")
+        print(f" Criteria:     Bid >= {args.min_bid} | Ticks >= {args.min_ticks} | Edge >= {args.min_edge}%")
+        print(f" Strategy:     {COLOR_GREEN}1-Lot Buy Maker -> Sell Maker (Strictly 1 Trade at a time){COLOR_RESET}")
+        print(f" Price Drops:  {COLOR_BOLD}{COLOR_BG_GREEN} STRICTLY NO STOP LOSS, NO TIMEOUT -> EXIT COST-TO-COST OR WAIT {COLOR_RESET}")
+        print("=" * 70 + "\n")
+
+        current_trade = None
+        target_expiry = args.expiry
+        try:
+            while True:
+                # If trade is actively running, monitor it
+                if current_trade and current_trade.is_running:
+                    time.sleep(2)
+                    continue
+
+                if current_trade and not current_trade.is_running:
+                    print(f"\n[CYCLE COMPLETED] {current_trade.symbol} finished with state: {current_trade.state} | Realized PnL: ${current_trade.realized_pnl:.5f} USD")
+                    print(f"[BOT] Searching for next qualified opportunity...\n")
+                    current_trade = None
+
+                # Check if target expiry expired (17:30 IST / 12:00 UTC)
+                if target_expiry and is_expiry_expired(target_expiry):
+                    print(f"\n[EXPIRY ROLLOVER] Expiry '{target_expiry}' expired at 17:30 IST. Auto-rolling to next active expiry...")
+                    target_expiry = None
+
+                # Scan for qualified strikes
+                all_qual = []
+                for u in underlyings:
+                    try:
+                        res = evaluate_mm_strikes(
+                            underlying=u,
+                            expiry=target_expiry,
+                            min_bid_price=args.min_bid,
+                            min_spread_ticks=args.min_ticks,
+                            min_net_edge_pct=args.min_edge,
+                            client=client
+                        )
+                        qs = res.get("qualified_strikes", [])
+                        all_qual.extend(qs)
+                    except Exception:
+                        pass
+
+                if all_qual:
+                    # Rank by Net Edge % descending
+                    all_qual.sort(key=lambda x: x.get("net_edge_pct", 0), reverse=True)
+                    best = all_qual[0]
+                    sym = best["symbol"]
+                    edge = best.get("net_edge_pct", 0)
+                    ticks = best.get("spread_ticks", 0)
+                    bid = best.get("bid", 0)
+                    ask = best.get("ask", 0)
+
+                    print(f"\n⚡ {COLOR_BOLD}{COLOR_GREEN}[QUALIFIED OPPORTUNITY FOUND]{COLOR_RESET} {COLOR_CYAN}{sym}{COLOR_RESET}")
+                    print(f"   Bid: ${bid} | Ask: ${ask} | Spread Ticks: {ticks:.1f} | Net Edge: {edge:.1f}%")
+                    print(f"   Auto-launching 1-Lot MM Trade on [{active_acct.upper()}]...")
+
+                    current_trade = mm_engine.start_trade(
+                        symbol=sym,
+                        size=1,
+                        account=active_acct
+                    )
+                else:
+                    now_str = datetime.now().strftime("%H:%M:%S")
+                    print(f"\r[{now_str}] Scanning {', '.join(underlyings)}... No qualified strikes meeting criteria (Bid>={args.min_bid}, Ticks>={args.min_ticks}, Edge>={args.min_edge}%). Waiting...", end="", flush=True)
+
+                time.sleep(4)
+        except KeyboardInterrupt:
+            print("\n\n[STOP] Auto-Trader stopped by user.")
+            if current_trade and current_trade.is_running:
+                print(f"[INFO] Trade for {current_trade.symbol} is currently in state '{current_trade.state}'.")
+        return
+
+    # 3. One-shot scan
+    is_multi = len(underlyings) > 1
+    scan_expiry = args.expiry
+    if scan_expiry and is_expiry_expired(scan_expiry):
+        print(f"{COLOR_YELLOW}[NOTICE]{COLOR_RESET} Expiry '{scan_expiry}' expired at 17:30 IST. Auto-evaluating next active expiry...")
+        scan_expiry = None
+
+    for sym in underlyings:
+        res = evaluate_mm_strikes(
+            underlying=sym,
+            expiry=scan_expiry,
+            min_bid_price=args.min_bid,
+            min_spread_ticks=args.min_ticks,
+            min_net_edge_pct=args.min_edge,
+            client=client
+        )
+        print_terminal_table(res, show_all=args.all, is_multi=is_multi)
+        
+        # Print tip on qualified strikes
+        qual_count = len(res.get("qualified_strikes", []))
+        if qual_count > 0:
+            first_sym = res["qualified_strikes"][0]["symbol"]
+            print(f"  {COLOR_DIM}[TIP] To execute 1-lot MM trade on top strike:{COLOR_RESET} {COLOR_GREEN}python mm_strikes.py --trade {first_sym}{COLOR_RESET}\n")
 
 
 if __name__ == "__main__":
     run_cli()
+

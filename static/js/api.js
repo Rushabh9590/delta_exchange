@@ -238,5 +238,70 @@ const ApiService = {
   async getMarketMakingConfig() {
     const res = await fetch('/api/mm/config');
     return await res.json();
+  },
+
+  /**
+   * Fetches current account status ('main' or 'sub') and balances
+   */
+  async getAccountStatus() {
+    const res = await fetch('/api/account/status');
+    return await res.json();
+  },
+
+  /**
+   * Switches active account between 'main' and 'sub'
+   */
+  async switchAccount(account = 'main') {
+    const res = await fetch('/api/account/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account })
+    });
+    return await res.json();
+  },
+
+  /**
+   * Starts a 1-lot Market Making cycle
+   */
+  async startMMTrade(tradeData = {}) {
+    const res = await fetch('/api/mm/trade/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tradeData)
+    });
+    return await res.json();
+  },
+
+  /**
+   * Fetches all active MM trade cycles
+   */
+  async getActiveMMTrades() {
+    const res = await fetch('/api/mm/trade/active');
+    return await res.json();
+  },
+
+  /**
+   * Uploads/updates the limit price of an active MM trade
+   */
+  async uploadMMPrice(tradeId, price) {
+    const res = await fetch('/api/mm/trade/upload-price', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trade_id: tradeId, price })
+    });
+    return await res.json();
+  },
+
+  /**
+   * Cancels an active MM trade
+   */
+  async cancelMMTrade(tradeId) {
+    const res = await fetch('/api/mm/trade/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trade_id: tradeId })
+    });
+    return await res.json();
   }
 };
+

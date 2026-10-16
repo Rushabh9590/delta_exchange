@@ -19,7 +19,7 @@ REPO_PATH = BASE_DIR / "python-rest-client"
 if str(REPO_PATH) not in sys.path:
     sys.path.insert(0, str(REPO_PATH))
 
-from login import get_delta_client, load_credentials
+from login import get_delta_client, load_credentials, switch_account
 from multileg import (
     get_all_products,
     get_product_details,
@@ -34,6 +34,7 @@ from multileg import (
     start_master_sync_daemon
 )
 from mm_strikes import evaluate_mm_strikes, get_mm_config
+from mm_execution import mm_engine
 from websocket import DeltaWebSocketManager
 
 # Start background master scrip auto-sync daemon (adaptive 15m default, 45s during 5:30 PM IST rollover window)
@@ -60,11 +61,13 @@ def get_ws_manager():
     return _ws_manager
 
 
-def get_client():
+def get_client(account=None, force_new=False):
     global _client
-    if _client is None:
-        _client = get_delta_client()
+    current_acct = (account or os.getenv("ACTIVE_ACCOUNT") or "main").strip().lower()
+    if _client is None or force_new or account is not None or getattr(_client, "account_name", None) != current_acct:
+        _client = get_delta_client(account=current_acct, force_new=True)
     return _client
+
 
 
 def calculate_position_metrics(pos, ticker=None):
@@ -810,6 +813,164 @@ def get_market_making_config():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+# ==============================================================================
+# ACCOUNT SWITCHING API (Main vs Sub Account)
+# ==============================================================================
+
+@app.route("/api/account/status", methods=["GET"])
+def get_account_status():
+    """
+    Returns current active account ('main' or 'sub'), masked API key, and wallet balances.
+    """
+    try:
+        creds = load_credentials()
+        active_acct = creds.get("active_account", "main")
+        api_key = creds.get("api_key") or ""
+        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
+
+        client = get_client(account=active_acct, force_new=True)
+        balances = []
+        try:
+            balances = client.get_all_wallet_balances() or []
+        except Exception as b_err:
+            print(f"[WARN] Failed to fetch balances for account status: {b_err}")
+
+        usd_balance = 0.0
+        for b in balances:
+            if b.get("asset_symbol") == "USD" or b.get("asset_id") == 14:
+                usd_balance = float(b.get("available_balance", 0) or 0)
+                break
+
+        return jsonify({
+            "success": True,
+            "active_account": active_acct,
+            "api_key_masked": masked_key,
+            "base_url": creds.get("base_url"),
+            "usd_available": usd_balance,
+            "balances": balances
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/account/switch", methods=["POST"])
+def switch_active_account():
+    """
+    Switches active account between 'main' and 'sub' on the fly.
+    """
+    try:
+        data = request.get_json() or {}
+        target = data.get("account", "").strip().lower()
+        if target not in ("main", "sub"):
+            return jsonify({"success": False, "error": "Account must be 'main' or 'sub'."}), 400
+
+        global _client
+        _client = switch_account(target, update_env_file=True)
+
+        return get_account_status()
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ==============================================================================
+# 1-LOT MARKET MAKING TRADE EXECUTION API
+# ==============================================================================
+
+@app.route("/api/mm/trade/start", methods=["POST"])
+def start_market_making_trade():
+    """
+    Starts a 1-lot Market Making cycle for a qualified strike:
+    - Step 1: Place Limit BUY (Maker / post-only)
+    - Step 2: On BUY fill, place Limit SELL (Maker)
+    - Constraint: STRICTLY NO STOP-LOSS, NO TIMEOUT -> EXIT COST-TO-COST OR WAIT
+    """
+    try:
+        data = request.get_json() or {}
+        symbol = data.get("symbol")
+        if not symbol:
+            return jsonify({"success": False, "error": "Contract 'symbol' is required."}), 400
+
+        size = int(data.get("size") or 1)
+        entry_price = float(data.get("entry_price")) if data.get("entry_price") else None
+        target_exit_price = float(data.get("target_exit_price")) if data.get("target_exit_price") else None
+        two_way_peg = data.get("two_way_peg", True)
+        max_entry_price = float(data.get("max_entry_price")) if data.get("max_entry_price") else None
+        account = data.get("account")
+
+        cycle = mm_engine.start_trade(
+            symbol=symbol,
+            size=size,
+            entry_price=entry_price,
+            target_exit_price=target_exit_price,
+            two_way_peg=two_way_peg,
+            max_entry_price=max_entry_price,
+            account=account
+        )
+        return jsonify({"success": True, "trade": cycle.to_dict()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/trade/active", methods=["GET"])
+def get_active_market_making_trades():
+    """
+    Returns list of all active MM trade cycles and their live state.
+    """
+    try:
+        trades = mm_engine.list_active()
+        return jsonify({"success": True, "trades": trades})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/trade/upload-price", methods=["POST"])
+def upload_trade_limit_price():
+    """
+    Allows user to upload/update the limit price of an active order.
+    """
+    try:
+        data = request.get_json() or {}
+        trade_id = data.get("trade_id")
+        price = data.get("price")
+        if not trade_id or price is None:
+            return jsonify({"success": False, "error": "'trade_id' and 'price' are required."}), 400
+
+        res = mm_engine.upload_price(trade_id, float(price))
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/trade/cancel", methods=["POST"])
+def cancel_market_making_trade():
+    """
+    Cancels an active MM trade cycle.
+    """
+    try:
+        data = request.get_json() or {}
+        trade_id = data.get("trade_id")
+        if not trade_id:
+            return jsonify({"success": False, "error": "'trade_id' is required."}), 400
+
+        res = mm_engine.cancel_trade(trade_id)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/ws/private/status", methods=["GET"])
+def get_private_ws_status():
+    """
+    Returns the real-time private WebSocket stream status (connection, auth, active listeners).
+    """
+    try:
+        account = request.args.get("account")
+        from websocket import get_private_ws_manager
+        mgr = get_private_ws_manager(account=account)
+        return jsonify({"success": True, "status": mgr.get_status()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/orders/multi-leg", methods=["POST"])

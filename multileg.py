@@ -328,6 +328,22 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
         }
 
     except Exception as e:
+        clean_err = str(e)
+        try:
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                err_json = resp.json().get("error", {})
+                code = err_json.get("code")
+                ctx = err_json.get("context", {})
+                if code == "insufficient_margin":
+                    avail = float(ctx.get("available_balance", 0))
+                    req = float(ctx.get("required_additional_balance", 0))
+                    clean_err = f"Insufficient Margin: Available ${avail:.2f} USD, required additional ${req:.2f} USD."
+                elif code:
+                    clean_err = f"{code}: {ctx}" if ctx else str(code)
+        except Exception:
+            pass
+
         return {
             "leg_index": leg_idx,
             "symbol": symbol,
@@ -339,7 +355,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
             "success": False,
             "order_id": None,
             "response": None,
-            "error": str(e)
+            "error": clean_err
         }
 
 
@@ -395,12 +411,15 @@ def execute_multi_leg_strategy(legs: list, client: DeltaRestClient = None, paral
     else:
         overall_status = "FAILED"
 
+    first_error = next((r.get("error") for r in results if r and r.get("error")), None)
+
     return {
         "success": success_count > 0,
         "overall_status": overall_status,
         "total_legs": len(legs),
         "successful_legs": success_count,
         "failed_legs": failed_count,
+        "error": first_error if failed_count > 0 else None,
         "results": results
     }
 
@@ -510,6 +529,29 @@ def square_off_all_open_positions(client: DeltaRestClient = None) -> dict:
         "failed_count": len(open_positions) - success_count,
         "results": results
     }
+
+
+def is_expiry_expired(expiry_str: str) -> bool:
+    """
+    Checks if a Delta Exchange option expiry string (e.g. '151026') has passed 17:30 IST / 12:00 UTC.
+    Delta Exchange daily options settle at 12:00:00 UTC (17:30:00 IST).
+    """
+    if not expiry_str:
+        return False
+    exp_clean = str(expiry_str).strip().upper()
+    if exp_clean in ["AUTO", "NEXT", "TODAY", "CURRENT"]:
+        return False
+    if len(exp_clean) < 6:
+        return False
+    try:
+        day = int(exp_clean[:2])
+        month = int(exp_clean[2:4])
+        year = 2000 + int(exp_clean[4:6])
+        settlement_utc = datetime(year, month, day, 12, 0, 0, tzinfo=timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+        return now_utc >= settlement_utc
+    except Exception:
+        return False
 
 
 SUPPORTED_OPTION_UNDERLYINGS = ["BTC", "ETH"]
@@ -708,7 +750,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
     expiries = exp_info.get("expiries", [])
 
     selected_expiry = expiry
-    if not selected_expiry and expiries:
+    if (not selected_expiry or is_expiry_expired(selected_expiry)) and expiries:
         selected_expiry = expiries[0]["expiry"]
 
     spot_price = exp_info.get("spot_price", 0.0)

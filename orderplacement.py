@@ -280,6 +280,34 @@ def cancel_order(symbol_or_id, order_id: int):
     return mgr.cancel_order(symbol_or_id=symbol_or_id, order_id=order_id)
 
 
+# MM Execution Engine Integration
+from mm_execution import mm_engine, DeltaMMEngine, MMTradeCycle
+
+def start_mm_trade(symbol, size=1, entry_price=None, target_exit_price=None, two_way_peg=True, max_entry_price=None, account=None):
+    """Starts a 1-lot MM trade cycle with Two-Way Floating Peg and Cost-to-Cost or Wait exit rules."""
+    return mm_engine.start_trade(
+        symbol=symbol,
+        size=size,
+        entry_price=entry_price,
+        target_exit_price=target_exit_price,
+        two_way_peg=two_way_peg,
+        max_entry_price=max_entry_price,
+        account=account
+    )
+
+def upload_mm_price(trade_id: str, new_price: float):
+    """Uploads/updates the limit price of an active MM trade."""
+    return mm_engine.upload_price(trade_id, new_price)
+
+def cancel_mm_trade(trade_id: str):
+    """Cancels an active MM trade."""
+    return mm_engine.cancel_trade(trade_id)
+
+def get_active_mm_trades():
+    """Returns all active MM trades."""
+    return mm_engine.list_active()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Delta Exchange Order Placement & Market Stream Initialized")

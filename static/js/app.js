@@ -580,6 +580,13 @@ function startLiveStreaming() {
     }
   }, 3000);
 
+  // Poll live Market Making strikes if active (every 3500ms, non-destructive background sync)
+  setInterval(() => {
+    if (activeNavTab === 'mm' && typeof loadMarketMakingStrikes === 'function' && typeof mmIsLoading !== 'undefined' && !mmIsLoading) {
+      loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry, true);
+    }
+  }, 3500);
+
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {
     updateExchangeClock();
@@ -617,6 +624,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   fetchDashboardData(false);
   loadExpiriesForUnderlying(studioUnderlying);
+  loadActiveAccountStatus();
   startLiveStreaming();
   initDeltaWebSocket();
 });
@@ -624,8 +632,65 @@ window.addEventListener('DOMContentLoaded', () => {
 // Sync active tab seamlessly on browser Back/Forward or manual hash navigation
 window.addEventListener('hashchange', () => {
   const hash = (window.location.hash || '').replace('#', '').toLowerCase();
-  const validTabs = ['positions', 'studio', 'chain'];
+  const validTabs = ['positions', 'studio', 'chain', 'mm'];
   if (validTabs.includes(hash) && hash !== activeNavTab) {
     switchNavTab(hash, false);
   }
 });
+
+/**
+ * Loads and displays active account ('main' or 'sub')
+ */
+async function loadActiveAccountStatus() {
+  try {
+    const res = await ApiService.getAccountStatus();
+    if (res && res.success) {
+      const activeAcct = (res.active_account || 'main').toLowerCase();
+      window.currentActiveAccount = activeAcct;
+
+      const btnSub = document.getElementById('btnAcctSub');
+      const btnMain = document.getElementById('btnAcctMain');
+
+      if (btnSub && btnMain) {
+        if (activeAcct === 'sub') {
+          btnSub.className = 'acct-btn active sub';
+          btnMain.className = 'acct-btn';
+        } else {
+          btnSub.className = 'acct-btn';
+          btnMain.className = 'acct-btn active main';
+        }
+      }
+
+      const modalAccount = document.getElementById('mmModalAccount');
+      if (modalAccount) modalAccount.textContent = activeAcct.toUpperCase();
+    }
+  } catch (e) {
+    console.warn('[ACCOUNT] Could not load account status:', e);
+  }
+}
+
+/**
+ * Switches active account between 'main' and 'sub' on the fly
+ */
+async function switchActiveAccount(targetAccount) {
+  try {
+    const res = await ApiService.switchAccount(targetAccount);
+    if (res && res.success) {
+      window.currentActiveAccount = targetAccount;
+      loadActiveAccountStatus();
+      if (typeof showToast === 'function') {
+        showToast(`⚡ Switched to [${targetAccount.toUpperCase()}] Account`, 'success');
+      }
+      fetchDashboardData(true);
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(`Account switch failed: ${res?.error || 'Error'}`, 'error');
+      }
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') {
+      showToast(`Error: ${e.message}`, 'error');
+    }
+  }
+}
+
