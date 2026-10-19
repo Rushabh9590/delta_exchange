@@ -68,13 +68,20 @@ def _record_alerted_symbol(symbol: str):
         pass
 
 
-# Cached configuration dictionary
+# Cached configuration dictionary and CLI override
+_NOTIFY_SECS_OVERRIDE = None
 _CONFIG = {
     "bot_token": os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
     "chat_id": os.getenv("TELEGRAM_CHAT_ID", "").strip(),
-    "notify_secs": int(os.getenv("MM_QUAL_NOTIFY_SECS", "100")),
+    "notify_secs": int(os.getenv("MM_QUAL_NOTIFY_SECS", "200")),
     "enabled": os.getenv("TELEGRAM_NOTIFY_ENABLED", "true").strip().lower() in ("true", "1", "yes")
 }
+
+
+def set_notify_secs_override(secs: int | None):
+    """Overrides the notification threshold in memory for the current process session."""
+    global _NOTIFY_SECS_OVERRIDE
+    _NOTIFY_SECS_OVERRIDE = max(5, int(secs)) if secs is not None else None
 
 
 RECENT_ALERTS: list[dict] = []
@@ -95,9 +102,12 @@ def get_telegram_config() -> dict:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip("'\"")
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip().strip("'\"")
     try:
-        notify_secs = int(str(os.getenv("MM_QUAL_NOTIFY_SECS", "100")).strip().strip("'\""))
+        notify_secs = int(str(os.getenv("MM_QUAL_NOTIFY_SECS", "200")).strip().strip("'\""))
     except (ValueError, TypeError):
-        notify_secs = 100
+        notify_secs = 200
+
+    if _NOTIFY_SECS_OVERRIDE is not None:
+        notify_secs = _NOTIFY_SECS_OVERRIDE
 
     raw_en = str(os.getenv("TELEGRAM_NOTIFY_ENABLED", "true")).strip().strip("'\"").lower()
     enabled = raw_en in ("true", "1", "yes")

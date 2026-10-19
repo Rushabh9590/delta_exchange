@@ -47,7 +47,13 @@ from multileg import (
     sync_master_scrips
 )
 from websocket import DeltaWebSocketManager
-from telegram_notify import check_strike_qual_alert, reset_strike_alert, get_telegram_config, get_recent_alerts
+from telegram_notify import (
+    check_strike_qual_alert,
+    reset_strike_alert,
+    get_telegram_config,
+    get_recent_alerts,
+    set_notify_secs_override
+)
 import threading
 
 # Load environment configuration
@@ -1266,8 +1272,18 @@ def run_cli():
         default=0.8,
         help="Terminal screen refresh throttle interval in seconds (default: 0.8s)"
     )
+    parser.add_argument(
+        "--threshold", "--notify-secs",
+        dest="notify_secs",
+        type=int,
+        default=None,
+        help="Continuous qualification duration threshold (in seconds) for Telegram alerts (overrides .env)"
+    )
 
     args = parser.parse_args()
+
+    if args.notify_secs is not None:
+        set_notify_secs_override(args.notify_secs)
 
     # Direct 1-Lot MM Trade Execution on specified strike
     if args.trade:

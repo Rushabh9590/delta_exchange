@@ -1017,7 +1017,7 @@ function onTgModalEnabledChange() {
 async function onMmTgConfigChange() {
   const inpSec = document.getElementById('mmInpTgSec');
   const chk = document.getElementById('mmChkTgEnabled');
-  const notifySecs = parseInt(inpSec ? inpSec.value : '100') || 100;
+  const notifySecs = parseInt(inpSec ? inpSec.value : '200') || 200;
   const enabled = chk ? chk.checked : true;
 
   try {
@@ -1067,7 +1067,7 @@ async function openProfileModal() {
 
       if (tokenInp) tokenInp.value = cfg.bot_token || '';
       if (chatInp) chatInp.value = cfg.chat_id || '';
-      if (secInp) secInp.value = cfg.notify_secs || 100;
+      if (secInp) secInp.value = cfg.notify_secs || 200;
       if (enSelect) {
         enSelect.value = cfg.enabled ? 'true' : 'false';
         onTgModalEnabledChange();
@@ -1112,7 +1112,7 @@ async function saveProfileSettingsFromModal() {
 
   const token = document.getElementById('tgModalBotToken')?.value.trim();
   const chatId = document.getElementById('tgModalChatId')?.value.trim();
-  const sec = parseInt(document.getElementById('tgModalNotifySec')?.value || '100');
+  const sec = parseInt(document.getElementById('tgModalNotifySec')?.value || '200');
   const enabled = document.getElementById('tgModalEnabled')?.value === 'true';
 
   const fb = document.getElementById('tgModalFeedback');
