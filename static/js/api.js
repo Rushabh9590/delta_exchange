@@ -283,11 +283,13 @@ const ApiService = {
   /**
    * Uploads/updates the limit price of an active MM trade
    */
-  async uploadMMPrice(tradeId, price) {
+  async uploadMMPrice(tradeId, price, side = null) {
+    const payload = { trade_id: tradeId, price };
+    if (side) payload.side = side;
     const res = await fetch('/api/mm/trade/upload-price', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trade_id: tradeId, price })
+      body: JSON.stringify(payload)
     });
     return await res.json();
   },
@@ -352,6 +354,26 @@ const ApiService = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  /**
+   * Fetches the current margin mode ('PORTFOLIO' / 'ISOLATED')
+   */
+  async getMarginMode() {
+    const res = await fetch('/api/account/margin-mode');
+    return await res.json();
+  },
+
+  /**
+   * Sets the account margin mode ('portfolio' / 'isolated')
+   */
+  async setMarginMode(mode) {
+    const res = await fetch('/api/account/margin-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ margin_mode: mode })
     });
     return await res.json();
   }

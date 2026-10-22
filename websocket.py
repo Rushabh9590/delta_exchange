@@ -6,6 +6,20 @@ import hmac
 import hashlib
 import threading
 import importlib.util
+import socket
+
+# High-Performance Ultra-Low-Latency SIMD JSON Parser
+try:
+    import orjson
+    def fast_json_loads(data):
+        return orjson.loads(data)
+    def fast_json_dumps(data):
+        return orjson.dumps(data).decode("utf-8")
+except ImportError:
+    def fast_json_loads(data):
+        return json.loads(data)
+    def fast_json_dumps(data):
+        return json.dumps(data)
 
 # Robustly import third-party websocket-client package without local filename collision
 ws_client = None
@@ -62,11 +76,12 @@ class DeltaWebSocketManager:
     Thread-safe WebSocket Manager that streams live market data for Delta Exchange symbols.
     Maintains real-time price quotes, mark prices, and orderbooks.
     """
-    def __init__(self, symbols=None, ws_url=None, verbose=False, on_tick=None):
+    def __init__(self, symbols=None, ws_url=None, verbose=False, on_tick=None, subscribe_l2=True):
         self.symbols = symbols or ["BTCUSD"]
         self.ws_url = ws_url or get_ws_url()
         self.verbose = verbose
         self.on_tick = on_tick
+        self.subscribe_l2 = subscribe_l2
         self.market_data = {}  # {symbol: {'ltp': float, 'mark_price': float, 'bid': float, 'ask': float, 'bids': [], 'asks': []}}
         self.orderbooks = {}   # {symbol: {'bids': {float_price: float_size}, 'asks': {float_price: float_size}}}
         self._lock = threading.Lock()
@@ -77,14 +92,26 @@ class DeltaWebSocketManager:
 
     def _on_open(self, ws):
         self.is_connected = True
+        # TCP_NODELAY: Disable Nagle's algorithm for sub-millisecond packet delivery
+        try:
+            s = getattr(ws, "sock", None)
+            raw_s = getattr(s, "sock", s)
+            if hasattr(raw_s, "setsockopt"):
+                raw_s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            elif hasattr(s, "setsockopt"):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
+
         if self.verbose:
             print(f"[WS CONNECTED] Connected to {self.ws_url}")
         spot_symbols = list(set([s.replace("USD", "") for s in self.symbols if "USD" in s]))
         channels = [
             {"name": "v2/ticker", "symbols": self.symbols},
-            {"name": "mark_price", "symbols": self.symbols},
-            {"name": "l2_updates", "symbols": self.symbols}
+            {"name": "mark_price", "symbols": self.symbols}
         ]
+        if self.subscribe_l2:
+            channels.append({"name": "l2_updates", "symbols": self.symbols})
         if spot_symbols:
             channels.append({"name": "spot_price", "symbols": spot_symbols})
 
@@ -94,13 +121,13 @@ class DeltaWebSocketManager:
                 "channels": channels
             }
         }
-        ws.send(json.dumps(sub_payload))
+        ws.send(fast_json_dumps(sub_payload))
         if self.verbose:
             print(f"[WS SUB] Subscribed to {self.symbols} & Spot: {spot_symbols}", flush=True)
 
     def _on_message(self, ws, message):
         try:
-            data = json.loads(message)
+            data = fast_json_loads(message)
             msg_type = data.get("type") or data.get("channel") or data.get("name")
             symbol = data.get("symbol") or (f"{data.get('underlying_asset_symbol')}USD" if data.get("underlying_asset_symbol") else None)
 
@@ -133,18 +160,42 @@ class DeltaWebSocketManager:
                     elif mark_val is not None and "spot_price" not in self.market_data[symbol]:
                         self.market_data[symbol]["spot_price"] = self.market_data[symbol].get("mark_price")
 
-                    if best_bid is not None:
-                        try:
-                            self.market_data[symbol]["bid"] = float(best_bid)
-                        except (ValueError, TypeError):
-                            pass
+                    if "quotes" in data:
+                        raw_b = quotes.get("best_bid")
+                        if raw_b is not None and str(raw_b).strip() not in ("", "null", "None"):
+                            try:
+                                self.market_data[symbol]["bid"] = float(raw_b)
+                            except (ValueError, TypeError):
+                                self.market_data[symbol]["bid"] = None
+                        elif "best_bid" in quotes:
+                            self.market_data[symbol]["bid"] = None
 
-                    best_ask = quotes.get("best_ask")
-                    if best_ask is not None:
-                        try:
-                            self.market_data[symbol]["ask"] = float(best_ask)
-                        except (ValueError, TypeError):
-                            pass
+                        raw_a = quotes.get("best_ask")
+                        if raw_a is not None and str(raw_a).strip() not in ("", "null", "None"):
+                            try:
+                                self.market_data[symbol]["ask"] = float(raw_a)
+                            except (ValueError, TypeError):
+                                self.market_data[symbol]["ask"] = None
+                        elif "best_ask" in quotes:
+                            self.market_data[symbol]["ask"] = None
+                    else:
+                        raw_b = data.get("best_bid")
+                        if raw_b is not None and str(raw_b).strip() not in ("", "null", "None"):
+                            try:
+                                self.market_data[symbol]["bid"] = float(raw_b)
+                            except (ValueError, TypeError):
+                                self.market_data[symbol]["bid"] = None
+                        elif "best_bid" in data:
+                            self.market_data[symbol]["bid"] = None
+
+                        raw_a = data.get("best_ask")
+                        if raw_a is not None and str(raw_a).strip() not in ("", "null", "None"):
+                            try:
+                                self.market_data[symbol]["ask"] = float(raw_a)
+                            except (ValueError, TypeError):
+                                self.market_data[symbol]["ask"] = None
+                        elif "best_ask" in data:
+                            self.market_data[symbol]["ask"] = None
 
                     vol_val = data.get("volume")
                     if vol_val is not None:
@@ -224,11 +275,15 @@ class DeltaWebSocketManager:
 
                     self.market_data[symbol]["bids"] = sorted_bids
                     self.market_data[symbol]["asks"] = sorted_asks
-                    if sorted_bids:
-                        self.market_data[symbol]["bid"] = sorted_bids[0][0]
-                    if sorted_asks:
-                        self.market_data[symbol]["ask"] = sorted_asks[0][0]
+                    self.market_data[symbol]["bid"] = sorted_bids[0][0] if sorted_bids else None
+                    self.market_data[symbol]["ask"] = sorted_asks[0][0] if sorted_asks else None
                     self.market_data[symbol]["timestamp"] = time.time()
+
+                if self.on_tick:
+                    try:
+                        self.on_tick(symbol, self.market_data[symbol], data)
+                    except Exception:
+                        pass
 
                 if self.verbose:
                     top_b = sorted_bids[0] if sorted_bids else ["-", "-"]
@@ -248,22 +303,34 @@ class DeltaWebSocketManager:
         if self.verbose:
             print(f"[WS CLOSED] Code: {code}, Msg: {msg}")
 
+    def _run_connection_loop(self):
+        """Persistent connection loop that automatically reconnects if disconnected."""
+        while self.is_running:
+            try:
+                self.ws_app = ws_client.WebSocketApp(
+                    self.ws_url,
+                    on_open=self._on_open,
+                    on_message=self._on_message,
+                    on_error=self._on_error,
+                    on_close=self._on_close
+                )
+                self.ws_app.run_forever(ping_interval=20, ping_timeout=10)
+            except Exception as e:
+                if self.verbose:
+                    print(f"[WS RUN LOOP ERROR] {e}")
+            self.is_connected = False
+            if self.is_running:
+                time.sleep(2)  # Reconnect backoff
+
     def start(self):
-        """Starts WebSocket client in a background daemon thread."""
+        """Starts WebSocket client in a resilient background daemon thread with auto-reconnect."""
         if self.is_running:
             return
         if not ws_client or not hasattr(ws_client, "WebSocketApp"):
             raise RuntimeError("websocket-client library is not available.")
 
         self.is_running = True
-        self.ws_app = ws_client.WebSocketApp(
-            self.ws_url,
-            on_open=self._on_open,
-            on_message=self._on_message,
-            on_error=self._on_error,
-            on_close=self._on_close
-        )
-        self._thread = threading.Thread(target=self.ws_app.run_forever, daemon=True)
+        self._thread = threading.Thread(target=self._run_connection_loop, daemon=True, name="DeltaWS-Manager")
         self._thread.start()
 
     def stop(self):
@@ -285,19 +352,21 @@ class DeltaWebSocketManager:
                     to_add.append(s)
         if to_add and self.is_connected and self.ws_app:
             try:
+                channels = [
+                    {"name": "v2/ticker", "symbols": to_add},
+                    {"name": "mark_price", "symbols": to_add}
+                ]
+                if self.subscribe_l2:
+                    channels.append({"name": "l2_updates", "symbols": to_add})
                 sub_payload = {
                     "type": "subscribe",
                     "payload": {
-                        "channels": [
-                            {"name": "v2/ticker", "symbols": to_add},
-                            {"name": "mark_price", "symbols": to_add},
-                            {"name": "l2_updates", "symbols": to_add}
-                        ]
+                        "channels": channels
                     }
                 }
-                self.ws_app.send(json.dumps(sub_payload))
+                self.ws_app.send(fast_json_dumps(sub_payload))
                 if self.verbose:
-                    print(f"[WS DYNAMIC SUB] Subscribed to {to_add} (ticker, mark, l2)", flush=True)
+                    print(f"[WS DYNAMIC SUB] Subscribed to {to_add} (ticker, mark{', l2' if self.subscribe_l2 else ''})", flush=True)
             except Exception as e:
                 if self.verbose:
                     print(f"[WS SUB ERROR] {e}", flush=True)
@@ -376,6 +445,17 @@ class DeltaPrivateWSManager:
 
     def _on_open(self, ws):
         self.is_connected = True
+        # TCP_NODELAY: Disable Nagle's algorithm for sub-50ms execution fill events
+        try:
+            s = getattr(ws, "sock", None)
+            raw_s = getattr(s, "sock", s)
+            if hasattr(raw_s, "setsockopt"):
+                raw_s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            elif hasattr(s, "setsockopt"):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
+
         if self.verbose:
             print(f"[PRIVATE WS] Connected to {self.ws_url} for account [{self.account_name.upper()}]. Authenticating...", flush=True)
 
@@ -400,7 +480,7 @@ class DeltaPrivateWSManager:
                     "timestamp": timestamp
                 }
             }
-            ws.send(json.dumps(auth_msg))
+            ws.send(fast_json_dumps(auth_msg))
             if self.verbose:
                 print(f"[PRIVATE WS AUTH SENT] Sent key-auth for [{self.account_name.upper()}]", flush=True)
         except Exception as e:
@@ -408,7 +488,7 @@ class DeltaPrivateWSManager:
 
     def _on_message(self, ws, message):
         try:
-            data = json.loads(message)
+            data = fast_json_loads(message)
             msg_type = data.get("type") or data.get("channel") or data.get("name")
 
             if msg_type == "key-auth":

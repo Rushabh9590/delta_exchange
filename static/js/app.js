@@ -103,8 +103,8 @@ function navigateToTab(tabName) {
 }
 
 /**
- * Switch navigation tabs (Positions vs Multi-Leg Studio vs Option Chain) across top bar and drawer
- * @param {string} tabName - 'positions', 'studio', or 'chain'
+ * Switch navigation tabs (Positions vs Multi-Leg Studio vs Option Chain vs MM Strikes)
+ * @param {string} tabName - 'positions', 'studio', 'chain', or 'mm'
  * @param {boolean} updateUrl - whether to sync URL hash
  */
 function switchNavTab(tabName, updateUrl = true) {
@@ -155,6 +155,12 @@ function switchNavTab(tabName, updateUrl = true) {
     const curExp = (typeof mmSelectedExpiry !== 'undefined') ? mmSelectedExpiry : '';
     loadMarketMakingStrikes(curAsset, curExp);
   } else if (tabName === 'studio') {
+    if (typeof availableExpiries !== 'undefined' && availableExpiries.length === 0) {
+      const curUnderlying = document.getElementById('selUnderlying')?.value || 'BTC';
+      if (typeof loadExpiriesForUnderlying === 'function') {
+        loadExpiriesForUnderlying(curUnderlying);
+      }
+    }
     if (typeof updateUnderlyingPriceAndLotDisplay === 'function') {
       updateUnderlyingPriceAndLotDisplay();
     }
@@ -251,7 +257,16 @@ function setCurrency(curr) {
 /**
  * Toast notifications with autohide
  */
+let _lastToastText = '';
+let _lastToastTs = 0;
 function showToast(message, type = 'normal') {
+  const now = Date.now();
+  if (message === _lastToastText && (now - _lastToastTs) < 1000) {
+    return; // Prevent duplicate stacked toast
+  }
+  _lastToastText = message;
+  _lastToastTs = now;
+
   const container = document.getElementById('toastContainer');
   if (!container) return;
   const toast = document.createElement('div');
@@ -304,6 +319,10 @@ async function fetchDashboardData(manual = false) {
       if (rateDisplay) rateDisplay.textContent = `₹${usdToInrRate.toFixed(2)}`;
       const drawerRateDisplay = document.getElementById('drawerRateDisplay');
       if (drawerRateDisplay) drawerRateDisplay.textContent = `₹${usdToInrRate.toFixed(2)}`;
+    }
+
+    if (data.margin_mode) {
+      updateMarginModeUI(data.margin_mode);
     }
 
     const connStatus = document.getElementById('connStatus');
@@ -489,15 +508,34 @@ function subscribeActiveSymbols() {
   const currentUnderlying = (document.getElementById('selUnderlying')?.value || 'BTC').toUpperCase();
   const symbolsToSub = Array.from(new Set([...subscribedSymbols, `${currentUnderlying}USD`]));
 
-  const subMsg = {
-    type: 'subscribe',
-    payload: {
-      channels: [
-        { name: 'v2/ticker', symbols: symbolsToSub }
-      ]
-    }
-  };
-  deltaWs.send(JSON.stringify(subMsg));
+  // Chunk in batches of 40 symbols to ensure high reliability across all channels
+  const chunkSize = 40;
+  for (let i = 0; i < symbolsToSub.length; i += chunkSize) {
+    const chunk = symbolsToSub.slice(i, i + chunkSize);
+    const subMsg = {
+      type: 'subscribe',
+      payload: {
+        channels: [
+          { name: 'v2/ticker', symbols: chunk },
+          { name: 'mark_price', symbols: chunk },
+          { name: 'l2_updates', symbols: chunk }
+        ]
+      }
+    };
+    deltaWs.send(JSON.stringify(subMsg));
+  }
+
+  // Also subscribe to underlying spot price feed
+  try {
+    deltaWs.send(JSON.stringify({
+      type: 'subscribe',
+      payload: {
+        channels: [
+          { name: 'spot_price', symbols: [currentUnderlying] }
+        ]
+      }
+    }));
+  } catch (e) { }
 }
 
 function applyLiveTickUpdate(data) {
@@ -573,19 +611,31 @@ function startLiveStreaming() {
     }
   }, 1000);
 
-  // Poll live Option Chain if active (every 3000ms, non-destructive background update)
+  // Poll live Option Chain fallback: only poll REST if WebSocket is disconnected; otherwise sync greeks every 15s
   setInterval(() => {
     if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
-      loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
+      const isWsLive = (deltaWs && deltaWs.readyState === WebSocket.OPEN);
+      if (!isWsLive) {
+        loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
+      }
     }
   }, 3000);
 
-  // Poll live Market Making strikes if active (every 3500ms, non-destructive background sync)
+  setInterval(() => {
+    if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
+      const isWsLive = (deltaWs && deltaWs.readyState === WebSocket.OPEN);
+      if (isWsLive) {
+        loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
+      }
+    }
+  }, 15000);
+
+  // Poll live Market Making strikes if active (every 3s background sync; real-time ticks handled by WebSocket)
   setInterval(() => {
     if (activeNavTab === 'mm' && typeof loadMarketMakingStrikes === 'function' && typeof mmIsLoading !== 'undefined' && !mmIsLoading) {
       loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry, true);
     }
-  }, 3500);
+  }, 3000);
 
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {
@@ -663,9 +713,130 @@ async function loadActiveAccountStatus() {
 
       const modalAccount = document.getElementById('mmModalAccount');
       if (modalAccount) modalAccount.textContent = activeAcct.toUpperCase();
+
+      if (res.margin_mode) {
+        updateMarginModeUI(res.margin_mode);
+      }
     }
   } catch (e) {
     console.warn('[ACCOUNT] Could not load account status:', e);
+  }
+}
+
+/**
+ * Updates all Margin Mode indicators across the UI (Top navbar, positions, drawer, modal)
+ */
+function updateMarginModeUI(mode) {
+  const cleanMode = (mode || 'PORTFOLIO').toUpperCase();
+  window.currentMarginMode = cleanMode;
+
+  const topEl = document.getElementById('topMarginModeVal');
+  if (topEl) topEl.textContent = cleanMode;
+
+  const pill = document.getElementById('marginModePill');
+  if (pill) {
+    pill.classList.remove('mode-isolated', 'mode-cross');
+    if (cleanMode === 'ISOLATED') {
+      pill.classList.add('mode-isolated');
+    } else if (cleanMode === 'CROSS') {
+      pill.classList.add('mode-cross');
+    }
+  }
+
+  const drawerEl = document.getElementById('drawerMarginMode');
+  if (drawerEl) {
+    if (cleanMode === 'PORTFOLIO') drawerEl.textContent = 'Portfolio Margin';
+    else if (cleanMode === 'CROSS') drawerEl.textContent = 'Cross Margin';
+    else drawerEl.textContent = 'Isolated Margin';
+  }
+
+  const posEl = document.getElementById('posDashboardMarginMode');
+  if (posEl) posEl.textContent = cleanMode;
+
+  const modalMode = document.getElementById('modalCurrentMarginMode');
+  if (modalMode) modalMode.textContent = cleanMode + ' MARGIN';
+
+  const modalAcct = document.getElementById('modalMarginActiveAcct');
+  if (modalAcct) {
+    const acct = (window.currentActiveAccount || 'sub').toUpperCase();
+    modalAcct.textContent = `${acct} ACCOUNT`;
+  }
+
+  const cardPort = document.getElementById('cardPortfolioMargin');
+  const cardCross = document.getElementById('cardCrossMargin');
+  const cardIso = document.getElementById('cardIsolatedMargin');
+  const badgePort = document.getElementById('badgePortfolioActive');
+  const badgeCross = document.getElementById('badgeCrossActive');
+  const badgeIso = document.getElementById('badgeIsolatedActive');
+
+  // Reset all cards
+  if (cardPort) {
+    cardPort.style.borderColor = 'var(--border-subtle)';
+    cardPort.style.background = 'rgba(255, 255, 255, 0.02)';
+  }
+  if (cardCross) {
+    cardCross.style.borderColor = 'var(--border-subtle)';
+    cardCross.style.background = 'rgba(255, 255, 255, 0.02)';
+  }
+  if (cardIso) {
+    cardIso.style.borderColor = 'var(--border-subtle)';
+    cardIso.style.background = 'rgba(255, 255, 255, 0.02)';
+  }
+
+  if (badgePort) badgePort.style.display = 'none';
+  if (badgeCross) badgeCross.style.display = 'none';
+  if (badgeIso) badgeIso.style.display = 'none';
+
+  // Highlight active mode card
+  if (cleanMode === 'PORTFOLIO' && cardPort) {
+    cardPort.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+    cardPort.style.background = 'rgba(16, 185, 129, 0.08)';
+    if (badgePort) badgePort.style.display = 'inline-block';
+  } else if (cleanMode === 'CROSS' && cardCross) {
+    cardCross.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+    cardCross.style.background = 'rgba(56, 189, 248, 0.08)';
+    if (badgeCross) badgeCross.style.display = 'inline-block';
+  } else if (cleanMode === 'ISOLATED' && cardIso) {
+    cardIso.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+    cardIso.style.background = 'rgba(245, 158, 11, 0.08)';
+    if (badgeIso) badgeIso.style.display = 'inline-block';
+  }
+}
+
+function openMarginModeModal() {
+  const modal = document.getElementById('marginModeModal');
+  if (modal) {
+    modal.classList.add('active');
+    updateMarginModeUI(window.currentMarginMode || 'PORTFOLIO');
+  }
+}
+
+function closeMarginModeModal() {
+  const modal = document.getElementById('marginModeModal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function requestSetMarginMode(targetMode) {
+  try {
+    if (typeof showToast === 'function') {
+      showToast(`Setting Margin Mode to ${targetMode.toUpperCase()}...`, 'info');
+    }
+    const res = await ApiService.setMarginMode(targetMode);
+    if (res && res.success) {
+      updateMarginModeUI(res.margin_mode || targetMode);
+      if (typeof showToast === 'function') {
+        showToast(res.message || `Margin Mode set to ${targetMode.toUpperCase()}!`, 'success');
+      }
+      fetchDashboardData(true);
+    } else {
+      if (typeof showToast === 'function') {
+        showToast(`Margin switch error: ${res?.error || 'Failed'}`, 'error');
+      }
+    }
+  } catch (e) {
+    if (typeof showToast === 'function') {
+      showToast(`Error: ${e.message}`, 'error');
+    }
   }
 }
 

@@ -185,6 +185,154 @@ function getClosestStrike(targetPrice, expiry) {
 }
 
 /**
+ * Global state for custom floating strike picker
+ */
+let activeStrikePickerIdx = null;
+
+function closeStrikePicker() {
+  const picker = document.getElementById('floatingStrikePicker');
+  if (picker) {
+    picker.style.display = 'none';
+  }
+  if (activeStrikePickerIdx !== null) {
+    const btn = document.getElementById(`legStrikeBtn_${activeStrikePickerIdx}`);
+    if (btn) btn.classList.remove('open');
+  }
+  activeStrikePickerIdx = null;
+}
+
+function selectStrikeFromPicker(idx, strikeVal) {
+  closeStrikePicker();
+  updateLegStrike(idx, strikeVal);
+}
+
+function onFilterStrikes(query) {
+  const list = document.getElementById('strikePickerList');
+  if (!list) return;
+  const q = query.trim().toLowerCase().replace(/,/g, '');
+  const items = list.querySelectorAll('.strike-picker-item');
+  items.forEach(item => {
+    const strike = item.getAttribute('data-strike') || '';
+    if (!q || strike.toLowerCase().includes(q)) {
+      item.style.display = 'flex';
+    } else {
+      item.style.display = 'none';
+    }
+  });
+}
+
+function openStrikePicker(idx, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+
+  const btn = document.getElementById(`legStrikeBtn_${idx}`);
+  if (!btn) return;
+
+  // Toggle close if already open on same button
+  if (activeStrikePickerIdx === idx) {
+    closeStrikePicker();
+    return;
+  }
+
+  closeStrikePicker();
+
+  activeStrikePickerIdx = idx;
+  btn.classList.add('open');
+
+  let picker = document.getElementById('floatingStrikePicker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'floatingStrikePicker';
+    picker.className = 'floating-strike-picker';
+    document.body.appendChild(picker);
+
+    picker.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '031026');
+  const strikes = getAvailableStrikesForExpiry(expiry);
+  const curStrikeNum = legRows[idx]?.strike;
+  const expObj = availableExpiries.find(e => e.expiry === expiry);
+  const atmForThisExp = expObj?.atm_strike;
+
+  let optionsHtml = '';
+  strikes.forEach(s => {
+    const isSel = (s === curStrikeNum);
+    const isAtm = (s === atmForThisExp);
+    optionsHtml += `
+      <div class="strike-picker-item ${isSel ? 'active' : ''} ${isAtm ? 'atm-strike' : ''}" 
+           data-strike="${s}" 
+           onclick="selectStrikeFromPicker(${idx}, ${s})">
+        <span class="strike-item-val">${formatNumber(s, 0)}</span>
+        ${isAtm ? '<span class="strike-item-badge">⭐ ATM</span>' : ''}
+      </div>
+    `;
+  });
+
+  picker.innerHTML = `
+    <div class="strike-picker-search-wrap">
+      <svg class="strike-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" class="strike-picker-search" id="strikePickerSearchInput" placeholder="Filter strikes..." oninput="onFilterStrikes(this.value)" autocomplete="off" />
+    </div>
+    <div class="strike-picker-list" id="strikePickerList">
+      ${optionsHtml}
+    </div>
+  `;
+
+  // Attach Enter key to select top filtered item
+  const searchInp = document.getElementById('strikePickerSearchInput');
+  if (searchInp) {
+    searchInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const firstVisible = picker.querySelector('.strike-picker-item:not([style*="display: none"])');
+        if (firstVisible) {
+          firstVisible.click();
+        }
+      }
+    });
+  }
+
+  // Positioning
+  const rect = btn.getBoundingClientRect();
+  const pickerWidth = Math.max(130, rect.width);
+  const pickerMaxHeight = 260;
+
+  picker.style.display = 'flex';
+  picker.style.minWidth = `${pickerWidth}px`;
+
+  const spaceBelow = window.innerHeight - rect.bottom;
+  if (spaceBelow < pickerMaxHeight && rect.top > pickerMaxHeight) {
+    picker.style.top = `${rect.top - pickerMaxHeight - 4}px`;
+    picker.style.maxHeight = `${pickerMaxHeight}px`;
+  } else {
+    picker.style.top = `${rect.bottom + 4}px`;
+    picker.style.maxHeight = `${Math.min(pickerMaxHeight, Math.max(160, spaceBelow - 12))}px`;
+  }
+
+  let leftPos = rect.left;
+  if (leftPos + pickerWidth > window.innerWidth - 10) {
+    leftPos = window.innerWidth - pickerWidth - 10;
+  }
+  picker.style.left = `${Math.max(10, leftPos)}px`;
+
+  // Scroll active item into view & focus search
+  requestAnimationFrame(() => {
+    const activeItem = picker.querySelector('.strike-picker-item.active');
+    if (activeItem) {
+      activeItem.scrollIntoView({ block: 'center' });
+    }
+    if (searchInp) {
+      searchInp.focus({ preventScroll: true });
+    }
+  });
+}
+
+/**
  * Generates the HTML dropdown for a leg's strike price, tailored strictly to the selected expiry's strikes
  */
 function getStrikesDropdownHtml(idx, selectedStrike, expiry) {
@@ -204,15 +352,16 @@ function getStrikesDropdownHtml(idx, selectedStrike, expiry) {
 
   const expObj = availableExpiries.find(e => e.expiry === expiry);
   const atmForThisExp = expObj?.atm_strike;
+  const isAtm = (curStrikeNum === atmForThisExp);
 
-  let html = `<select class="leg-strike-select" onchange="updateLegStrike(${idx}, this.value)">`;
-  strikes.forEach(s => {
-    const isSel = (s === curStrikeNum) ? 'selected' : '';
-    const isAtm = (s === atmForThisExp) ? ' ⭐ ATM' : '';
-    html += `<option value="${s}" ${isSel}>${formatNumber(s, 0)}${isAtm}</option>`;
-  });
-  html += `</select>`;
-  return html;
+  return `
+    <div class="leg-strike-dropdown-wrapper" id="legStrikeWrapper_${idx}">
+      <button type="button" class="leg-strike-trigger" id="legStrikeBtn_${idx}" onclick="openStrikePicker(${idx}, event)" title="Click to choose strike price">
+        <span class="leg-strike-val">${formatNumber(curStrikeNum, 0)}${isAtm ? ' ⭐' : ''}</span>
+        <span class="leg-strike-arrow">▾</span>
+      </button>
+    </div>
+  `;
 }
 
 function toggleLegOptionType(idx, optType) {
@@ -304,11 +453,173 @@ function onExpiryChange() {
   updateUnderlyingPriceAndLotDisplay();
 }
 
+let expiryHarvestMode = 'both'; // 'both' | 'ce' | 'pe'
+
+function setExpiryHarvestMode(mode) {
+  expiryHarvestMode = mode;
+  document.querySelectorAll('.harvest-pill-btn').forEach(btn => btn.classList.remove('active'));
+  if (mode === 'both') document.getElementById('pillHarvestBoth')?.classList.add('active');
+  else if (mode === 'ce') document.getElementById('pillHarvestCE')?.classList.add('active');
+  else if (mode === 'pe') document.getElementById('pillHarvestPE')?.classList.add('active');
+
+  if (activePreset === 'expiry_harvest') {
+    loadExpiryHarvestLegs();
+  }
+}
+
+async function loadExpiryHarvestLegs() {
+  const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
+  const expiry = document.getElementById('selExpiry')?.value || (availableExpiries[0]?.expiry || '201026');
+  const size = parseInt(document.getElementById('inpDefaultSize')?.value) || 1;
+  const container = document.getElementById('legsListContainer');
+
+  if (container) {
+    container.innerHTML = '<div style="color:var(--accent-blue); padding:16px; text-align:center; font-weight:600;">Scanning option chain for furthest active 1-tick bids...</div>';
+  }
+
+  try {
+    const chainData = await ApiService.getOptionChain(underlying, expiry);
+    if (!chainData || !chainData.success || !Array.isArray(chainData.chain) || chainData.chain.length === 0) {
+      if (typeof showToast === 'function') {
+        showToast('Unable to fetch live option chain to scan bids.', 'error');
+      }
+      renderLegRows();
+      return;
+    }
+
+    const spotUSD = Number(chainData.spot_price || currentUnderlyingInfo.spot_price || currentUnderlyingInfo.ltp || (underlying === 'BTC' ? 84000 : 2500));
+    const chain = chainData.chain;
+
+    // 1. Scan Calls (CE): OTM strikes (strike >= spotUSD)
+    let eligibleCalls = [];
+    chain.forEach(row => {
+      const strike = parseFloat(row.strike);
+      const call = row.call;
+      if (call && strike >= spotUSD) {
+        const bid = call.best_bid !== undefined ? parseFloat(call.best_bid) : (call.bid !== undefined ? parseFloat(call.bid) : 0);
+        if (!isNaN(bid) && bid > 0) {
+          eligibleCalls.push({
+            strike: strike,
+            bid: bid,
+            ask: parseFloat(call.best_ask || call.ask || 0),
+            ltp: parseFloat(call.ltp || 0),
+            symbol: call.symbol || `C-${underlying}-${strike}-${expiry}`
+          });
+        }
+      }
+    });
+
+    // 2. Scan Puts (PE): OTM strikes (strike <= spotUSD)
+    let eligiblePuts = [];
+    chain.forEach(row => {
+      const strike = parseFloat(row.strike);
+      const put = row.put;
+      if (put && strike <= spotUSD) {
+        const bid = put.best_bid !== undefined ? parseFloat(put.best_bid) : (put.bid !== undefined ? parseFloat(put.bid) : 0);
+        if (!isNaN(bid) && bid > 0) {
+          eligiblePuts.push({
+            strike: strike,
+            bid: bid,
+            ask: parseFloat(put.best_ask || put.ask || 0),
+            ltp: parseFloat(put.ltp || 0),
+            symbol: put.symbol || `P-${underlying}-${strike}-${expiry}`
+          });
+        }
+      }
+    });
+
+    // Best selection logic:
+    // For Calls: Lowest bid first; if tied, highest strike (furthest OTM from spot)
+    let selectedCall = null;
+    if (eligibleCalls.length > 0) {
+      const minBid = Math.min(...eligibleCalls.map(c => c.bid));
+      const minBidCalls = eligibleCalls.filter(c => c.bid === minBid);
+      minBidCalls.sort((a, b) => b.strike - a.strike);
+      selectedCall = minBidCalls[0];
+    }
+
+    // For Puts: Lowest bid first; if tied, lowest strike (furthest OTM from spot)
+    let selectedPut = null;
+    if (eligiblePuts.length > 0) {
+      const minBid = Math.min(...eligiblePuts.map(p => p.bid));
+      const minBidPuts = eligiblePuts.filter(p => p.bid === minBid);
+      minBidPuts.sort((a, b) => a.strike - b.strike);
+      selectedPut = minBidPuts[0];
+    }
+
+    legRows = [];
+
+    if (expiryHarvestMode === 'both' || expiryHarvestMode === 'ce') {
+      if (selectedCall) {
+        legRows.push({
+          side: 'sell',
+          option_type: 'call',
+          strike: selectedCall.strike,
+          symbol: selectedCall.symbol,
+          order_type: 'limit',
+          size: size,
+          limit_price: selectedCall.bid,
+          use_full_margin: false,
+          bid: selectedCall.bid,
+          ask: selectedCall.ask,
+          ltp: selectedCall.ltp
+        });
+      }
+    }
+
+    if (expiryHarvestMode === 'both' || expiryHarvestMode === 'pe') {
+      if (selectedPut) {
+        legRows.push({
+          side: 'sell',
+          option_type: 'put',
+          strike: selectedPut.strike,
+          symbol: selectedPut.symbol,
+          order_type: 'limit',
+          size: size,
+          limit_price: selectedPut.bid,
+          use_full_margin: false,
+          bid: selectedPut.bid,
+          ask: selectedPut.ask,
+          ltp: selectedPut.ltp
+        });
+      }
+    }
+
+    renderLegRows();
+
+    if (legRows.length > 0) {
+      const legDesc = legRows.map(l => `${l.option_type === 'call' ? 'CE' : 'PE'} ${formatNumber(l.strike, 0)} @ $${l.limit_price}`).join(' & ');
+      if (typeof showToast === 'function') {
+        showToast(`Expiry 1-Tick Harvest: Loaded ${legDesc}`, 'success');
+      }
+    } else {
+      if (typeof showToast === 'function') {
+        showToast('No active resting bids found on far OTM strikes for this expiry.', 'info');
+      }
+    }
+  } catch (err) {
+    console.error('Error loading expiry harvest:', err);
+    if (typeof showToast === 'function') {
+      showToast('Error discovering 1-tick strikes: ' + err.message, 'error');
+    }
+    renderLegRows();
+  }
+}
+
 function applyStrategyPreset(presetName, btn = null) {
   activePreset = presetName;
   if (btn) {
     document.querySelectorAll('.preset-toolbar .preset-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+  }
+
+  const harvestToggle = document.getElementById('expiryHarvestToggleGroup');
+  if (presetName === 'expiry_harvest') {
+    if (harvestToggle) harvestToggle.style.display = 'inline-flex';
+    loadExpiryHarvestLegs();
+    return;
+  } else {
+    if (harvestToggle) harvestToggle.style.display = 'none';
   }
 
   const underlying = document.getElementById('selUnderlying')?.value || 'BTC';
@@ -705,8 +1016,46 @@ function updateStrategyMarginRequirement() {
 }
 
 /**
- * Copies live LTP or Mark Price of a leg directly to its Limit Price input
+ * Copies live Quote (LTP, Bid, or Ask) of a leg directly to its Limit Price input
  */
+function applyBidToLimit(idx) {
+  const leg = legRows[idx];
+  if (!leg || !leg.bid || leg.bid <= 0) {
+    if (typeof showToast === 'function') showToast(`No live Bid quote available yet for ${leg?.symbol || 'leg'}`, 'info');
+    return;
+  }
+  leg.limit_price = leg.bid;
+  const priceInput = document.getElementById(`legPriceInp_${idx}`);
+  if (priceInput) {
+    priceInput.value = leg.bid;
+    priceInput.classList.add('flash-limit-set');
+    setTimeout(() => priceInput.classList.remove('flash-limit-set'), 350);
+  }
+  updateStrategyMarginRequirement();
+  if (typeof showToast === 'function') {
+    showToast(`⚡ Leg #${idx + 1} Limit Price set to live Bid: $${leg.bid}`, 'success');
+  }
+}
+
+function applyAskToLimit(idx) {
+  const leg = legRows[idx];
+  if (!leg || !leg.ask || leg.ask <= 0) {
+    if (typeof showToast === 'function') showToast(`No live Ask quote available yet for ${leg?.symbol || 'leg'}`, 'info');
+    return;
+  }
+  leg.limit_price = leg.ask;
+  const priceInput = document.getElementById(`legPriceInp_${idx}`);
+  if (priceInput) {
+    priceInput.value = leg.ask;
+    priceInput.classList.add('flash-limit-set');
+    setTimeout(() => priceInput.classList.remove('flash-limit-set'), 350);
+  }
+  updateStrategyMarginRequirement();
+  if (typeof showToast === 'function') {
+    showToast(`⚡ Leg #${idx + 1} Limit Price set to live Ask: $${leg.ask}`, 'success');
+  }
+}
+
 function applyLtpToLimit(idx) {
   const leg = legRows[idx];
   if (!leg) return;
@@ -716,6 +1065,8 @@ function applyLtpToLimit(idx) {
     const priceInput = document.getElementById(`legPriceInp_${idx}`);
     if (priceInput) {
       priceInput.value = targetPrice;
+      priceInput.classList.add('flash-limit-set');
+      setTimeout(() => priceInput.classList.remove('flash-limit-set'), 350);
     }
     updateStrategyMarginRequirement();
     if (typeof showToast === 'function') {
@@ -728,39 +1079,138 @@ function applyLtpToLimit(idx) {
   }
 }
 
+// High-performance Orderbook tracking for Multi-Leg Studio contracts
+const legOrderBooks = new Map();
+
+function processLegL2Update(sym, data) {
+  if (!sym) return null;
+  const symUpper = sym.toUpperCase();
+  let book = legOrderBooks.get(symUpper);
+  if (!book) {
+    book = { bids: new Map(), asks: new Map() };
+    legOrderBooks.set(symUpper, book);
+  }
+
+  if (data.action === 'snapshot') {
+    book.bids.clear();
+    book.asks.clear();
+  }
+
+  if (Array.isArray(data.bids)) {
+    for (let i = 0; i < data.bids.length; i++) {
+      const p = parseFloat(data.bids[i][0]);
+      const s = parseFloat(data.bids[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) book.bids.delete(p);
+        else book.bids.set(p, s);
+      }
+    }
+  }
+
+  if (Array.isArray(data.asks)) {
+    for (let i = 0; i < data.asks.length; i++) {
+      const p = parseFloat(data.asks[i][0]);
+      const s = parseFloat(data.asks[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) book.asks.delete(p);
+        else book.asks.set(p, s);
+      }
+    }
+  }
+
+  let bestBid = null;
+  let bestAsk = null;
+
+  for (const p of book.bids.keys()) {
+    if (bestBid === null || p > bestBid) bestBid = p;
+  }
+  for (const p of book.asks.keys()) {
+    if (bestAsk === null || p < bestAsk) bestAsk = p;
+  }
+
+  if (bestBid !== null && bestAsk !== null && bestAsk < bestBid) return null;
+  return { bestBid, bestAsk };
+}
+
 /**
- * Updates DOM LTP badge for a specific leg
+ * Updates DOM Quote badges (LTP, Bid, Ask) for a specific leg
  */
-function updateLegLtpDisplay(idx, ltp, markPrice) {
+function updateLegQuoteDisplay(idx, ltp, markPrice, bid, ask) {
   const leg = legRows[idx];
   if (!leg) return;
-  const oldLtp = leg.ltp;
-  leg.ltp = ltp;
-  if (markPrice !== undefined) leg.mark_price = markPrice;
 
+  const oldLtp = leg.ltp;
+  const oldBid = leg.bid;
+  const oldAsk = leg.ask;
+
+  if (ltp !== undefined && ltp !== null && Number(ltp) > 0) leg.ltp = Number(ltp);
+  if (markPrice !== undefined && markPrice !== null && Number(markPrice) > 0) leg.mark_price = Number(markPrice);
+  if (bid !== undefined && bid !== null && Number(bid) > 0) leg.bid = Number(bid);
+  if (ask !== undefined && ask !== null && Number(ask) > 0) leg.ask = Number(ask);
+
+  // 1. Bid Display
+  const bidCell = document.getElementById(`legBidCell_${idx}`);
+  const bidValEl = document.getElementById(`legBidVal_${idx}`);
+  if (bidValEl && bidCell) {
+    if (leg.bid && leg.bid > 0) {
+      bidValEl.textContent = `$${formatNumber(leg.bid, leg.bid >= 100 ? 1 : (leg.bid >= 1 ? 2 : 4))}`;
+      bidCell.classList.remove('empty-quote');
+      bidCell.title = `Click to set Limit Price to Bid ($${leg.bid})`;
+      if (oldBid !== undefined && oldBid !== null && oldBid > 0 && leg.bid !== oldBid) {
+        const cls = leg.bid > oldBid ? 'flash-up' : 'flash-down';
+        bidCell.classList.add(cls);
+        setTimeout(() => bidCell.classList.remove(cls), 350);
+      }
+    } else {
+      bidValEl.textContent = '--';
+      bidCell.classList.add('empty-quote');
+    }
+  }
+
+  // 2. Ask Display
+  const askCell = document.getElementById(`legAskCell_${idx}`);
+  const askValEl = document.getElementById(`legAskVal_${idx}`);
+  if (askValEl && askCell) {
+    if (leg.ask && leg.ask > 0) {
+      askValEl.textContent = `$${formatNumber(leg.ask, leg.ask >= 100 ? 1 : (leg.ask >= 1 ? 2 : 4))}`;
+      askCell.classList.remove('empty-quote');
+      askCell.title = `Click to set Limit Price to Ask ($${leg.ask})`;
+      if (oldAsk !== undefined && oldAsk !== null && oldAsk > 0 && leg.ask !== oldAsk) {
+        const cls = leg.ask < oldAsk ? 'flash-up' : 'flash-down';
+        askCell.classList.add(cls);
+        setTimeout(() => askCell.classList.remove(cls), 350);
+      }
+    } else {
+      askValEl.textContent = '--';
+      askCell.classList.add('empty-quote');
+    }
+  }
+
+  // 3. LTP Display
   const ltpCell = document.getElementById(`legLtpCell_${idx}`);
   const ltpValEl = document.getElementById(`legLtpVal_${idx}`);
   if (ltpValEl && ltpCell) {
-    const displayVal = (ltp && ltp > 0) ? `$${formatNumber(ltp, ltp >= 100 ? 1 : (ltp >= 1 ? 2 : 4))}` : ((markPrice && markPrice > 0) ? `~$${formatNumber(markPrice, 2)}` : '--');
+    const displayVal = (leg.ltp && leg.ltp > 0)
+      ? `$${formatNumber(leg.ltp, leg.ltp >= 100 ? 1 : (leg.ltp >= 1 ? 2 : 4))}`
+      : ((leg.mark_price && leg.mark_price > 0) ? `~$${formatNumber(leg.mark_price, 2)}` : '--');
     ltpValEl.textContent = displayVal;
 
-    if (ltp && ltp > 0) {
+    if (leg.ltp && leg.ltp > 0) {
       ltpCell.classList.remove('empty-ltp');
-      if (oldLtp !== undefined && oldLtp !== null && oldLtp > 0) {
-        if (ltp > oldLtp) {
-          ltpCell.classList.add('flash-up');
-          ltpCell.classList.remove('flash-down');
-          setTimeout(() => ltpCell.classList.remove('flash-up'), 350);
-        } else if (ltp < oldLtp) {
-          ltpCell.classList.add('flash-down');
-          ltpCell.classList.remove('flash-up');
-          setTimeout(() => ltpCell.classList.remove('flash-down'), 350);
-        }
+      ltpCell.title = `Click to set Limit Price to LTP ($${leg.ltp})`;
+      if (oldLtp !== undefined && oldLtp !== null && oldLtp > 0 && leg.ltp !== oldLtp) {
+        const cls = leg.ltp > oldLtp ? 'flash-up' : 'flash-down';
+        ltpCell.classList.add(cls);
+        setTimeout(() => ltpCell.classList.remove(cls), 350);
       }
     } else {
       ltpCell.classList.add('empty-ltp');
     }
   }
+}
+
+function updateLegLtpDisplay(idx, ltp, markPrice) {
+  updateLegQuoteDisplay(idx, ltp, markPrice, undefined, undefined);
 }
 
 /**
@@ -771,15 +1221,45 @@ function handleLegTickUpdate(data) {
   const incomingSym = (data.symbol || '').toUpperCase();
   if (!incomingSym) return;
 
+  const msgType = data.type || data.channel || data.name || '';
+
+  // 1. Handle L2 Order Book updates (real-time Bid & Ask)
+  if (msgType === 'l2_updates' || data.bids !== undefined || data.asks !== undefined) {
+    const l2 = processLegL2Update(incomingSym, data);
+    if (l2 && (l2.bestBid !== null || l2.bestAsk !== null)) {
+      legRows.forEach((leg, idx) => {
+        if (leg.symbol && leg.symbol.toUpperCase() === incomingSym) {
+          updateLegQuoteDisplay(idx, undefined, undefined, l2.bestBid, l2.bestAsk);
+        }
+      });
+    }
+    return;
+  }
+
+  // 2. Handle Mark Price updates
+  if (msgType === 'mark_price' || (data.mark_price !== undefined && msgType !== 'v2/ticker')) {
+    const markVal = Number(data.mark_price);
+    if (!isNaN(markVal) && markVal > 0) {
+      legRows.forEach((leg, idx) => {
+        if (leg.symbol && leg.symbol.toUpperCase() === incomingSym) {
+          updateLegQuoteDisplay(idx, undefined, markVal, undefined, undefined);
+        }
+      });
+    }
+    return;
+  }
+
+  // 3. Handle Trades & Quotes snapshot via v2/ticker
+  const quotes = data.quotes || {};
+  const closeVal = data.close;
+  const bestBid = quotes.best_bid !== undefined ? Number(quotes.best_bid) : (data.bid !== undefined ? Number(data.bid) : undefined);
+  const bestAsk = quotes.best_ask !== undefined ? Number(quotes.best_ask) : (data.ask !== undefined ? Number(data.ask) : undefined);
+  const markVal = data.mark_price !== undefined ? Number(data.mark_price) : undefined;
+  const ltp = closeVal !== undefined ? Number(closeVal) : (data.ltp !== undefined ? Number(data.ltp) : undefined);
+
   legRows.forEach((leg, idx) => {
     if (leg.symbol && leg.symbol.toUpperCase() === incomingSym) {
-      const quotes = data.quotes || {};
-      const closeVal = data.close;
-      const bestBid = quotes.best_bid;
-      const markVal = data.mark_price;
-      const ltp = closeVal !== undefined ? Number(closeVal) : (bestBid !== undefined ? Number(bestBid) : (data.ltp !== undefined ? Number(data.ltp) : Number(markVal || 0)));
-      const markPrice = markVal !== undefined ? Number(markVal) : undefined;
-      updateLegLtpDisplay(idx, ltp, markPrice);
+      updateLegQuoteDisplay(idx, ltp, markVal, bestBid, bestAsk);
     }
   });
 }
@@ -805,7 +1285,7 @@ async function fetchLegTickers() {
         const tick = res.tickers[leg.symbol.toUpperCase()];
         if (tick) {
           const newLtp = tick.ltp !== undefined ? tick.ltp : (tick.mark_price || 0);
-          updateLegLtpDisplay(idx, newLtp, tick.mark_price);
+          updateLegQuoteDisplay(idx, newLtp, tick.mark_price, tick.bid, tick.ask);
         }
       });
     }
@@ -817,6 +1297,7 @@ async function fetchLegTickers() {
 }
 
 function renderLegRows() {
+  closeStrikePicker();
   const container = document.getElementById('legsListContainer');
   if (!container) return;
 
@@ -840,7 +1321,12 @@ function renderLegRows() {
     const isCall = (leg.option_type || 'call').toLowerCase() === 'call';
     const strikesSelectHtml = getStrikesDropdownHtml(idx, leg.strike, expiry);
     const hasLtp = leg.ltp !== undefined && leg.ltp !== null && leg.ltp > 0;
+    const hasBid = leg.bid !== undefined && leg.bid !== null && leg.bid > 0;
+    const hasAsk = leg.ask !== undefined && leg.ask !== null && leg.ask > 0;
+
     const displayLtp = hasLtp ? `$${formatNumber(leg.ltp, leg.ltp >= 100 ? 1 : (leg.ltp >= 1 ? 2 : 4))}` : ((leg.mark_price && leg.mark_price > 0) ? `~$${formatNumber(leg.mark_price, 2)}` : '--');
+    const displayBid = hasBid ? `$${formatNumber(leg.bid, leg.bid >= 100 ? 1 : (leg.bid >= 1 ? 2 : 4))}` : '--';
+    const displayAsk = hasAsk ? `$${formatNumber(leg.ask, leg.ask >= 100 ? 1 : (leg.ask >= 1 ? 2 : 4))}` : '--';
 
     html += `
       <div class="leg-row">
@@ -860,6 +1346,19 @@ function renderLegRows() {
 
         <input type="text" class="leg-symbol-input" value="${leg.symbol}" placeholder="e.g. C-BTC-86200-021026" onchange="onManualSymbolChange(${idx}, this.value)" />
 
+        <!-- Live Bid Cell -->
+        <div class="leg-bid-cell ${hasBid ? '' : 'empty-quote'}" id="legBidCell_${idx}" onclick="applyBidToLimit(${idx})" title="Click to copy Bid ($${leg.bid || 0}) to Limit Price">
+          <span class="leg-quote-dot bid-dot"></span>
+          <span id="legBidVal_${idx}">${displayBid}</span>
+        </div>
+
+        <!-- Live Ask Cell -->
+        <div class="leg-ask-cell ${hasAsk ? '' : 'empty-quote'}" id="legAskCell_${idx}" onclick="applyAskToLimit(${idx})" title="Click to copy Ask ($${leg.ask || 0}) to Limit Price">
+          <span class="leg-quote-dot ask-dot"></span>
+          <span id="legAskVal_${idx}">${displayAsk}</span>
+        </div>
+
+        <!-- Live LTP Cell -->
         <div class="leg-ltp-cell ${hasLtp ? '' : 'empty-ltp'}" id="legLtpCell_${idx}" onclick="applyLtpToLimit(${idx})" title="Click to copy LTP ($${leg.ltp || 0}) to Limit Price">
           <span class="leg-ltp-dot"></span>
           <span id="legLtpVal_${idx}">${displayLtp}</span>
@@ -994,3 +1493,36 @@ async function confirmSquareOffAll() {
     showToast(`Error squaring off all: ${err.message}`, 'error');
   }
 }
+
+// ==============================================================================
+// GLOBAL EVENT LISTENERS FOR FLOATING STRIKE PICKER
+// ==============================================================================
+document.addEventListener('click', (e) => {
+  if (activeStrikePickerIdx !== null) {
+    const picker = document.getElementById('floatingStrikePicker');
+    const trigger = document.getElementById(`legStrikeBtn_${activeStrikePickerIdx}`);
+    if (picker && !picker.contains(e.target) && (!trigger || !trigger.contains(e.target))) {
+      closeStrikePicker();
+    }
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && activeStrikePickerIdx !== null) {
+    closeStrikePicker();
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (activeStrikePickerIdx !== null) closeStrikePicker();
+});
+
+window.addEventListener('scroll', (e) => {
+  if (activeStrikePickerIdx !== null) {
+    const picker = document.getElementById('floatingStrikePicker');
+    if (picker && e.target && (picker === e.target || picker.contains(e.target))) {
+      return; // Internal scroll inside picker list
+    }
+    closeStrikePicker();
+  }
+}, true);

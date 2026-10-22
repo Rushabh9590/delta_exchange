@@ -14,12 +14,11 @@
     rel="stylesheet" />
 
   <!-- Modular Stylesheets -->
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/positions.css" />
-  <link rel="stylesheet" href="/static/css/multileg.css" />
-  <link rel="stylesheet" href="/static/css/optionchain.css" />
-  <link rel="stylesheet" href="/static/css/mm_strikes.css" />
-  <link rel="stylesheet" href="/static/css/mobile.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.7.0" />
+  <link rel="stylesheet" href="/static/css/positions.css?v=2.7.0" />
+  <link rel="stylesheet" href="/static/css/multileg.css?v=2.7.0" />
+  <link rel="stylesheet" href="/static/css/optionchain.css?v=2.7.0" />
+  <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.7.0" />
 </head>
 
 <body>
@@ -142,6 +141,10 @@
         <span class="footer-val" id="drawerRateDisplay">₹85.00</span>
       </div>
       <div class="drawer-footer-row">
+        <span class="footer-key">Margin Mode:</span>
+        <span class="footer-val text-green" id="drawerMarginMode">Portfolio Margin</span>
+      </div>
+      <div class="drawer-footer-row">
         <span class="footer-key">Feed Status:</span>
         <span class="footer-val text-green" style="display: flex; align-items: center; gap: 5px;">
           <span class="status-dot"></span> Live Connected
@@ -191,6 +194,13 @@
         <div class="live-status-pill">
           <div class="status-dot"></div>
           <span id="connStatus">LIVE FEED</span>
+        </div>
+
+        <!-- Delta Margin Mode Indicator & Quick Switcher Pill -->
+        <div class="margin-mode-pill" id="marginModePill" onclick="openMarginModeModal()" title="Delta Exchange Margin Mode: Portfolio / Isolated (Click to view or switch)">
+          <div class="margin-mode-dot"></div>
+          <span class="margin-mode-label">Margin Mode:</span>
+          <span class="margin-mode-val" id="topMarginModeVal">PORTFOLIO</span>
         </div>
 
         <!-- Delta Account Switcher (Main vs Sub) -->
@@ -282,7 +292,8 @@
         <div class="metric-card">
           <div class="metric-header">
             <span class="metric-title">Wallet Balance</span>
-            <div class="metric-icon icon-purple">
+            <span class="badge-mode" id="posDashboardMarginMode" style="font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; margin-left: 6px;">PORTFOLIO</span>
+            <div class="metric-icon icon-purple" style="margin-left: auto;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                 stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="4" width="20" height="16" rx="2"></rect>
@@ -420,6 +431,13 @@
             <button class="preset-btn" onclick="applyStrategyPreset('bull_call', this)">Bull Call Spread</button>
             <button class="preset-btn" onclick="applyStrategyPreset('bear_put', this)">Bear Put Spread</button>
             <button class="preset-btn" onclick="applyStrategyPreset('iron_condor', this)">Iron Condor</button>
+            <button class="preset-btn" id="btnPresetExpiryHarvest" onclick="applyStrategyPreset('expiry_harvest', this)" title="Sell furthest OTM strike with active Bid at lowest tick price">Expiry 1-Tick Harvest</button>
+            <div class="expiry-harvest-toggle-group" id="expiryHarvestToggleGroup" style="display: none;">
+              <span class="harvest-toggle-label">Mode:</span>
+              <button type="button" class="harvest-pill-btn active" id="pillHarvestBoth" onclick="setExpiryHarvestMode('both')" title="Sell both furthest CE and PE">Both (CE+PE)</button>
+              <button type="button" class="harvest-pill-btn" id="pillHarvestCE" onclick="setExpiryHarvestMode('ce')" title="Sell furthest CE only">CE Only</button>
+              <button type="button" class="harvest-pill-btn" id="pillHarvestPE" onclick="setExpiryHarvestMode('pe')" title="Sell furthest PE only">PE Only</button>
+            </div>
           </div>
         </div>
 
@@ -484,20 +502,24 @@
         </div>
 
         <!-- Interactive Legs Header & Dynamic Builder Container -->
-        <div class="legs-header-row">
-          <div>Leg #</div>
-          <div>Side</div>
-          <div>Option</div>
-          <div>Strike Price</div>
-          <div>Contract Symbol</div>
-          <div>LTP ($)</div>
-          <div>Order Type</div>
-          <div>Limit Price ($)</div>
-          <div title="Size / Lots (Tick FULL to auto-calculate maximum lots using available margin)">Size / Lots</div>
-          <div style="text-align: center;">Del</div>
-        </div>
-        <div class="legs-container" id="legsListContainer">
-          <!-- Dynamically inserted via multileg.js -->
+        <div style="overflow-x: auto; padding-bottom: 6px;">
+          <div class="legs-header-row">
+            <div>Leg #</div>
+            <div>Side</div>
+            <div>Option</div>
+            <div>Strike Price</div>
+            <div>Contract Symbol</div>
+            <div>Bid ($)</div>
+            <div>Ask ($)</div>
+            <div>LTP ($)</div>
+            <div>Order Type</div>
+            <div>Limit Price ($)</div>
+            <div title="Size / Lots (Tick FULL to auto-calculate maximum lots using available margin)">Size / Lots</div>
+            <div style="text-align: center;">Del</div>
+          </div>
+          <div class="legs-container" id="legsListContainer">
+            <!-- Dynamically inserted via multileg.js -->
+          </div>
         </div>
 
         <!-- Strategy Margin Requirement & Live Available Margin Summary Bar -->
@@ -763,7 +785,7 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <input type="text" class="search-input" style="width: 140px;" placeholder="Search strike..." oninput="onMmSearch(this.value)" />
+              <input type="text" id="mmInpSearch" class="search-input" style="width: 140px;" placeholder="Search strike..." oninput="onMmSearch(this.value)" />
             </div>
           </div>
         </div>
@@ -842,7 +864,7 @@
           <div class="mm-trades-header">
             <span style="display: flex; align-items: center; gap: 8px;">
               <span class="spot-pulse-dot" style="background: #10b981;"></span>
-              <span>⚡ Active 1-Lot MM Trade Cycles</span>
+              <span>⚡ Active MM Trade Cycles</span>
             </span>
           </div>
           <div id="mmActiveTradesList" class="mm-trade-cards-grid">
@@ -905,7 +927,7 @@
   </div>
 
   <!-- Market Making Trade Confirmation & Setup Modal -->
-  <div class="modal-overlay" id="mmTradeModal" style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);">
+  <div class="modal-overlay" id="mmTradeModal" style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);" onclick="if(event.target === this) close1LotMmModal()">
     <div class="modal-card" style="max-width: 490px; width: 90%; background: #131722; border: 1px solid #10b981; border-radius: 12px; padding: 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; margin-bottom: 16px;">
         <div style="font-weight: 700; font-size: 1.1rem; color: #10b981; display: flex; align-items: center; gap: 8px;">
@@ -1092,16 +1114,86 @@
     </div>
   </div>
 
+  <!-- Margin Mode Switcher Modal -->
+  <div class="modal-overlay" id="marginModeModal">
+    <div class="modal-container" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon">🛡️</span>
+          <div>
+            <h3 class="modal-title">Delta Exchange Margin Mode</h3>
+            <div class="modal-subtitle">Configure account margin calculation mode</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeMarginModeModal()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 16px 20px;">
+        <!-- Current Margin Status Card -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.78rem; color: var(--text-muted);">Current Active Account:</span>
+            <span id="modalMarginActiveAcct" style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">SUB ACCOUNT</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.78rem; color: var(--text-muted);">Current Margin Mode:</span>
+            <span id="modalCurrentMarginMode" style="font-weight: 800; color: #10b981; font-size: 0.88rem; letter-spacing: 0.5px;">PORTFOLIO MARGIN</span>
+          </div>
+        </div>
+
+        <!-- Mode Comparison -->
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;">
+          <!-- Portfolio Option -->
+          <div class="margin-option-card active" id="cardPortfolioMargin" onclick="requestSetMarginMode('portfolio')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.06); transition: all 0.2s;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-weight: 700; color: #10b981; font-size: 0.85rem;">🛡️ Portfolio Margin (Recommended)</span>
+              <span class="badge-accent" id="badgePortfolioActive" style="font-size: 0.65rem;">Active Mode</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+              Offsets risk across offsetting options &amp; futures positions. Drastically reduces margin requirements for straddles, spreads, and market making.
+            </div>
+          </div>
+
+          <!-- Cross Margin Option -->
+          <div class="margin-option-card" id="cardCrossMargin" onclick="requestSetMarginMode('cross')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">⚡ Cross Margin</span>
+              <span class="badge-accent" id="badgeCrossActive" style="font-size: 0.65rem; display: none; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">Active Mode</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+              Shares available wallet margin balance across all open positions. All account equity is used to cushion and prevent liquidation.
+            </div>
+          </div>
+
+          <!-- Isolated Option -->
+          <div class="margin-option-card" id="cardIsolatedMargin" onclick="requestSetMarginMode('isolated')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+              <span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">🔒 Isolated Margin</span>
+              <span class="badge-accent" id="badgeIsolatedActive" style="font-size: 0.65rem; display: none; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-color: rgba(245, 158, 11, 0.4);">Active Mode</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+              Assigns a fixed, isolated margin to each individual position. No risk or margin sharing across positions.
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button type="button" class="btn-secondary" onclick="closeMarginModeModal()" style="padding: 8px 16px; border-radius: 6px; font-size: 0.8rem;">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notifications container -->
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Modular Scripts Execution in Dependency Order -->
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/positions.js"></script>
-  <script src="/static/js/multileg.js"></script>
-  <script src="/static/js/optionchain.js"></script>
-  <script src="/static/js/mm_strikes.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/api.js?v=2.7.0"></script>
+  <script src="/static/js/positions.js?v=2.7.0"></script>
+  <script src="/static/js/multileg.js?v=2.7.0"></script>
+  <script src="/static/js/optionchain.js?v=2.7.0"></script>
+  <script src="/static/js/mm_strikes.js?v=2.7.0"></script>
+  <script src="/static/js/app.js?v=2.7.0"></script>
 </body>
 
 </html>

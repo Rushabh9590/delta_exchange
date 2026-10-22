@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone
 import requests
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv, set_key, dotenv_values
 
 if sys.platform == "win32":
     try:
@@ -28,44 +28,157 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 logger = logging.getLogger("telegram_notify")
 
-# In-memory and cross-process alert state tracking to prevent alert spamming:
-_ALERTED_STRIKES: set = set()
+# Single-Sender process coordination:
+# When both server.py and mm_strikes.py are running, strictly 1 process sends Telegram alerts.
+_PROCESS_ROLE: str | None = None
+_TG_SENDER_LOCK_FILE = BASE_DIR / ".tg_sender.lock"
 _LOCK = threading.Lock()
+
+
+def set_process_role(role: str):
+    """Sets role for current process ('mm_strikes' or 'server')."""
+    global _PROCESS_ROLE
+    _PROCESS_ROLE = str(role).strip().lower()
+
+
+def get_process_role() -> str:
+    """Returns the current process role, auto-detecting from sys.argv if not set."""
+    global _PROCESS_ROLE
+    if _PROCESS_ROLE:
+        return _PROCESS_ROLE
+    script_name = Path(sys.argv[0]).name.lower() if sys.argv and sys.argv[0] else ""
+    if "server" in script_name:
+        _PROCESS_ROLE = "server"
+    else:
+        _PROCESS_ROLE = "mm_strikes"
+    return _PROCESS_ROLE
+
+
+def update_sender_heartbeat(role: str | None = None):
+    """Updates the heartbeat in the sender lock file to signal this process is alive and active."""
+    current_role = role or get_process_role()
+    try:
+        data = {
+            "role": current_role,
+            "pid": os.getpid(),
+            "timestamp": time.time(),
+            "script": Path(sys.argv[0]).name if sys.argv and sys.argv[0] else ""
+        }
+        with open(_TG_SENDER_LOCK_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def is_active_telegram_sender(role: str | None = None) -> bool:
+    """
+    Determines if the current process is authorized to send Telegram alerts.
+    Rule:
+    - If mm_strikes.py is running (heartbeat < 6.0s old), ONLY mm_strikes sends.
+    - If mm_strikes.py is NOT running or stopped, server.py takes over and sends.
+    - If only mm_strikes.py is running, mm_strikes sends.
+    Guarantees strictly 1 process sends messages when both .py files are running.
+    """
+    current_role = role or get_process_role()
+    now = time.time()
+
+    if current_role == "mm_strikes":
+        update_sender_heartbeat("mm_strikes")
+        return True
+
+    # Current process is 'server':
+    try:
+        if _TG_SENDER_LOCK_FILE.exists():
+            with open(_TG_SENDER_LOCK_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            owner = data.get("role")
+            hb = float(data.get("timestamp", 0) or 0)
+            # If mm_strikes is active (heartbeat updated within 6.0s), server yields!
+            if owner == "mm_strikes" and (now - hb) < 6.0:
+                return False
+    except Exception:
+        pass
+
+    # mm_strikes is inactive or stopped: server takes over
+    update_sender_heartbeat("server")
+    return True
+
+
+# In-memory and cross-process alert state tracking:
+# A strike alerts strictly ONCE per continuous qualification cycle.
+# It is NEVER alerted again while it remains continuously qualified.
+# It resets ONLY when it actually loses qualification (reset_strike_alert).
+_ALERTED_STRIKES: set = set()
 _SHARED_ALERT_FILE = BASE_DIR / ".alert_history.json"
 
 
-def _is_recently_alerted(symbol: str, cooldown_sec: int = 120) -> bool:
-    """Checks if this symbol was already alerted in the last cooldown_sec seconds across any process."""
+def _load_alert_history() -> dict:
     try:
         if _SHARED_ALERT_FILE.exists():
             with open(_SHARED_ALERT_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                ts = data.get(symbol, 0)
-                if time.time() - ts < cooldown_sec:
-                    return True
+                return json.load(f)
     except Exception:
         pass
-    return False
+    return {}
 
 
-def _record_alerted_symbol(symbol: str):
-    """Records alert timestamp in shared JSON file to synchronize all background workers."""
+def _save_alert_history(data: dict):
     try:
-        data = {}
-        if _SHARED_ALERT_FILE.exists():
-            try:
-                with open(_SHARED_ALERT_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
-        now = time.time()
-        data[symbol] = now
-        # Retain only entries from the last 2 hours
-        data = {k: v for k, v in data.items() if now - v < 7200}
         with open(_SHARED_ALERT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception:
         pass
+
+
+def is_strike_alerted(symbol: str) -> bool:
+    """
+    Checks if this strike has already been alerted during its current continuous qualification cycle.
+    A strike that is already alerted must NEVER send duplicate alerts as long as it stays qualified.
+    """
+    if not symbol:
+        return True
+    with _LOCK:
+        if symbol in _ALERTED_STRIKES:
+            return True
+        data = _load_alert_history()
+        if symbol in data:
+            _ALERTED_STRIKES.add(symbol)
+            return True
+    return False
+
+
+def record_strike_alerted(symbol: str, qual_duration_sec: float):
+    """
+    Records that this strike has been alerted for its continuous qualification cycle.
+    Persists across all processes so neither server nor mm_strikes sends duplicate alerts.
+    """
+    if not symbol:
+        return
+    with _LOCK:
+        _ALERTED_STRIKES.add(symbol)
+        data = _load_alert_history()
+        now = time.time()
+        data[symbol] = {
+            "alerted_at": now,
+            "qual_duration_sec": qual_duration_sec,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        _save_alert_history(data)
+
+
+def reset_strike_alert(symbol: str):
+    """
+    Clears the strike from alerted state ONLY when it actually disqualifies (loses qualification).
+    This allows a new alert ONLY if the strike re-qualifies in the future and stays >= threshold.
+    """
+    if not symbol:
+        return
+    with _LOCK:
+        _ALERTED_STRIKES.discard(symbol)
+        data = _load_alert_history()
+        if symbol in data:
+            data.pop(symbol, None)
+            _save_alert_history(data)
 
 
 # Cached configuration dictionary and CLI override
@@ -73,7 +186,7 @@ _NOTIFY_SECS_OVERRIDE = None
 _CONFIG = {
     "bot_token": os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
     "chat_id": os.getenv("TELEGRAM_CHAT_ID", "").strip(),
-    "notify_secs": int(os.getenv("MM_QUAL_NOTIFY_SECS", "200")),
+    "notify_secs": int(os.getenv("MM_QUAL_NOTIFY_SECS", "100")),
     "enabled": os.getenv("TELEGRAM_NOTIFY_ENABLED", "true").strip().lower() in ("true", "1", "yes")
 }
 
@@ -90,26 +203,31 @@ RECENT_ALERTS: list[dict] = []
 def get_telegram_config() -> dict:
     """
     Returns the current Telegram notification configuration.
-    Dynamically syncs from .env so background processes and server always have live credentials.
+    Dynamically syncs directly from .env on every check so background processes
+    and server immediately pick up changes made in .env or the frontend modal.
     """
     global _CONFIG
+    env_vals = {}
     try:
         if ENV_PATH.exists():
+            env_vals = dotenv_values(str(ENV_PATH))
             load_dotenv(dotenv_path=ENV_PATH, override=True)
     except Exception:
         pass
 
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip("'\"")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip().strip("'\"")
+    token = str(env_vals.get("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip().strip("'\"")
+    chat_id = str(env_vals.get("TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID", "")).strip().strip("'\"")
+
+    raw_secs = env_vals.get("MM_QUAL_NOTIFY_SECS") or os.getenv("MM_QUAL_NOTIFY_SECS", "100")
     try:
-        notify_secs = int(str(os.getenv("MM_QUAL_NOTIFY_SECS", "200")).strip().strip("'\""))
+        notify_secs = max(5, int(str(raw_secs).strip().strip("'\"")))
     except (ValueError, TypeError):
-        notify_secs = 200
+        notify_secs = 100
 
     if _NOTIFY_SECS_OVERRIDE is not None:
         notify_secs = _NOTIFY_SECS_OVERRIDE
 
-    raw_en = str(os.getenv("TELEGRAM_NOTIFY_ENABLED", "true")).strip().strip("'\"").lower()
+    raw_en = str(env_vals.get("TELEGRAM_NOTIFY_ENABLED") or os.getenv("TELEGRAM_NOTIFY_ENABLED", "true")).strip().strip("'\"").lower()
     enabled = raw_en in ("true", "1", "yes")
 
     _CONFIG["bot_token"] = token
@@ -254,8 +372,16 @@ def check_strike_qual_alert(strike: dict, qual_duration_sec: float | None):
     """
     Checks if a qualified strike has reached the notification threshold duration.
     Dispatches Telegram message in a background thread if criteria met.
+    Guarantees:
+    1. Single-Sender Check: only 1 authorized process (mm_strikes priority, server backup) sends.
+    2. One-Shot Alert: each strike alerts strictly once per continuous qualification cycle.
+    3. Respects dynamic threshold from .env or frontend modal.
     """
     if qual_duration_sec is None or qual_duration_sec < 0:
+        return
+
+    # Check single-sender leadership: only 1 process sends messages when both are running
+    if not is_active_telegram_sender():
         return
 
     cfg = get_telegram_config()
@@ -270,12 +396,13 @@ def check_strike_qual_alert(strike: dict, qual_duration_sec: float | None):
     if not symbol:
         return
 
-    # One-shot alert per qualification cycle (prevent alert spamming across processes)
-    with _LOCK:
-        if symbol in _ALERTED_STRIKES or _is_recently_alerted(symbol):
-            return
-        _ALERTED_STRIKES.add(symbol)
-        _record_alerted_symbol(symbol)
+    # One-shot alert per continuous qualification cycle:
+    # If already alerted during this qualification session, NEVER send duplicate alerts!
+    if is_strike_alerted(symbol):
+        return
+
+    # Mark as alerted immediately (in-memory + persistent shared file)
+    record_strike_alerted(symbol, qual_duration_sec)
 
     # Format message
     asset = strike.get("underlying") or ("BTC" if "BTC" in symbol else "ETH")
@@ -320,18 +447,7 @@ def check_strike_qual_alert(strike: dict, qual_duration_sec: float | None):
                 })
         else:
             print(f"\n[TELEGRAM ALERT FAILED] {symbol}: {res.get('error')}\n", flush=True)
-            with _LOCK:
-                _ALERTED_STRIKES.discard(symbol)
+            # Revert alert state so retry can happen on failure
+            reset_strike_alert(symbol)
 
     threading.Thread(target=_async_send, daemon=True, name=f"TG-Alert-{symbol}").start()
-
-
-def reset_strike_alert(symbol: str):
-    """
-    Clears the strike from alerted set when it becomes non-qualified.
-    Allows re-alerting if the strike re-qualifies in the future and stays for >= threshold.
-    """
-    if not symbol:
-        return
-    with _LOCK:
-        _ALERTED_STRIKES.discard(symbol)

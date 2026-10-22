@@ -838,6 +838,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
         best_ask = quotes.get("best_ask")
         vol_val = t.get("volume")
         oi_val = t.get("oi") or t.get("oi_value")
+        oi_reduce_only_mode = bool(t.get("oi_reduce_only_mode", False))
 
         ltp = float(close_val) if close_val is not None else None
         mark_price = float(mark_val) if mark_val is not None else 0.0
@@ -853,7 +854,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
             "strike": strike,
             "expiry": selected_expiry,
             "is_itm": (strike < spot_price) if is_call else (strike > spot_price),
-            "tick_size": float(p.get("tick_size") or 0.1),
+            "tick_size": float(p.get("tick_size") or (0.1 if underlying == "BTC" else 0.01)),
             "contract_value": float(p.get("contract_value") or exp_info.get("contract_value", 0.001)),
             "ltp": ltp,
             "mark_price": mark_price,
@@ -861,6 +862,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
             "best_ask": ask_price,
             "volume": volume,
             "open_interest": oi,
+            "oi_reduce_only_mode": oi_reduce_only_mode,
             "greeks": greeks
         }
 

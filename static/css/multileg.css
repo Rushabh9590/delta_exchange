@@ -90,6 +90,51 @@
   font-weight: 700;
 }
 
+/* Expiry 1-Tick Harvest Mode Toggle (Matches standard suite theme) */
+.expiry-harvest-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.harvest-toggle-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.harvest-pill-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.harvest-pill-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.harvest-pill-btn.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  font-weight: 700;
+}
+
 /* Strategy 4-Field Configuration Bar */
 .strategy-config-bar {
   display: grid;
@@ -266,32 +311,35 @@
 /* Legs Table Header & Dynamic Legs */
 .legs-header-row {
   display: grid;
-  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 135px 38px;
-  gap: 10px;
+  grid-template-columns: 68px 88px 84px 110px 1.25fr 88px 88px 88px 95px 105px 125px 36px;
+  gap: 8px;
   padding: 8px 14px 2px;
   color: var(--text-muted);
   font-size: 0.70rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  min-width: 1040px;
 }
 
 .legs-container {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 1040px;
 }
 
 .leg-row {
   display: grid;
-  grid-template-columns: 75px 95px 95px 120px 1.3fr 110px 100px 110px 135px 38px;
-  gap: 10px;
+  grid-template-columns: 68px 88px 84px 110px 1.25fr 88px 88px 88px 95px 105px 125px 36px;
+  gap: 8px;
   align-items: center;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   padding: 10px 14px;
   border-radius: var(--radius-md);
   transition: all 0.2s ease;
+  min-width: 1040px;
 }
 
 .leg-row:hover {
@@ -375,7 +423,14 @@
   border-left: 1px solid rgba(168, 85, 247, 0.35);
 }
 
-.leg-strike-select {
+/* Custom Floating Strike Picker & Trigger */
+.leg-strike-dropdown-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+}
+
+.leg-strike-trigger {
   font-family: var(--font-mono);
   font-size: 0.82rem;
   font-weight: 600;
@@ -387,10 +442,173 @@
   outline: none;
   cursor: pointer;
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  transition: all 0.15s ease;
+  user-select: none;
+  box-sizing: border-box;
+  text-align: left;
 }
 
-.leg-strike-select:focus {
-  border-color: var(--border-focus);
+.leg-strike-trigger:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.leg-strike-trigger:focus,
+.leg-strike-trigger.open {
+  border-color: var(--border-focus, #38bdf8);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+
+.leg-strike-val {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.leg-strike-arrow {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.leg-strike-trigger.open .leg-strike-arrow {
+  transform: rotate(180deg);
+  color: var(--accent-blue, #38bdf8);
+}
+
+.floating-strike-picker {
+  position: fixed;
+  z-index: 999999;
+  background: #0b1329;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  animation: strikePickerFadeIn 0.12s ease-out;
+  box-sizing: border-box;
+}
+
+@keyframes strikePickerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.strike-picker-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.strike-search-icon {
+  position: absolute;
+  left: 18px;
+  color: var(--text-muted, #94a3b8);
+  pointer-events: none;
+}
+
+.strike-picker-search {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  color: #fff;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  padding: 5px 8px 5px 26px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.strike-picker-search:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+}
+
+.strike-picker-list {
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom scrollbar for strike picker */
+.strike-picker-list::-webkit-scrollbar {
+  width: 6px;
+}
+.strike-picker-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.25);
+}
+.strike-picker-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+.strike-picker-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.strike-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-primary, #e2e8f0);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.80rem;
+  font-weight: 500;
+  transition: background 0.1s ease, color 0.1s ease;
+  user-select: none;
+}
+
+.strike-picker-item:hover {
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+}
+
+.strike-picker-item.active {
+  background: rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.strike-picker-item.atm-strike {
+  color: #fbbf24;
+}
+
+.strike-picker-item.active.atm-strike {
+  color: #fbbf24;
+}
+
+.strike-item-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  margin-left: 6px;
 }
 
 .leg-symbol-input {
@@ -488,6 +706,156 @@
   border-color: var(--accent-red) !important;
   color: #f43f5e !important;
   box-shadow: 0 0 12px rgba(244, 63, 94, 0.4) !important;
+}
+
+/* Dynamic Leg BID Price Badge */
+.leg-bid-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--bg-input);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981;
+  font-family: var(--font-mono);
+  font-size: 0.80rem;
+  font-weight: 700;
+  padding: 7px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.leg-bid-cell:hover {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.leg-bid-cell:hover::after {
+  content: "Set Limit to Bid";
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111722;
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  padding: 3px 7px;
+  font-size: 0.65rem;
+  font-family: var(--font-sans);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.leg-bid-cell.flash-up {
+  background: rgba(16, 185, 129, 0.45) !important;
+  border-color: #10b981 !important;
+  color: #fff !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45) !important;
+}
+
+.leg-bid-cell.flash-down {
+  background: rgba(244, 63, 94, 0.4) !important;
+  border-color: #f43f5e !important;
+  color: #fff !important;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.4) !important;
+}
+
+/* Dynamic Leg ASK Price Badge */
+.leg-ask-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--bg-input);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  color: #f43f5e;
+  font-family: var(--font-mono);
+  font-size: 0.80rem;
+  font-weight: 700;
+  padding: 7px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.leg-ask-cell:hover {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: #f43f5e;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.25);
+}
+
+.leg-ask-cell:hover::after {
+  content: "Set Limit to Ask";
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #111722;
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  padding: 3px 7px;
+  font-size: 0.65rem;
+  font-family: var(--font-sans);
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+.leg-ask-cell.flash-up {
+  background: rgba(16, 185, 129, 0.45) !important;
+  border-color: #10b981 !important;
+  color: #fff !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45) !important;
+}
+
+.leg-ask-cell.flash-down {
+  background: rgba(244, 63, 94, 0.4) !important;
+  border-color: #f43f5e !important;
+  color: #fff !important;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.4) !important;
+}
+
+.leg-quote-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.bid-dot {
+  background: #10b981;
+  box-shadow: 0 0 4px #10b981;
+}
+.ask-dot {
+  background: #f43f5e;
+  box-shadow: 0 0 4px #f43f5e;
+}
+.empty-quote {
+  color: var(--text-muted) !important;
+  border-color: var(--border-subtle) !important;
+}
+.empty-quote .leg-quote-dot {
+  background: var(--text-muted) !important;
+  box-shadow: none !important;
+}
+.flash-limit-set {
+  background: rgba(56, 189, 248, 0.25) !important;
+  border-color: #38bdf8 !important;
+  transition: all 0.25s ease;
 }
 
 .leg-type-select {

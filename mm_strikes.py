@@ -30,6 +30,7 @@ if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        os.system("")  # Enables native Windows VT100 ANSI sequences
     except Exception:
         pass
 
@@ -52,7 +53,10 @@ from telegram_notify import (
     reset_strike_alert,
     get_telegram_config,
     get_recent_alerts,
-    set_notify_secs_override
+    set_notify_secs_override,
+    set_process_role,
+    update_sender_heartbeat,
+    is_active_telegram_sender
 )
 import threading
 
@@ -68,11 +72,35 @@ COLOR_YELLOW = "\033[93m"
 COLOR_CYAN = "\033[96m"
 COLOR_MAGENTA = "\033[95m"
 COLOR_DIM = "\033[90m"
+COLOR_WHITE = "\033[97m"
 COLOR_BG_GREEN = "\033[42m\033[30m"
+COLOR_BG_RED = "\033[41m\033[97m"
 COLOR_BG_DARK = "\033[100m"
 
 # Real-time continuous qualification duration tracker: symbol -> qualification start timestamp
 _QUALIFIED_SINCE_MAP: dict[str, float] = {}
+
+# Active Margin Mode Cache
+_MM_MARGIN_MODE_CACHE = {"mode": "PORTFOLIO", "ts": 0}
+
+def get_active_margin_mode() -> str:
+    """
+    Fetches the active account's Delta Exchange margin mode (PORTFOLIO, ISOLATED).
+    Uses a 45-second cache to avoid hitting REST on every 0.8s tick.
+    """
+    now = time.time()
+    if now - _MM_MARGIN_MODE_CACHE["ts"] < 45:
+        return _MM_MARGIN_MODE_CACHE["mode"]
+    try:
+        client = get_delta_client()
+        prof = client.request("GET", "/v2/profile", auth=True)
+        if prof and prof.status_code == 200:
+            m = prof.json().get("result", {}).get("margin_mode", "portfolio")
+            _MM_MARGIN_MODE_CACHE["mode"] = str(m or "PORTFOLIO").upper()
+            _MM_MARGIN_MODE_CACHE["ts"] = now
+    except Exception:
+        pass
+    return _MM_MARGIN_MODE_CACHE["mode"]
 
 
 def format_qual_duration(seconds: float | int | None) -> str:
@@ -104,6 +132,7 @@ def start_mm_background_scanner(interval_seconds: float = 4.0):
     Launches an automated background daemon scanner thread that periodically
     evaluates BTC and ETH option chains for qualified strikes and dispatches
     Telegram alerts 24/7 without requiring the browser or any web tab to be open.
+    Yields if mm_strikes.py is running to guarantee strictly 1 active sender.
     """
     global _MM_SCANNER_RUNNING
     with _MM_SCANNER_LOCK:
@@ -116,13 +145,14 @@ def start_mm_background_scanner(interval_seconds: float = 4.0):
         time.sleep(2.0)
         while True:
             try:
-                cfg = get_telegram_config()
-                if cfg.get("enabled") and cfg.get("is_configured"):
-                    for asset in ["BTC", "ETH"]:
-                        try:
-                            evaluate_mm_strikes(underlying=asset)
-                        except Exception:
-                            pass
+                if is_active_telegram_sender():
+                    cfg = get_telegram_config()
+                    if cfg.get("enabled") and cfg.get("is_configured"):
+                        for asset in ["BTC", "ETH"]:
+                            try:
+                                evaluate_mm_strikes(underlying=asset, check_alerts=True)
+                            except Exception:
+                                pass
             except Exception:
                 pass
             time.sleep(interval_seconds)
@@ -162,13 +192,19 @@ def get_mm_config() -> dict:
     except (ValueError, TypeError):
         lot_size_eth = 1
 
+    try:
+        refresh_sec = float(os.getenv("MM_REFRESH_INTERVAL", "0.25"))
+    except (ValueError, TypeError):
+        refresh_sec = 0.25
+
     return {
         "min_bid_price": min_bid,
         "min_spread_ticks": min_ticks,
         "min_net_edge_pct": min_net_edge_pct,
         "underlying": underlying,
         "lot_size_btc": lot_size_btc,
-        "lot_size_eth": lot_size_eth
+        "lot_size_eth": lot_size_eth,
+        "refresh_interval": refresh_sec
     }
 
 
@@ -192,7 +228,8 @@ def calculate_mm_metrics(
     tick_size: float,
     min_bid_price: float = 0.3,
     min_spread_ticks: float = 5.0,
-    min_net_edge_pct: float = 50.0
+    min_net_edge_pct: float = 50.0,
+    oi_reduce_only_mode: bool = False
 ) -> dict:
     """
     Computes exact market making metrics for a strike/option quote per document specifications:
@@ -202,6 +239,7 @@ def calculate_mm_metrics(
     4. Net Edge % = (Net Edge / Mid) * 100 (0 if Mid <= 0)
     5. Spread Ticks = Spread / Tick Size
     6. Qualification check:
+       - Not in exchange reduce-only mode (Max OI breached)
        - Bid >= min_bid_price
        - Spread Ticks >= min_spread_ticks
        - Net Edge % >= min_net_edge_pct
@@ -229,6 +267,8 @@ def calculate_mm_metrics(
     spread_ticks = spread / tick if tick > 0 else 0.0
 
     reasons = []
+    if oi_reduce_only_mode:
+        reasons.append("Delta Exchange Max OI Breached (Reduce-Only Mode)")
     if bid < min_bid_price:
         reasons.append(f"Bid {bid:.4f} < {min_bid_price}")
     if spread_ticks < min_spread_ticks:
@@ -259,7 +299,8 @@ def evaluate_mm_strikes(
     min_bid_price: float = None,
     min_spread_ticks: float = None,
     min_net_edge_pct: float = None,
-    client = None
+    client = None,
+    check_alerts: bool = True
 ) -> dict:
     """
     Scans live Delta Exchange option chain contracts, computes Market Making metrics,
@@ -319,13 +360,15 @@ def evaluate_mm_strikes(
             ask = call_contract.get("best_ask")
             tick = float(call_contract.get("tick_size") or 0.1)
 
+            call_oi_reduce = bool(call_contract.get("oi_reduce_only_mode", False))
             metrics = calculate_mm_metrics(
                 bid=bid,
                 ask=ask,
                 tick_size=tick,
                 min_bid_price=min_bid,
                 min_spread_ticks=min_ticks,
-                min_net_edge_pct=min_edge
+                min_net_edge_pct=min_edge,
+                oi_reduce_only_mode=call_oi_reduce
             )
 
             call_sym = call_contract.get("symbol")
@@ -360,6 +403,7 @@ def evaluate_mm_strikes(
                 "net_edge_pct": metrics["net_edge_pct"],
                 "volume": call_contract.get("volume", 0.0),
                 "open_interest": call_contract.get("open_interest", 0.0),
+                "oi_reduce_only_mode": call_oi_reduce,
                 "qualified": metrics["qualified"],
                 "qual_duration_sec": call_dur,
                 "qual_time_str": call_time_str,
@@ -369,9 +413,11 @@ def evaluate_mm_strikes(
             all_evaluated.append(item)
             if metrics["qualified"]:
                 qualified_strikes.append(item)
-                check_strike_qual_alert(item, call_dur)
+                if check_alerts:
+                    check_strike_qual_alert(item, call_dur)
             else:
-                reset_strike_alert(call_sym)
+                if check_alerts:
+                    reset_strike_alert(call_sym)
 
         # Evaluate PUT
         put_contract = row.get("put")
@@ -380,13 +426,15 @@ def evaluate_mm_strikes(
             ask = put_contract.get("best_ask")
             tick = float(put_contract.get("tick_size") or 0.1)
 
+            put_oi_reduce = bool(put_contract.get("oi_reduce_only_mode", False))
             metrics = calculate_mm_metrics(
                 bid=bid,
                 ask=ask,
                 tick_size=tick,
                 min_bid_price=min_bid,
                 min_spread_ticks=min_ticks,
-                min_net_edge_pct=min_edge
+                min_net_edge_pct=min_edge,
+                oi_reduce_only_mode=put_oi_reduce
             )
 
             put_sym = put_contract.get("symbol")
@@ -421,6 +469,7 @@ def evaluate_mm_strikes(
                 "net_edge_pct": metrics["net_edge_pct"],
                 "volume": put_contract.get("volume", 0.0),
                 "open_interest": put_contract.get("open_interest", 0.0),
+                "oi_reduce_only_mode": put_oi_reduce,
                 "qualified": metrics["qualified"],
                 "qual_duration_sec": put_dur,
                 "qual_time_str": put_time_str,
@@ -430,12 +479,22 @@ def evaluate_mm_strikes(
             all_evaluated.append(item)
             if metrics["qualified"]:
                 qualified_strikes.append(item)
-                check_strike_qual_alert(item, put_dur)
+                if check_alerts:
+                    check_strike_qual_alert(item, put_dur)
             else:
-                reset_strike_alert(put_sym)
+                if check_alerts:
+                    reset_strike_alert(put_sym)
 
-    # Sort qualified by Net Edge % descending, then by Spread Ticks descending
-    qualified_strikes.sort(key=lambda x: (x["net_edge_pct"], x["spread_ticks"]), reverse=True)
+    # Sort qualified strikes: oldest qualified first (longest qual_duration_sec at top),
+    # newly qualified strikes placed at the bottom!
+    qualified_strikes.sort(
+        key=lambda x: (
+            x.get("qual_duration_sec") or 0.0,
+            x.get("net_edge_pct", 0),
+            x.get("spread_ticks", 0)
+        ),
+        reverse=True
+    )
 
     max_ticks = max((x["spread_ticks"] for x in qualified_strikes), default=0.0)
     max_edge = max((x["net_edge_pct"] for x in qualified_strikes), default=0.0)
@@ -517,12 +576,15 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
             print("  " + "-" * 126)
 
     # Header Banner (Width: 128 characters)
+    active_acct = (load_credentials().get("active_account") or "SUB").upper()
+    margin_mode = get_active_margin_mode()
+
     print("\n" + "=" * 128)
     if not is_multi:
-        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKE SELECTION CRITERIA{COLOR_RESET}")
+        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKE SELECTION CRITERIA  |  {COLOR_WHITE}Acct: {COLOR_YELLOW}{active_acct}{COLOR_CYAN}  |  {COLOR_WHITE}Margin Mode: {COLOR_GREEN}{margin_mode}{COLOR_RESET}")
         print(f"{COLOR_DIM}  Doc Source: Nitin Joshi Framework | Time: {now_str} IST{COLOR_RESET}")
     else:
-        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{underlying}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
+        print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{underlying}{COLOR_CYAN}  |  {COLOR_WHITE}Acct: {COLOR_YELLOW}{active_acct}{COLOR_CYAN}  |  {COLOR_WHITE}Margin Mode: {COLOR_GREEN}{margin_mode}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
     print("=" * 128)
 
     # Criteria Strip
@@ -606,6 +668,10 @@ def print_terminal_table(result: dict, show_all: bool = False, is_multi: bool = 
             row_color = COLOR_GREEN
             status_badge = f"{COLOR_BG_GREEN} QUALIFIED {COLOR_RESET}"
             qual_display = f"{COLOR_YELLOW}{qual_time_str:<12}{COLOR_RESET}"
+        elif s.get("oi_reduce_only_mode"):
+            row_color = COLOR_RED
+            status_badge = f"{COLOR_BG_RED} ⛔ MAX OI {COLOR_RESET}"
+            qual_display = f"{COLOR_DIM}{qual_time_str:<12}{COLOR_RESET}"
         else:
             row_color = COLOR_DIM
             status_badge = f"{COLOR_DIM}NOT MET{COLOR_RESET}"
@@ -652,9 +718,18 @@ def print_combined_terminal_table(underlying_data: dict, show_all: bool = False,
         all_qual_strikes.extend(r.get("qualified_strikes", []))
         all_scanned_strikes.extend(r.get("all_strikes", []))
 
-    strikes_to_show = all_scanned_strikes if show_all else all_qual_strikes
-    # Rank: qualified first (if show_all), then net_edge_pct desc, spread_ticks desc
-    strikes_to_show.sort(key=lambda x: (x.get("qualified", False), x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+    strikes_to_show = list(all_scanned_strikes if show_all else all_qual_strikes)
+
+    # Rank: qualified first (if show_all), then qual_duration_sec desc (oldest at top, newest at bottom), then net_edge_pct desc
+    strikes_to_show.sort(
+        key=lambda x: (
+            x.get("qualified", False),
+            x.get("qual_duration_sec") or 0.0,
+            x.get("net_edge_pct", 0),
+            x.get("spread_ticks", 0)
+        ),
+        reverse=True
+    )
 
     total_scanned = sum(r.get("summary", {}).get("total_scanned", 0) for r in underlying_data.values())
     total_qual = len(all_qual_strikes)
@@ -707,8 +782,11 @@ def print_combined_terminal_table(underlying_data: dict, show_all: bool = False,
             print("  " + "-" * 126)
 
     # 1. Header Banner (Width: 128 characters)
+    active_acct = (load_credentials().get("active_account") or "SUB").upper()
+    margin_mode = get_active_margin_mode()
+
     print("\n" + "=" * 128)
-    print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{assets_str}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
+    print(f"{COLOR_BOLD}{COLOR_CYAN}  DELTA EXCHANGE - MARKET MAKING STRIKES: {COLOR_YELLOW}{assets_str}{COLOR_CYAN}  |  {COLOR_WHITE}Acct: {COLOR_YELLOW}{active_acct}{COLOR_CYAN}  |  {COLOR_WHITE}Margin Mode: {COLOR_GREEN}{margin_mode}{COLOR_CYAN}  (Time: {now_str} IST){COLOR_RESET}")
     print("=" * 128)
 
     # 2. Side-by-side Dual Asset Strip (Fits comfortably within 126 cols)
@@ -781,7 +859,7 @@ def print_combined_terminal_table(underlying_data: dict, show_all: bool = False,
         bid = s.get("bid", 0.0)
         ask = s.get("ask", 0.0)
         spread = s.get("spread", 0.0)
-        tick = s.get("tick_size", 0.1 if asset_label == "BTC" else 0.05)
+        tick = s.get("tick_size") or (0.1 if asset_label == "BTC" else 0.01)
         ticks = s.get("spread_ticks", 0.0)
         mid = s.get("mid_price", 0.0)
         net_edge = s.get("net_edge", 0.0)
@@ -795,6 +873,10 @@ def print_combined_terminal_table(underlying_data: dict, show_all: bool = False,
             row_color = COLOR_GREEN
             status_badge = f"{COLOR_BG_GREEN} QUALIFIED {COLOR_RESET}"
             qual_display = f"{COLOR_YELLOW}{qual_time_str:<11}{COLOR_RESET}"
+        elif s.get("oi_reduce_only_mode"):
+            row_color = COLOR_RED
+            status_badge = f"{COLOR_BG_RED} ⛔ MAX OI {COLOR_RESET}"
+            qual_display = f"{COLOR_DIM}{qual_time_str:<11}{COLOR_RESET}"
         else:
             row_color = COLOR_DIM
             status_badge = f"{COLOR_DIM}NOT MET{COLOR_RESET}"
@@ -835,7 +917,7 @@ def stream_terminal_websocket(
     show_all: bool = False,
     auto_trade: bool = False,
     account: str = None,
-    refresh_interval: float = 0.8
+    refresh_interval: float = None
 ):
     """
     Subscribes all option contracts for the chosen underlying(s) and expiry directly to Delta's WebSocket
@@ -843,6 +925,9 @@ def stream_terminal_websocket(
     Supports single asset ('BTC' or 'ETH') or multiple assets (['BTC', 'ETH'] or 'ALL' / 'BOTH').
     When auto_trade is True, automatically executes 1-lot MM trades on top qualified strikes.
     """
+    defaults = get_mm_config()
+    eff_refresh = refresh_interval if refresh_interval is not None else defaults.get("refresh_interval", 0.25)
+    eff_refresh = max(0.05, float(eff_refresh))
     if isinstance(underlying, str):
         if underlying.upper() in ["ALL", "BOTH"]:
             assets = ["BTC", "ETH"]
@@ -922,13 +1007,34 @@ def stream_terminal_websocket(
 
         tick_count = [0]
         last_render_time = [0.0]
+        _is_first_render = [True]
         render_lock = threading.Lock()
         is_multi = len(underlying_data) > 1
 
         def _render_screen():
+            update_sender_heartbeat("mm_strikes")
             now_render = time.time()
             for asset in underlying_data:
                 all_list = [c for a, c in all_contracts.values() if a == asset]
+
+                # Sanity check: Ensure contracts with missing or crossed quotes are never qualified
+                for x in all_list:
+                    b = x.get("bid")
+                    a = x.get("ask")
+                    if b is None or a is None or b <= 0 or a <= 0 or a < b:
+                        if x.get("qualified"):
+                            x["qualified"] = False
+                            x["spread"] = 0.0
+                            x["mid_price"] = 0.0
+                            x["net_edge"] = 0.0
+                            x["net_edge_pct"] = 0.0
+                            x["spread_ticks"] = 0.0
+                            x["qual_duration_sec"] = None
+                            x["qual_time_str"] = "--"
+                            x_sym = x.get("symbol")
+                            _QUALIFIED_SINCE_MAP.pop(x_sym, None)
+                            reset_strike_alert(x_sym)
+
                 qual_list = [x for x in all_list if x.get("qualified")]
 
                 # Live timer update on qualified strikes so seconds/minutes increment smoothly
@@ -977,8 +1083,14 @@ def stream_terminal_websocket(
                             account=active_acct
                         )
 
-            os.system("cls" if os.name == "nt" else "clear")
-            print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title}) | Refresh: {refresh_interval}s")
+            if _is_first_render[0]:
+                os.system("cls" if os.name == "nt" else "clear")
+                _is_first_render[0] = False
+            else:
+                sys.stdout.write("\033[H\033[J")
+                sys.stdout.flush()
+
+            print(f"{COLOR_GREEN}● [WEBSOCKET LIVE TICK-BY-TICK STREAM ACTIVE]{COLOR_RESET} Ticks: {tick_count[0]} | Subscribed: {len(symbols_to_sub)} contracts ({asset_title}) | Refresh: {eff_refresh}s")
 
             tg_cfg = get_telegram_config()
             if tg_cfg.get("is_configured") and tg_cfg.get("enabled"):
@@ -1003,8 +1115,19 @@ def stream_terminal_websocket(
                 if curr and curr.is_running:
                     cost_str = f"${curr.buy_fill_price:.2f}" if curr.buy_fill_price else "Pending Buy Fill"
                     target_str = f"${curr.sell_limit_price:.2f}" if curr.sell_limit_price else "--"
+                    tot = getattr(curr, "total_size", curr.size)
+                    b_f = getattr(curr, "buy_filled_qty", 0)
+                    s_f = getattr(curr, "sell_filled_qty", 0)
+                    lot_info = f"({curr.size} Lot{'s' if curr.size > 1 else ''})"
+                    if curr.state == "BUY_PARTIAL":
+                        lot_info = f"{COLOR_YELLOW}[PARTIAL BUY: {b_f}/{tot} Lots Filled]{COLOR_RESET}"
+                    elif curr.state == "SELL_PARTIAL":
+                        lot_info = f"{COLOR_YELLOW}[PARTIAL EXIT: {s_f}/{curr.size} Lots Sold]{COLOR_RESET}"
+                    elif tot > 1:
+                        lot_info = f"({tot} Lots)"
+
                     print("=" * 128)
-                    print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS {curr.size}-LOT MM TRADE ACTIVE]{COLOR_RESET} Symbol: {COLOR_CYAN}{curr.symbol}{COLOR_RESET} | Account: {COLOR_YELLOW}[{acct_label}]{COLOR_RESET} ({curr.size} Lot{'s' if curr.size > 1 else ''})")
+                    print(f" {COLOR_BOLD}{COLOR_GREEN}⚡ [AUTONOMOUS MM TRADE ACTIVE]{COLOR_RESET} Symbol: {COLOR_CYAN}{curr.symbol}{COLOR_RESET} | Account: {COLOR_YELLOW}[{acct_label}]{COLOR_RESET} {lot_info}")
                     print(f"    State: {COLOR_BOLD}{curr.state}{COLOR_RESET} | Entry Cost: {cost_str} | Sell Target: {target_str} | Realized PnL: ${curr.realized_pnl:.5f} USD")
                     print(f"    Rule: {COLOR_BOLD}{COLOR_BG_GREEN} Strictly NO Stop-Loss, NO Timeout • Cost-to-Cost or Wait {COLOR_RESET} ({curr.status_message})")
                     print("=" * 128)
@@ -1033,22 +1156,50 @@ def stream_terminal_websocket(
 
             if sym_upper in all_contracts:
                 asset, contract = all_contracts[sym_upper]
-                quotes = raw_data.get("quotes") or {}
-                raw_bid = quotes.get("best_bid") if quotes.get("best_bid") is not None else quote_dict.get("bid")
-                raw_ask = quotes.get("best_ask") if quotes.get("best_ask") is not None else quote_dict.get("ask")
-                raw_ltp = raw_data.get("close") if raw_data.get("close") is not None else quote_dict.get("ltp")
+                c_sym = contract.get("symbol")
+                quotes = raw_data.get("quotes") if isinstance(raw_data.get("quotes"), dict) else {}
 
-                if raw_bid is not None:
-                    contract["bid"] = float(raw_bid)
-                if raw_ask is not None:
-                    contract["ask"] = float(raw_ask)
-                if raw_ltp is not None:
-                    contract["ltp"] = float(raw_ltp)
+                # 1. Update Bid cleanly (set to None if empty, null, or missing)
+                if "best_bid" in quotes:
+                    rb = quotes.get("best_bid")
+                    contract["bid"] = float(rb) if (rb is not None and str(rb).strip() not in ("", "null", "None")) else None
+                elif "bid" in quote_dict:
+                    rb = quote_dict.get("bid")
+                    contract["bid"] = float(rb) if (rb is not None and str(rb).strip() not in ("", "null", "None")) else None
+                elif "best_bid" in raw_data:
+                    rb = raw_data.get("best_bid")
+                    contract["bid"] = float(rb) if (rb is not None and str(rb).strip() not in ("", "null", "None")) else None
+
+                # 2. Update Ask cleanly (set to None if empty, null, or missing)
+                if "best_ask" in quotes:
+                    ra = quotes.get("best_ask")
+                    contract["ask"] = float(ra) if (ra is not None and str(ra).strip() not in ("", "null", "None")) else None
+                elif "ask" in quote_dict:
+                    ra = quote_dict.get("ask")
+                    contract["ask"] = float(ra) if (ra is not None and str(ra).strip() not in ("", "null", "None")) else None
+                elif "best_ask" in raw_data:
+                    ra = raw_data.get("best_ask")
+                    contract["ask"] = float(ra) if (ra is not None and str(ra).strip() not in ("", "null", "None")) else None
+
+                raw_ltp = raw_data.get("close") if raw_data.get("close") is not None else quote_dict.get("ltp")
+                if raw_ltp is not None and str(raw_ltp).strip() not in ("", "null", "None"):
+                    try:
+                        contract["ltp"] = float(raw_ltp)
+                    except (ValueError, TypeError):
+                        pass
+
+                if "oi_reduce_only_mode" in raw_data:
+                    contract["oi_reduce_only_mode"] = bool(raw_data.get("oi_reduce_only_mode"))
+                elif "oi_reduce_only_mode" in quote_dict:
+                    contract["oi_reduce_only_mode"] = bool(quote_dict.get("oi_reduce_only_mode"))
 
                 # Re-evaluate MM metrics in real-time
-                tick = contract.get("tick_size") or (0.1 if asset == "BTC" else 0.05)
+                tick = contract.get("tick_size") or (0.1 if asset == "BTC" else 0.01)
                 b = contract.get("bid")
                 a = contract.get("ask")
+                now_ts = time.time()
+                update_sender_heartbeat("mm_strikes")
+
                 if b is not None and a is not None and b > 0 and a > 0 and a >= b:
                     spread = a - b
                     mid = (b + a) / 2.0
@@ -1057,6 +1208,8 @@ def stream_terminal_websocket(
                     spread_ticks = spread / tick if tick > 0 else 0.0
 
                     reasons = []
+                    if contract.get("oi_reduce_only_mode"):
+                        reasons.append("Delta Exchange Max OI Breached (Reduce-Only Mode)")
                     if b < min_bid:
                         reasons.append(f"Bid < {min_bid}")
                     if spread_ticks < min_ticks:
@@ -1070,8 +1223,6 @@ def stream_terminal_websocket(
                     contract["net_edge_pct"] = round(net_edge_pct, 2)
                     contract["spread_ticks"] = round(spread_ticks, 1)
 
-                    now_ts = time.time()
-                    c_sym = contract.get("symbol")
                     is_qual = (len(reasons) == 0)
                     contract["qualified"] = is_qual
                     contract["reasons_failed"] = reasons
@@ -1127,20 +1278,71 @@ def stream_terminal_websocket(
                                 recent_flashes.append(flash_entry)
                                 if len(recent_flashes) > 20:
                                     recent_flashes.pop(0)
+                else:
+                    # Invalid, empty, or crossed quotes -> IMMEDIATELY DISQUALIFY
+                    contract["spread"] = 0.0
+                    contract["mid_price"] = 0.0
+                    contract["net_edge"] = 0.0
+                    contract["net_edge_pct"] = 0.0
+                    contract["spread_ticks"] = 0.0
+                    contract["qualified"] = False
+                    contract["reasons_failed"] = ["No valid quotes" if (b is None or a is None) else "Crossed or zero quotes"]
+                    was_dur = (now_ts - _QUALIFIED_SINCE_MAP.pop(c_sym)) if c_sym in _QUALIFIED_SINCE_MAP else None
+                    if was_dur is not None:
+                        contract["was_qual_str"] = format_qual_duration(was_dur)
+                        for f in recent_flashes:
+                            if f.get("symbol") == c_sym:
+                                f["was_qual_str"] = contract["was_qual_str"]
+                                f["timestamp"] = now_ts
+                                f["time_str"] = datetime.now().strftime("%H:%M:%S")
+                                break
+                    contract["qual_duration_sec"] = None
+                    contract["qual_time_str"] = "--"
+                    reset_strike_alert(c_sym)
 
-            now = time.time()
-            # Refresh terminal in-place with throttle to avoid Windows terminal flickering/tearing
-            if now - last_render_time[0] >= refresh_interval:
-                last_render_time[0] = now
-                with render_lock:
-                    _render_screen()
-
+        # Low-latency non-blocking network socket manager:
+        # 1. subscribe_l2=False avoids CPU-heavy 20-level orderbook dictionary sorting across 100+ option contracts
+        # 2. on_tick_received processes in-memory state updates only (<0.05ms) so socket thread never pauses
         ws_manager = DeltaWebSocketManager(
             symbols=symbols_to_sub,
             verbose=False,
-            on_tick=on_tick_received
+            on_tick=on_tick_received,
+            subscribe_l2=False
         )
         ws_manager.start()
+
+        # Background REST Reconciliation Worker (runs every 3.5s)
+        # Guarantees that if any WebSocket packet is dropped or connection stalls,
+        # live REST tickers reconcile memory immediately so data is NEVER frozen/wrong
+        stop_audit = threading.Event()
+        def _rest_audit_worker():
+            while not stop_audit.is_set():
+                time.sleep(3.5)
+                if stop_audit.is_set():
+                    break
+                try:
+                    raw_tickers = client.get_tickers() or []
+                    for t in raw_tickers:
+                        sym = (t.get("symbol") or "").upper()
+                        if sym in all_contracts or any(sym == f"{asset}USD" for asset in underlying_data):
+                            q = t.get("quotes") or {}
+                            rb = q.get("best_bid")
+                            ra = q.get("best_ask")
+                            b = float(rb) if (rb is not None and str(rb).strip() not in ("", "null", "None")) else None
+                            a = float(ra) if (ra is not None and str(ra).strip() not in ("", "null", "None")) else None
+                            quote_dict = {
+                                "bid": b,
+                                "ask": a,
+                                "ltp": t.get("close"),
+                                "mark_price": t.get("mark_price"),
+                                "spot_price": t.get("spot_price") or t.get("underlying_price")
+                            }
+                            on_tick_received(sym, quote_dict, t)
+                except Exception:
+                    pass
+
+        audit_thread = threading.Thread(target=_rest_audit_worker, daemon=True, name="MM-REST-Audit")
+        audit_thread.start()
 
         rollover_triggered = False
         try:
@@ -1152,10 +1354,10 @@ def stream_terminal_websocket(
                     print_terminal_table(res, show_all=show_all, is_multi=False, recent_flashes=recent_flashes)
 
             while True:
-                time.sleep(0.5)
+                time.sleep(min(0.03, eff_refresh / 4))
                 now_check = time.time()
                 # Continuous smooth timer refresh even when market ticks are quiet
-                if now_check - last_render_time[0] >= refresh_interval:
+                if now_check - last_render_time[0] >= eff_refresh:
                     last_render_time[0] = now_check
                     with render_lock:
                         _render_screen()
@@ -1174,12 +1376,14 @@ def stream_terminal_websocket(
 
         except KeyboardInterrupt:
             print(f"\n{COLOR_YELLOW}[WEBSOCKET STOPPED]{COLOR_RESET} Exiting live WebSocket market making stream.\n")
+            stop_audit.set()
             ws_manager.stop()
             if auto_trade and active_trade_holder[0] and active_trade_holder[0].is_running:
                 print(f"[NOTICE] Active trade for {active_trade_holder[0].symbol} is currently in state '{active_trade_holder[0].state}'.")
             return
 
-        # Stop previous ws_manager before rolling to next expiry
+        # Stop previous ws_manager and audit worker before rolling to next expiry
+        stop_audit.set()
         ws_manager.stop()
         time.sleep(1)
         target_expiry = None  # Ensure next iteration picks next active upcoming expiry
@@ -1269,8 +1473,8 @@ def run_cli():
     parser.add_argument(
         "--refresh",
         type=float,
-        default=0.8,
-        help="Terminal screen refresh throttle interval in seconds (default: 0.8s)"
+        default=defaults.get("refresh_interval", 0.25),
+        help=f"Terminal screen refresh throttle interval in seconds (default: {defaults.get('refresh_interval', 0.25)}s)"
     )
     parser.add_argument(
         "--threshold", "--notify-secs",
@@ -1281,6 +1485,9 @@ def run_cli():
     )
 
     args = parser.parse_args()
+
+    set_process_role("mm_strikes")
+    update_sender_heartbeat("mm_strikes")
 
     if args.notify_secs is not None:
         set_notify_secs_override(args.notify_secs)

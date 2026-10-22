@@ -265,9 +265,8 @@
 .mm-table .col-ticks   { width: 68px;  min-width: 68px;  max-width: 68px;  }
 .mm-table .col-mid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
 .mm-table .col-edge    { width: 78px;  min-width: 78px;  max-width: 78px;  }
-.mm-table .col-edgepct { width: 74px;  min-width: 74px;  max-width: 74px;  }
-.mm-table .col-status  { width: 110px; min-width: 110px; max-width: 110px; }
-.mm-table .col-action  { width: 110px; min-width: 110px; max-width: 110px; }
+.mm-table .col-status  { width: 116px; min-width: 116px; max-width: 116px; }
+.mm-table .col-action  { width: 116px; min-width: 116px; max-width: 116px; }
 
 .mm-table th {
   position: sticky;
@@ -346,6 +345,22 @@
   background: #152723;
 }
 
+.mm-table tr.row-in-trade td.col-action {
+  background: #0e1e24;
+}
+
+.mm-table tr.row-in-trade:hover td.col-action {
+  background: #132730;
+}
+
+.mm-table th.col-status,
+.mm-table td.col-status {
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+  overflow: hidden;
+}
+
 /* Badges & Highlights */
 .mm-type-badge {
   font-size: 0.72rem;
@@ -376,8 +391,11 @@
   align-items: center;
   justify-content: center;
   min-width: 88px;
+  max-width: 104px;
+  box-sizing: border-box;
   gap: 4px;
   cursor: default;
+  white-space: nowrap;
 }
 
 .mm-status-qual {
@@ -441,15 +459,102 @@
   color: #10b981;
 }
 
-/* Tick-by-tick micro flash animations */
+/* Tick-by-tick micro flash animations (disabled whole-row strobe to eliminate blinking) */
 .tick-flash-up {
-  background: rgba(16, 185, 129, 0.25) !important;
-  transition: background 0.1s ease;
+  transition: background 0.2s ease;
 }
 
 .tick-flash-down {
-  background: rgba(239, 68, 68, 0.25) !important;
-  transition: background 0.1s ease;
+  transition: background 0.2s ease;
+}
+
+/* ==============================================================================
+   MARGIN MODE PILL (Navbar Top)
+   ============================================================================== */
+.margin-mode-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 9999px;
+  padding: 3px 10px;
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.margin-mode-pill:hover {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.5);
+  transform: translateY(-1px);
+}
+
+.margin-mode-pill.mode-isolated {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.margin-mode-pill.mode-isolated:hover {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.margin-mode-pill.mode-cross {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.margin-mode-pill.mode-cross:hover {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.55);
+}
+
+.margin-mode-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.margin-mode-pill.mode-isolated .margin-mode-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+.margin-mode-pill.mode-cross .margin-mode-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
+.margin-mode-label {
+  color: var(--text-muted);
+  font-size: 0.70rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.margin-mode-val {
+  color: #10b981;
+  font-weight: 800;
+  font-size: 0.74rem;
+  letter-spacing: 0.5px;
+}
+
+.margin-mode-pill.mode-isolated .margin-mode-val {
+  color: #f59e0b;
+}
+
+.margin-mode-pill.mode-cross .margin-mode-val {
+  color: #38bdf8;
+}
+
+.margin-option-card:hover {
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  background: rgba(56, 189, 248, 0.05) !important;
 }
 
 /* ==============================================================================
@@ -556,13 +661,18 @@
   color: #34d399;
   font-size: 0.74rem;
   font-weight: 700;
-  padding: 4px 10px;
+  padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 92px;
+  max-width: 104px;
+  box-sizing: border-box;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .mm-btn-1lot:hover {
@@ -570,6 +680,82 @@
   color: #000;
   box-shadow: 0 2px 10px rgba(16, 185, 129, 0.5);
   transform: translateY(-1px);
+}
+
+/* In-Trade Button state (Replaces launch button for strikes currently in active trade) */
+.mm-btn-1lot.mm-btn-in-trade {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.22), rgba(14, 165, 233, 0.32));
+  border: 1px solid rgba(6, 182, 212, 0.7);
+  color: #38bdf8;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.25);
+}
+
+.mm-btn-1lot.mm-btn-in-trade:hover {
+  background: rgba(6, 182, 212, 0.4);
+  color: #f0f9ff;
+  border-color: #38bdf8;
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Active Trade Status Badge */
+.mm-status-badge.mm-status-trading {
+  background: rgba(6, 182, 212, 0.18);
+  color: #38bdf8;
+  border: 1px solid rgba(6, 182, 212, 0.55);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  animation: pulse-trade-badge 2s infinite ease-in-out;
+}
+
+@keyframes pulse-trade-badge {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(6, 182, 212, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.55);
+  }
+}
+
+/* Active In-Trade Row Highlighting */
+tr.row-in-trade {
+  background: rgba(6, 182, 212, 0.07) !important;
+  border-left: 3px solid #06b6d4 !important;
+}
+
+tr.row-in-trade:hover {
+  background: rgba(6, 182, 212, 0.13) !important;
+}
+
+/* Max OI Breached (Reduce-Only) Row Styling */
+tr.row-max-oi {
+  opacity: 0.65;
+  background: rgba(239, 68, 68, 0.04);
+}
+
+tr.row-max-oi:hover {
+  opacity: 0.85;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* Highlight Pulse for when trade card is scrolled into view */
+.highlight-pulse {
+  animation: card-highlight-pulse 1.8s ease;
+}
+
+@keyframes card-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8);
+    transform: scale(1.01);
+  }
+  70% {
+    box-shadow: 0 0 20px 4px rgba(6, 182, 212, 0.3);
+  }
+  100% {
+    box-shadow: none;
+    transform: scale(1);
+  }
 }
 
 /* Active MM Trades Monitor Container */
@@ -581,6 +767,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-x: auto;
 }
 
 .mm-trades-header {
@@ -597,6 +784,7 @@
   flex-direction: column;
   gap: 6px;
   width: 100%;
+  min-width: 960px;
 }
 
 .mm-trade-card {
@@ -604,7 +792,7 @@
   border: 1px solid var(--border-subtle);
   border-left: 4px solid #10b981;
   border-radius: 6px;
-  padding: 6px 14px;
+  padding: 7px 14px;
   display: flex;
   flex-direction: row;
   justify-content: space-between;
@@ -612,6 +800,8 @@
   gap: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
 }
 
 .mm-trade-card.waiting-cost {
@@ -621,8 +811,11 @@
 .mm-strip-left {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mm-trade-symbol {
@@ -630,10 +823,12 @@
   font-weight: 700;
   font-size: 0.85rem;
   color: var(--text-primary);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .mm-strip-chip {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: #94a3b8;
   background: rgba(0, 0, 0, 0.3);
   padding: 3px 8px;
@@ -642,15 +837,20 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .mm-strip-status-chip {
-  max-width: 360px;
+  flex: 1 1 auto;
+  min-width: 140px;
+  max-width: 380px;
+  overflow: hidden;
 }
 
 .mm-status-text {
   color: #cbd5e1;
-  max-width: 300px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -662,8 +862,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
+  margin-left: 12px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .mm-trade-badge {
@@ -672,12 +873,24 @@
   padding: 2px 8px;
   border-radius: 9999px;
   text-transform: uppercase;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .mm-trade-badge.buying {
   background: rgba(56, 189, 248, 0.2);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.mm-trade-badge.dual {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+}
+
+.mm-trade-card.dual-active {
+  border-left: 3px solid #c084fc;
 }
 
 .mm-trade-badge.selling {

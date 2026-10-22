@@ -4,3 +4,6 @@ __pycache__/
 *.tmp
 venv/
 command
+.alert_history.json
+.tg_sender.lock
+.mm_trades_state.json*

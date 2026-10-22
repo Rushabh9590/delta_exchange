@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 # Suppress Werkzeug / Flask HTTP request access logging
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logger = logging.getLogger("server")
 
 # Ensure project and python-rest-client paths are in sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,7 +37,16 @@ from multileg import (
 from mm_strikes import evaluate_mm_strikes, get_mm_config, start_mm_background_scanner
 from mm_execution import mm_engine
 from websocket import DeltaWebSocketManager
-from telegram_notify import get_telegram_config, save_telegram_config, send_test_alert
+from telegram_notify import (
+    get_telegram_config,
+    save_telegram_config,
+    send_test_alert,
+    set_process_role,
+    is_active_telegram_sender
+)
+
+# Designate this process as server role (mm_strikes has priority when open)
+set_process_role("server")
 
 # Start background master scrip auto-sync daemon (adaptive 15m default, 45s during 5:30 PM IST rollover window)
 start_master_sync_daemon(interval_seconds=900)
@@ -45,6 +55,13 @@ start_master_sync_daemon(interval_seconds=900)
 start_mm_background_scanner(interval_seconds=4.0)
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
+
+@app.after_request
+def add_cache_headers(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 # Cached client instance & WebSocket Manager
 _client = None
@@ -423,6 +440,7 @@ def get_dashboard():
             "environment": env_label,
             "base_url": base_url,
             "usd_to_inr_rate": usd_to_inr_rate,
+            "margin_mode": get_current_margin_mode(),
             "summary": {
                 "total_open_positions": len(enriched_positions),
                 "longs_count": longs_count,
@@ -802,7 +820,8 @@ def get_market_making_strikes():
                 min_bid_price=min_bid,
                 min_spread_ticks=min_ticks,
                 min_net_edge_pct=min_edge,
-                client=client
+                client=client,
+                check_alerts=False
             )
             eth_data = evaluate_mm_strikes(
                 underlying="ETH",
@@ -810,13 +829,22 @@ def get_market_making_strikes():
                 min_bid_price=min_bid,
                 min_spread_ticks=min_ticks,
                 min_net_edge_pct=min_edge,
-                client=client
+                client=client,
+                check_alerts=False
             )
 
             all_strikes = (btc_data.get("all_strikes") or []) + (eth_data.get("all_strikes") or [])
             qualified_strikes = (btc_data.get("qualified_strikes") or []) + (eth_data.get("qualified_strikes") or [])
-            # Sort qualified strikes by top net edge % and spread ticks
-            qualified_strikes.sort(key=lambda x: (x.get("net_edge_pct", 0), x.get("spread_ticks", 0)), reverse=True)
+            # Sort qualified strikes: oldest qualified first (longest qual_duration_sec at top),
+            # newly qualified strikes placed at the bottom!
+            qualified_strikes.sort(
+                key=lambda x: (
+                    x.get("qual_duration_sec") or 0.0,
+                    x.get("net_edge_pct", 0),
+                    x.get("spread_ticks", 0)
+                ),
+                reverse=True
+            )
 
             btc_sum = btc_data.get("summary") or {}
             eth_sum = eth_data.get("summary") or {}
@@ -828,12 +856,16 @@ def get_market_making_strikes():
             }
 
             merged_expiries = []
-            seen_exp = set()
+            seen_exp = {}
             for exp in (btc_data.get("expiries") or []) + (eth_data.get("expiries") or []):
                 e_val = exp.get("expiry")
-                if e_val and e_val not in seen_exp:
-                    seen_exp.add(e_val)
-                    merged_expiries.append(exp)
+                if e_val:
+                    if e_val not in seen_exp:
+                        exp_copy = dict(exp)
+                        seen_exp[e_val] = exp_copy
+                        merged_expiries.append(exp_copy)
+                    else:
+                        seen_exp[e_val]["total_strikes"] = seen_exp[e_val].get("total_strikes", 0) + exp.get("total_strikes", 0)
 
             data = {
                 "success": True,
@@ -857,7 +889,8 @@ def get_market_making_strikes():
             min_bid_price=min_bid,
             min_spread_ticks=min_ticks,
             min_net_edge_pct=min_edge,
-            client=client
+            client=client,
+            check_alerts=False
         )
         return jsonify(data)
     except Exception as e:
@@ -1026,10 +1059,40 @@ def update_profile_settings():
 # ACCOUNT SWITCHING API (Main vs Sub Account)
 # ==============================================================================
 
+# Margin Mode Caching
+_MARGIN_MODE_CACHE = {"mode": None, "account": None, "ts": 0}
+
+def get_current_margin_mode(account=None, force_refresh=False):
+    """
+    Returns the active account's Delta Exchange margin mode (e.g. PORTFOLIO, ISOLATED).
+    Uses a 30s TTL cache to avoid repetitive REST roundtrips.
+    """
+    global _MARGIN_MODE_CACHE
+    creds = load_credentials()
+    active_acct = account or creds.get("active_account", "main")
+    now = time.time()
+
+    if not force_refresh and _MARGIN_MODE_CACHE["mode"] and _MARGIN_MODE_CACHE["account"] == active_acct and (now - _MARGIN_MODE_CACHE["ts"] < 30):
+        return _MARGIN_MODE_CACHE["mode"]
+
+    try:
+        client = get_client(account=active_acct)
+        prof = client.request("GET", "/v2/profile", auth=True)
+        if prof and prof.status_code == 200:
+            p_data = prof.json().get("result", {})
+            mode = str(p_data.get("margin_mode") or "PORTFOLIO").upper()
+            _MARGIN_MODE_CACHE = {"mode": mode, "account": active_acct, "ts": now}
+            return mode
+    except Exception as e:
+        logger.warning(f"Error fetching profile margin mode: {e}")
+
+    return _MARGIN_MODE_CACHE.get("mode") or "PORTFOLIO"
+
+
 @app.route("/api/account/status", methods=["GET"])
 def get_account_status():
     """
-    Returns current active account ('main' or 'sub'), masked API key, and wallet balances.
+    Returns current active account ('main' or 'sub'), margin mode, masked API key, and wallet balances.
     """
     try:
         creds = load_credentials()
@@ -1050,9 +1113,12 @@ def get_account_status():
                 usd_balance = float(b.get("available_balance", 0) or 0)
                 break
 
+        margin_mode = get_current_margin_mode(active_acct)
+
         return jsonify({
             "success": True,
             "active_account": active_acct,
+            "margin_mode": margin_mode,
             "api_key_masked": masked_key,
             "base_url": creds.get("base_url"),
             "usd_available": usd_balance,
@@ -1073,10 +1139,50 @@ def switch_active_account():
         if target not in ("main", "sub"):
             return jsonify({"success": False, "error": "Account must be 'main' or 'sub'."}), 400
 
-        global _client
+        global _client, _MARGIN_MODE_CACHE
         _client = switch_account(target, update_env_file=True)
+        _MARGIN_MODE_CACHE["ts"] = 0  # Invalidate cache on account switch
 
         return get_account_status()
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/account/margin-mode", methods=["GET", "POST"])
+def account_margin_mode():
+    """
+    Gets or switches the Delta Exchange account margin mode (portfolio vs isolated).
+    """
+    try:
+        creds = load_credentials()
+        active_acct = creds.get("active_account", "main")
+        client = get_client(account=active_acct)
+
+        if request.method == "POST":
+            data = request.get_json() or {}
+            target_mode = (data.get("margin_mode") or "").strip().lower()
+            if target_mode not in ("portfolio", "isolated", "cross"):
+                return jsonify({"success": False, "error": "Margin mode must be 'portfolio', 'cross', or 'isolated'."}), 400
+
+            prof_res = client.request("GET", "/v2/profile", auth=True).json().get("result", {})
+            sub_id = prof_res.get("id")
+
+            try:
+                res = client.change_margin_mode(target_mode, subaccount_user_id=sub_id)
+                new_mode = target_mode.upper()
+                global _MARGIN_MODE_CACHE
+                _MARGIN_MODE_CACHE = {"mode": new_mode, "account": active_acct, "ts": time.time()}
+                return jsonify({"success": True, "margin_mode": new_mode, "active_account": active_acct, "data": res})
+            except Exception as m_err:
+                err_msg = str(m_err)
+                if "same_margin_mode" in err_msg:
+                    new_mode = target_mode.upper()
+                    _MARGIN_MODE_CACHE = {"mode": new_mode, "account": active_acct, "ts": time.time()}
+                    return jsonify({"success": True, "margin_mode": new_mode, "active_account": active_acct, "message": f"Already set to {new_mode} margin mode."})
+                return jsonify({"success": False, "error": err_msg}), 400
+        else:
+            mode = get_current_margin_mode(active_acct, force_refresh=True)
+            return jsonify({"success": True, "margin_mode": mode, "active_account": active_acct})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1116,6 +1222,8 @@ def start_market_making_trade():
             account=account
         )
         return jsonify({"success": True, "trade": cycle.to_dict()})
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1141,10 +1249,11 @@ def upload_trade_limit_price():
         data = request.get_json() or {}
         trade_id = data.get("trade_id")
         price = data.get("price")
+        side = data.get("side")
         if not trade_id or price is None:
             return jsonify({"success": False, "error": "'trade_id' and 'price' are required."}), 400
 
-        res = mm_engine.upload_price(trade_id, float(price))
+        res = mm_engine.upload_price(trade_id, float(price), side=side)
         return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

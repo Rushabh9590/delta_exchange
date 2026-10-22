@@ -11,6 +11,10 @@ let mmLastData = null;
 let mmOnlyQualified = true;
 let mmSearchTerm = '';
 let mmIsLoading = false;
+let mmQualifiedSymbolsOrder = [];
+
+// High-speed In-Memory L2 Order Book Map for live streaming (sym -> { bids: Map, asks: Map, lastBid: num, lastAsk: num })
+const mmOrderBooks = new Map();
 
 window.profileLotSizeBtc = 1;
 window.profileLotSizeEth = 1;
@@ -50,6 +54,9 @@ async function initMarketMakingModule() {
       if (profRes && profRes.success) {
         window.profileLotSizeBtc = profRes.lot_size_btc || 1;
         window.profileLotSizeEth = profRes.lot_size_eth || 1;
+        if (typeof renderMmTableRows === 'function') {
+          renderMmTableRows();
+        }
 
         const tgCfg = profRes.telegram;
         if (tgCfg) {
@@ -111,10 +118,40 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
     });
 
     if (data && data.success) {
+      if (!isBackground) {
+        mmOrderBooks.clear();
+      }
       mmLastData = data;
+      // Pre-seed mmOrderBooks from initial quotes
+      if (Array.isArray(data.all_strikes)) {
+        data.all_strikes.forEach(item => {
+          if (item && item.symbol) {
+            const symUpper = item.symbol.toUpperCase();
+            const b = item.bid > 0 ? item.bid : 0;
+            const a = item.ask > 0 ? item.ask : 0;
+            const bidsMap = new Map();
+            const asksMap = new Map();
+            if (b > 0) bidsMap.set(b, 1);
+            if (a > 0) asksMap.set(a, 1);
+            mmOrderBooks.set(symUpper, {
+              bids: bidsMap,
+              asks: asksMap,
+              lastBid: b,
+              lastAsk: a
+            });
+          }
+        });
+      }
       mmSelectedExpiry = data.selected_expiry || mmSelectedExpiry;
+      const incomingQualSyms = (data.qualified_strikes || []).map(x => x.symbol);
+      incomingQualSyms.forEach(sym => {
+        if (!mmQualifiedSymbolsOrder.includes(sym)) {
+          mmQualifiedSymbolsOrder.push(sym);
+        }
+      });
+      mmQualifiedSymbolsOrder = mmQualifiedSymbolsOrder.filter(sym => incomingQualSyms.includes(sym));
       populateMmExpiries(data.expiries || [], mmSelectedExpiry);
-      renderMarketMakingView(data);
+      renderMarketMakingView(data, isBackground);
 
       // Subscribe all option symbols to the Delta WebSocket tick stream
       subscribeAllMmOptionSymbols(data.all_strikes || []);
@@ -158,13 +195,30 @@ function populateMmExpiries(expiries, selected) {
   const sel = document.getElementById('mmSelExpiry');
   if (!sel) return;
 
-  sel.innerHTML = '';
-
   if (!expiries || expiries.length === 0) {
     sel.innerHTML = '<option value="">No active expiries</option>';
     return;
   }
 
+  // Check if existing options match expiries to prevent recreating elements on every background sync
+  const currentOptions = Array.from(sel.options).map(o => o.value);
+  const newOptions = expiries.map(e => e.expiry);
+  const isSame = currentOptions.length === newOptions.length && currentOptions.every((v, i) => v === newOptions[i]);
+
+  if (isSame) {
+    // Only update option label text if changed
+    expiries.forEach((exp, idx) => {
+      const opt = sel.options[idx];
+      const newText = `${exp.label || exp.expiry} (${exp.total_strikes || 0} strikes)`;
+      if (opt.textContent !== newText) opt.textContent = newText;
+    });
+    if (selected && sel.value !== selected) {
+      sel.value = selected;
+    }
+    return;
+  }
+
+  sel.innerHTML = '';
   expiries.forEach(exp => {
     const opt = document.createElement('option');
     opt.value = exp.expiry;
@@ -184,7 +238,7 @@ function populateMmExpiries(expiries, selected) {
 /**
  * Renders the Market Making table and summary metric statistics
  */
-function renderMarketMakingView(data) {
+function renderMarketMakingView(data, isBackground = false) {
   if (!data) return;
 
   const summary = data.summary || {};
@@ -210,16 +264,21 @@ function renderMarketMakingView(data) {
     elMaxEdge.textContent = `${(summary.max_net_edge_pct || 0).toFixed(1)}%`;
   }
 
-
-  // Drawer Badge
+  // Badges (Drawer and Top Nav)
+  const qCount = summary.total_qualified || 0;
+  const elNavBadge = document.getElementById('navMmBadge');
+  if (elNavBadge) elNavBadge.textContent = `${qCount} Opps`;
   const elDrawerBadge = document.getElementById('drawerMmBadge');
-  if (elDrawerBadge) {
-    const qCount = summary.total_qualified || 0;
-    elDrawerBadge.textContent = `${qCount} Opps`;
-  }
+  if (elDrawerBadge) elDrawerBadge.textContent = `${qCount} Opps`;
 
-  // Render Table
-  renderMmTableRows();
+  // Render or Reconcile Table
+  const tbody = document.getElementById('mmTbody');
+  const needsFullRender = !isBackground || !tbody || tbody.children.length === 0 || tbody.querySelector('td[colspan]');
+  if (needsFullRender) {
+    renderMmTableRows();
+  } else {
+    reconcileMmTableRows();
+  }
 }
 
 /**
@@ -246,6 +305,66 @@ function toggleMmOnlyQualified(isChecked) {
 }
 
 /**
+ * Returns qualified strikes preserving arrival order (oldest at top, newly qualified appended at bottom)
+ */
+function getStableQualifiedStrikes() {
+  if (!mmLastData || !mmLastData.all_strikes) return [];
+  const qualMap = new Map();
+  mmLastData.all_strikes.forEach(x => {
+    if (x.qualified) qualMap.set(x.symbol, x);
+  });
+
+  const stableList = [];
+  mmQualifiedSymbolsOrder.forEach(sym => {
+    if (qualMap.has(sym)) {
+      stableList.push(qualMap.get(sym));
+      qualMap.delete(sym);
+    }
+  });
+
+  // Any newly qualified strikes not yet in order: append at the bottom
+  qualMap.forEach(item => {
+    stableList.push(item);
+    mmQualifiedSymbolsOrder.push(item.symbol);
+  });
+
+  return stableList;
+}
+
+/**
+ * Determines which strikes should be displayed based on filters and search
+ */
+function getStrikesToDisplay() {
+  if (!mmLastData) return [];
+  const chk = document.getElementById('mmChkOnlyQual');
+  if (chk) mmOnlyQualified = chk.checked;
+
+  const all = mmLastData.all_strikes || [];
+  const qual = getStableQualifiedStrikes();
+
+  // If user entered a search query, search all strikes so they can find ANY strike (like 81800)
+  if (mmSearchTerm && mmSearchTerm.trim()) {
+    const term = mmSearchTerm.trim().toLowerCase();
+    const allMatches = all.filter(item => {
+      const sym = (item.symbol || '').toLowerCase();
+      const st = String(item.strike || '');
+      return sym.includes(term) || st.includes(term);
+    });
+
+    if (!mmOnlyQualified) return allMatches;
+
+    // In 'Show Only Qualified' mode:
+    // If any qualified strikes match, show them;
+    // If NO qualified strikes match the query (e.g. searching 81800 before it qualifies),
+    // display all matching strikes with their status/reasons so the user can see exact live values!
+    const qualMatches = allMatches.filter(x => x.qualified);
+    return qualMatches.length > 0 ? qualMatches : allMatches;
+  }
+
+  return mmOnlyQualified ? qual : all;
+}
+
+/**
  * Renders individual table rows based on filters and search
  */
 function renderMmTableRows() {
@@ -254,21 +373,7 @@ function renderMmTableRows() {
   const tbody = document.getElementById('mmTbody');
   if (!tbody) return;
 
-  const chk = document.getElementById('mmChkOnlyQual');
-  if (chk) mmOnlyQualified = chk.checked;
-
-  const list = mmOnlyQualified ? (mmLastData.qualified_strikes || []) : (mmLastData.all_strikes || []);
-
-  // Apply Strike / Symbol Search Filter
-  let filtered = list;
-  if (mmSearchTerm && mmSearchTerm.trim()) {
-    const term = mmSearchTerm.trim().toLowerCase();
-    filtered = list.filter(item => {
-      const sym = (item.symbol || '').toLowerCase();
-      const st = String(item.strike || '');
-      return sym.includes(term) || st.includes(term);
-    });
-  }
+  const filtered = getStrikesToDisplay();
 
   if (filtered.length === 0) {
     tbody.innerHTML = `
@@ -291,6 +396,263 @@ function renderMmTableRows() {
 }
 
 /**
+ * Smoothly reconciles the table DOM during background updates:
+ * - Appends newly qualified strikes seamlessly without reload
+ * - Removes strikes that no longer match criteria
+ * - In-place updates prices, edges, badges, and action buttons without flicker
+ */
+function reconcileMmTableRows() {
+  const tbody = document.getElementById('mmTbody');
+  if (!tbody) return;
+
+  const targetList = getStrikesToDisplay();
+  const hasPlaceholder = tbody.children.length === 0 || tbody.querySelector('td[colspan]');
+
+  if (hasPlaceholder) {
+    if (targetList.length > 0) {
+      renderMmTableRows();
+    }
+    return;
+  }
+
+  if (targetList.length === 0) {
+    renderMmTableRows();
+    return;
+  }
+
+  // Target symbols map
+  const targetMap = new Map();
+  targetList.forEach(item => {
+    if (item && item.symbol) {
+      targetMap.set(item.symbol.toUpperCase(), item);
+    }
+  });
+
+  // 1. Remove rows no longer in target list
+  const domRows = Array.from(tbody.querySelectorAll('tr[id^="mmRow_"]'));
+  domRows.forEach(row => {
+    const sym = (row.getAttribute('data-symbol') || '').toUpperCase();
+    if (sym && !targetMap.has(sym)) {
+      row.remove();
+    }
+  });
+
+  // 2. Add newly qualified / matching rows or update existing rows in-place
+  targetList.forEach(item => {
+    if (!item || !item.symbol) return;
+    const sym = item.symbol.toUpperCase();
+    const existingRow = document.getElementById(`mmRow_${sym}`);
+    if (!existingRow) {
+      // Newly qualified strike! Append to table
+      tbody.insertAdjacentHTML('beforeend', buildMmRowHtml(item));
+    } else {
+      // Existing row: update in-place
+      updateMmRowInPlace(item, sym, existingRow);
+    }
+  });
+}
+
+/**
+ * Checks if a strike symbol has an active MM trade cycle OR an open position
+ * to avoid duplicate trading.
+ */
+function getActiveTradeOrPositionForSymbol(symbol) {
+  if (!symbol) return null;
+  const sym = String(symbol).toUpperCase().trim();
+
+  // 1. Check active 1-Lot MM Trade Cycles
+  if (Array.isArray(mmActiveTradesCache)) {
+    const activeMm = mmActiveTradesCache.find(t => 
+      t && t.symbol && t.symbol.toUpperCase().trim() === sym &&
+      t.is_running && !['COMPLETED_PROFIT', 'COMPLETED_COST', 'CANCELLED', 'ERROR'].includes(t.state)
+    );
+    if (activeMm) {
+      let stateLabel = 'IN TRADE';
+      const totSz = activeMm.total_size || activeMm.size || 1;
+      const bFill = activeMm.buy_filled_qty || 0;
+      const sFill = activeMm.sell_filled_qty || 0;
+
+      if (activeMm.state === 'DUAL_ACTIVE') stateLabel = `DUAL B:${bFill}/${totSz} S:${sFill}`;
+      else if (activeMm.state === 'BUY_PARTIAL') stateLabel = `BUY ${bFill}/${totSz}`;
+      else if (activeMm.state === 'BUY_OPEN' || activeMm.state === 'PLACING_BUY') stateLabel = 'BUY PEG';
+      else if (activeMm.state === 'BUY_FILLED') stateLabel = 'BUY FILLED';
+      else if (activeMm.state === 'SELL_PARTIAL') stateLabel = `SELL ${sFill}/${activeMm.size || totSz}`;
+      else if (activeMm.state === 'SELL_OPEN' || activeMm.state === 'PLACING_SELL') stateLabel = 'SELL PEG';
+      else if (activeMm.state === 'WAITING_COST_TO_COST') stateLabel = 'COST-TO-COST';
+      return {
+        type: 'mm',
+        trade: activeMm,
+        label: stateLabel,
+        desc: `Active MM Trade Cycle (${stateLabel}) running on ${activeMm.symbol}`
+      };
+    }
+  }
+
+  // 2. Check open positions on account
+  if (typeof currentPositions !== 'undefined' && Array.isArray(currentPositions)) {
+    const openPos = currentPositions.find(p => {
+      const pSym = (p.symbol || p.product_symbol || (p.product && p.product.symbol) || '').toUpperCase().trim();
+      const size = Math.abs(parseFloat(p.size || p.contracts || 0));
+      return pSym === sym && size > 0;
+    });
+    if (openPos) {
+      const side = parseFloat(openPos.size) > 0 ? 'LONG' : 'SHORT';
+      return {
+        type: 'position',
+        position: openPos,
+        label: `OPEN ${side}`,
+        desc: `Open ${side} position (${Math.abs(openPos.size)} contracts) on ${sym}`
+      };
+    }
+  }
+
+  return null;
+}
+
+let _lastInTradeClickTs = 0;
+let _lastInTradeClickSym = '';
+
+/**
+ * Click handler when clicking an 'IN TRADE' button on a strike that is already trading.
+ * Smoothly scrolls to the active trade card and informs user that duplicates are blocked.
+ */
+function handleActiveTradeBtnClick(symbol) {
+  const now = Date.now();
+  if (_lastInTradeClickSym === symbol && (now - _lastInTradeClickTs) < 800) {
+    return; // Prevent duplicate rapid clicks or bubbled events
+  }
+  _lastInTradeClickTs = now;
+  _lastInTradeClickSym = symbol;
+
+  const panel = document.getElementById('mmActiveTradesPanel');
+  if (panel && panel.style.display !== 'none') {
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const symClean = String(symbol || '').toUpperCase().trim();
+    const cards = panel.querySelectorAll('.mm-trade-card');
+    let matchedCard = null;
+    cards.forEach(c => {
+      const symEl = c.querySelector('.mm-trade-symbol');
+      if (symEl && symEl.textContent.trim().toUpperCase() === symClean) {
+        matchedCard = c;
+      }
+    });
+    const target = matchedCard || panel;
+    target.classList.add('highlight-pulse');
+    setTimeout(() => target.classList.remove('highlight-pulse'), 1800);
+  }
+  if (typeof showToast === 'function') {
+    showToast(`⚡ ${symbol} is already active in a live MM trade cycle! Duplicate trade prevented.`, 'info');
+  }
+}
+
+/**
+ * Resolves the dynamic lot size label for action buttons based on user profile settings (.env)
+ */
+function getMmButtonLabel(symbol) {
+  const isBtc = (symbol || '').toUpperCase().includes('BTC');
+  const lotSize = isBtc ? (window.profileLotSizeBtc || 1) : (window.profileLotSizeEth || 1);
+  return `⚡ ${lotSize}-Lot MM`;
+}
+
+/**
+ * Updates a single strike row in-place with latest metrics and button states.
+ */
+function updateMmRowInPlace(item, sym, elRow) {
+  if (!item) return;
+  sym = (sym || item.symbol || '').toUpperCase();
+  elRow = elRow || document.getElementById(`mmRow_${sym}`);
+  if (!elRow) return;
+
+  elRow.style.display = '';
+
+  const elBid = document.getElementById(`mmBid_${sym}`);
+  if (elBid) elBid.textContent = item.bid > 0 ? item.bid.toFixed(2) : '--';
+
+  const elAsk = document.getElementById(`mmAsk_${sym}`);
+  if (elAsk) elAsk.textContent = item.ask > 0 ? item.ask.toFixed(2) : '--';
+
+  const elSpread = document.getElementById(`mmSpread_${sym}`);
+  if (elSpread) elSpread.textContent = item.spread > 0 ? item.spread.toFixed(2) : '--';
+
+  const elTicks = document.getElementById(`mmTicks_${sym}`);
+  if (elTicks) elTicks.textContent = (item.spread_ticks !== null && item.spread_ticks !== undefined) ? item.spread_ticks.toFixed(1) : '0.0';
+
+  const elMid = document.getElementById(`mmMid_${sym}`);
+  if (elMid) elMid.textContent = item.mid_price > 0 ? item.mid_price.toFixed(2) : '--';
+
+  const elEdge = document.getElementById(`mmEdge_${sym}`);
+  if (elEdge) elEdge.textContent = (item.net_edge !== null && item.net_edge !== undefined) ? item.net_edge.toFixed(2) : '--';
+
+  const elEdgePct = document.getElementById(`mmEdgePct_${sym}`);
+  if (elEdgePct) {
+    const pct = item.net_edge_pct !== null && item.net_edge_pct !== undefined ? item.net_edge_pct : 0;
+    elEdgePct.textContent = `${pct.toFixed(1)}%`;
+    elEdgePct.className = `col-edgepct text-right ${pct >= 50 ? 'edge-highlight-high' : (pct >= 25 ? 'edge-highlight-med' : '')}`;
+  }
+
+  const isMaxOi = !!item.oi_reduce_only_mode;
+  const activeInfo = getActiveTradeOrPositionForSymbol(sym);
+  const isInTrade = !!activeInfo;
+
+  const elStatus = document.getElementById(`mmStatus_${sym}`);
+  if (elStatus) {
+    const isQualStr = String(item.qualified === true);
+    if (elRow.dataset.qualified !== isQualStr || elRow.dataset.maxOi !== String(isMaxOi)) {
+      elRow.dataset.qualified = isQualStr;
+      elRow.dataset.maxOi = String(isMaxOi);
+      const statusBadge = isMaxOi
+        ? `<span class="mm-status-badge mm-status-fail" style="background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4);" title="Delta Exchange Max Open Interest Breached. Only reduce-only orders allowed. Fresh positions blocked.">⛔ MAX OI</span>`
+        : item.qualified
+        ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
+        : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
+      elStatus.innerHTML = statusBadge;
+    }
+  }
+
+  const elAction = document.getElementById(`mmAction_${sym}`);
+  if (elAction) {
+    const inTradeStr = String(isInTrade);
+    const existingBtn = elAction.querySelector('.mm-btn-1lot');
+    if (elRow.dataset.inTrade !== inTradeStr || !existingBtn) {
+      elRow.dataset.inTrade = inTradeStr;
+      const btnLabel = getMmButtonLabel(sym);
+      elAction.innerHTML = isMaxOi
+        ? `<button type="button" class="mm-btn-1lot" disabled style="opacity:0.55; cursor:not-allowed; background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.3); color:#fca5a5;" title="Delta Exchange has restricted this strike to Reduce-Only (Max Open Interest reached). Fresh positions cannot be opened.">
+             <span>⛔ MAX OI</span>
+           </button>`
+        : isInTrade
+        ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${sym}" onclick="handleActiveTradeBtnClick('${sym}')" title="${activeInfo.desc} • Duplicate trade blocked">
+             <span>⚡ IN TRADE</span>
+           </button>`
+        : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${sym}" onclick="open1LotMmModalBySymbol('${sym}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
+             <span>${btnLabel}</span>
+           </button>`;
+    }
+  }
+
+  elRow.classList.toggle('row-qualified', !!item.qualified);
+  elRow.classList.toggle('row-in-trade', isInTrade);
+  elRow.classList.toggle('row-max-oi', isMaxOi);
+}
+
+/**
+ * Scans all rows currently rendered in the Market Making strikes table
+ * and updates their Status badge, metrics, and Action button according to live trade/position state.
+ */
+function updateStrikesTableActiveTradeStatus() {
+  const tbody = document.getElementById('mmTbody');
+  if (!tbody || !mmLastData || !mmLastData.all_strikes) return;
+
+  mmLastData.all_strikes.forEach(item => {
+    if (!item || !item.symbol) return;
+    const sym = item.symbol.toUpperCase();
+    const row = document.getElementById(`mmRow_${sym}`);
+    if (!row) return;
+    updateMmRowInPlace(item, sym, row);
+  });
+}
+
+/**
  * Constructs HTML string for a single strike row
  */
 function buildMmRowHtml(item) {
@@ -298,12 +660,23 @@ function buildMmRowHtml(item) {
   const isCall = item.option_type === 'CALL';
   const typeClass = isCall ? 'mm-type-ce' : 'mm-type-pe';
   const badgeText = isCall ? 'CALL' : 'PUT';
-  const rowClass = isQual ? 'row-qualified' : '';
+
+  const isMaxOi = !!item.oi_reduce_only_mode;
+  const activeInfo = getActiveTradeOrPositionForSymbol(item.symbol);
+  const isInTrade = !!activeInfo;
+
+  const rowClasses = [
+    isQual ? 'row-qualified' : '',
+    isInTrade ? 'row-in-trade' : '',
+    isMaxOi ? 'row-max-oi' : ''
+  ].filter(Boolean).join(' ');
 
   const bid = item.bid !== null && item.bid > 0 ? item.bid.toFixed(2) : '--';
   const ask = item.ask !== null && item.ask > 0 ? item.ask.toFixed(2) : '--';
   const spread = item.spread !== null && item.spread > 0 ? item.spread.toFixed(2) : '--';
-  const tick = item.tick_size ? item.tick_size.toFixed(2) : '0.10';
+  const isEth = (item.underlying === 'ETH') || (item.symbol && item.symbol.includes('ETH'));
+  const tickVal = item.tick_size ? item.tick_size : (isEth ? 0.01 : 0.1);
+  const tick = isEth ? tickVal.toFixed(2) : tickVal.toFixed(1);
   const ticks = item.spread_ticks !== null ? item.spread_ticks.toFixed(1) : '0.0';
   const mid = item.mid_price !== null && item.mid_price > 0 ? item.mid_price.toFixed(2) : '--';
   const netEdge = item.net_edge !== null ? item.net_edge.toFixed(2) : '--';
@@ -313,15 +686,33 @@ function buildMmRowHtml(item) {
   if (item.net_edge_pct >= 50) edgeClass = 'edge-highlight-high';
   else if (item.net_edge_pct >= 25) edgeClass = 'edge-highlight-med';
 
-  const statusBadge = isQual
+  const statusBadge = isMaxOi
+    ? `<span class="mm-status-badge mm-status-fail" style="background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4);" title="Delta Exchange Max Open Interest Breached. Only reduce-only orders allowed. Fresh positions blocked.">⛔ MAX OI</span>`
+    : isQual
     ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
     : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
 
   const asset = item.underlying || (item.symbol && item.symbol.includes('BTC') ? 'BTC' : 'ETH');
   const assetTag = `<span class="mm-asset-tag ${asset === 'ETH' ? 'tag-eth' : 'tag-btc'}" style="font-size:0.65rem; font-weight:700; padding:1px 5px; border-radius:3px; margin-right:5px; letter-spacing:0.3px; ${asset === 'ETH' ? 'background:rgba(99,102,241,0.18); color:#a5b4fc; border:1px solid rgba(99,102,241,0.35);' : 'background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.35);'}">${asset}</span>`;
 
+  const btnLabel = getMmButtonLabel(item.symbol);
+  const inTradeStr = String(isInTrade);
+  const isQualStr = String(isQual);
+
+  const actionButton = isMaxOi
+    ? `<button type="button" class="mm-btn-1lot" disabled style="opacity:0.55; cursor:not-allowed; background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.3); color:#fca5a5;" title="Delta Exchange has restricted this strike to Reduce-Only (Max Open Interest reached). Fresh positions cannot be opened.">
+         <span>⛔ MAX OI</span>
+       </button>`
+    : isInTrade
+    ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${item.symbol}" onclick="handleActiveTradeBtnClick('${item.symbol}')" title="${activeInfo.desc} • Duplicate trade blocked">
+         <span>⚡ IN TRADE</span>
+       </button>`
+    : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${item.symbol}" onclick="open1LotMmModalBySymbol('${item.symbol}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
+         <span>${btnLabel}</span>
+       </button>`;
+
   return `
-    <tr id="mmRow_${item.symbol}" class="${rowClass}">
+    <tr id="mmRow_${item.symbol}" class="${rowClasses}" data-symbol="${item.symbol}" data-in-trade="${inTradeStr}" data-qualified="${isQualStr}">
       <td class="col-symbol text-left font-mono" style="font-weight: 600; font-size: 0.76rem; letter-spacing: -0.2px;">${assetTag}${item.symbol}</td>
       <td class="col-type text-center"><span class="mm-type-badge ${typeClass}">${badgeText}</span></td>
       <td class="col-strike text-right" style="font-weight: 700; color: ${item.is_atm ? 'var(--yellow)' : 'inherit'};">${item.strike}${item.is_atm ? ' (ATM)' : ''}</td>
@@ -334,13 +725,74 @@ function buildMmRowHtml(item) {
       <td class="col-edge text-right" id="mmEdge_${item.symbol}" style="font-weight: 600;">${netEdge}</td>
       <td class="col-edgepct text-right ${edgeClass}" id="mmEdgePct_${item.symbol}" style="font-size: 0.88rem;">${edgePct}</td>
       <td class="col-status text-center" id="mmStatus_${item.symbol}">${statusBadge}</td>
-      <td class="col-action text-center" style="white-space: nowrap;">
-        <button type="button" class="mm-btn-1lot" onclick="open1LotMmModalBySymbol('${item.symbol}')" title="⚡ Launch 1-Lot MM Cycle (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
-          <span>⚡ 1-Lot MM</span>
-        </button>
+      <td class="col-action text-center" id="mmAction_${item.symbol}" style="white-space: nowrap;">
+        ${actionButton}
       </td>
     </tr>
   `;
+}
+
+/**
+ * Real-time Order Book maintainer for Market Making strikes
+ * Processes both L2 snapshots and incremental level updates from Delta Exchange
+ */
+function processMmStrikesL2Update(sym, data) {
+  if (!sym) return null;
+  const symUpper = sym.toUpperCase();
+  let book = mmOrderBooks.get(symUpper);
+  if (!book) {
+    book = { bids: new Map(), asks: new Map(), lastBid: 0, lastAsk: 0 };
+    mmOrderBooks.set(symUpper, book);
+  }
+
+  // 1. Snapshot: reset book
+  if (data.action === 'snapshot') {
+    book.bids.clear();
+    book.asks.clear();
+  }
+
+  // 2. Incremental Bids
+  if (Array.isArray(data.bids)) {
+    for (let i = 0; i < data.bids.length; i++) {
+      const p = parseFloat(data.bids[i][0]);
+      const s = parseFloat(data.bids[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) {
+          book.bids.delete(p);
+        } else {
+          book.bids.set(p, s);
+        }
+      }
+    }
+  }
+
+  // 3. Incremental Asks
+  if (Array.isArray(data.asks)) {
+    for (let i = 0; i < data.asks.length; i++) {
+      const p = parseFloat(data.asks[i][0]);
+      const s = parseFloat(data.asks[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) {
+          book.asks.delete(p);
+        } else {
+          book.asks.set(p, s);
+        }
+      }
+    }
+  }
+
+  let bestBid = null;
+  let bestAsk = null;
+  if (book.bids.size > 0) {
+    bestBid = Math.max(...book.bids.keys());
+    book.lastBid = bestBid;
+  }
+  if (book.asks.size > 0) {
+    bestAsk = Math.min(...book.asks.keys());
+    book.lastAsk = bestAsk;
+  }
+
+  return { bestBid, bestAsk };
 }
 
 /**
@@ -357,9 +809,28 @@ function handleMmStrikesTickUpdate(data) {
   const item = mmLastData.all_strikes.find(x => x && x.symbol && x.symbol.toUpperCase() === sym);
   if (!item) return;
 
+  const msgType = data.type || data.channel || data.name || '';
+  let rawBid = undefined;
+  let rawAsk = undefined;
+
+  // 1. Prioritize official Delta Exchange matching engine top-of-book quotes (from v2/ticker)
   const quotes = data.quotes || {};
-  const rawBid = quotes.best_bid !== undefined ? quotes.best_bid : data.bid;
-  const rawAsk = quotes.best_ask !== undefined ? quotes.best_ask : data.ask;
+  if (quotes.best_bid !== undefined || quotes.best_ask !== undefined) {
+    if (quotes.best_bid !== undefined && quotes.best_bid !== null) rawBid = quotes.best_bid;
+    if (quotes.best_ask !== undefined && quotes.best_ask !== null) rawAsk = quotes.best_ask;
+  } else if (msgType === 'l2_updates' || Array.isArray(data.bids) || Array.isArray(data.asks)) {
+    // 2. Fallback to L2 Orderbook updates
+    const l2Res = processMmStrikesL2Update(sym, data);
+    if (l2Res) {
+      if (l2Res.bestBid !== null) rawBid = l2Res.bestBid;
+      if (l2Res.bestAsk !== null) rawAsk = l2Res.bestAsk;
+    }
+  } else {
+    // 3. Fallback to direct ticker fields
+    if (data.bid !== undefined && data.bid !== null) rawBid = data.bid;
+    if (data.ask !== undefined && data.ask !== null) rawAsk = data.ask;
+  }
+
   const rawLtp = data.close !== undefined ? data.close : data.ltp;
   const rawMark = data.mark_price;
 
@@ -385,12 +856,16 @@ function handleMmStrikesTickUpdate(data) {
 
   if (rawLtp !== undefined && rawLtp !== null) {
     const newLtp = parseFloat(rawLtp);
-    if (!isNaN(newLtp)) item.ltp = newLtp;
+    if (!isNaN(newLtp) && newLtp !== item.ltp) {
+      item.ltp = newLtp;
+    }
   }
 
   if (rawMark !== undefined && rawMark !== null) {
     const newMark = parseFloat(rawMark);
-    if (!isNaN(newMark)) item.mark_price = newMark;
+    if (!isNaN(newMark) && newMark !== item.mark_price) {
+      item.mark_price = newMark;
+    }
   }
 
   if (!changed) return;
@@ -398,9 +873,12 @@ function handleMmStrikesTickUpdate(data) {
   // Recalculate MM criteria in real-time
   const prevQualified = item.qualified === true;
   const criteria = getActiveMmCriteria();
-  const tick = item.tick_size || 0.1;
-  const bid = item.bid;
-  const ask = item.ask;
+
+  // Dynamic Tick Size: ETH options = 0.01, BTC options = 0.1
+  const isEth = (item.underlying === 'ETH') || sym.includes('ETH');
+  const tick = item.tick_size ? item.tick_size : (isEth ? 0.01 : 0.1);
+  const bid = item.bid || 0;
+  const ask = item.ask || 0;
 
   if (bid > 0 && ask > 0 && ask >= bid) {
     item.spread = ask - bid;
@@ -410,6 +888,7 @@ function handleMmStrikesTickUpdate(data) {
     item.spread_ticks = tick > 0 ? (item.spread / tick) : 0.0;
 
     const reasons = [];
+    if (item.oi_reduce_only_mode) reasons.push("Delta Exchange Max OI Breached (Reduce-Only Mode)");
     if (bid < criteria.min_bid_price) reasons.push(`Bid ${bid.toFixed(2)} < ${criteria.min_bid_price}`);
     if (item.spread_ticks < criteria.min_spread_ticks) reasons.push(`Spread Ticks < ${criteria.min_spread_ticks}`);
     if (item.net_edge_pct < criteria.min_net_edge_pct) reasons.push(`Net Edge % < ${criteria.min_net_edge_pct}%`);
@@ -429,10 +908,22 @@ function handleMmStrikesTickUpdate(data) {
   const isNowQualified = item.qualified === true;
   const qualStatusChanged = (prevQualified !== isNowQualified);
 
-  // Update mmLastData.qualified_strikes list
-  mmLastData.qualified_strikes = mmLastData.all_strikes
-    .filter(x => x.qualified)
-    .sort((a, b) => b.net_edge_pct - a.net_edge_pct || b.spread_ticks - a.spread_ticks);
+  // Update mmQualifiedSymbolsOrder:
+  // - If newly qualified: ALWAYS append to the end (bottom)!
+  // - If disqualified: remove from order
+  if (isNowQualified) {
+    if (!mmQualifiedSymbolsOrder.includes(sym)) {
+      mmQualifiedSymbolsOrder.push(sym);
+    }
+  } else {
+    const oIdx = mmQualifiedSymbolsOrder.indexOf(sym);
+    if (oIdx !== -1) {
+      mmQualifiedSymbolsOrder.splice(oIdx, 1);
+    }
+  }
+
+  // Update mmLastData.qualified_strikes preserving arrival order (newest at bottom)
+  mmLastData.qualified_strikes = getStableQualifiedStrikes();
 
   // Update Summary Metrics
   const qualCount = mmLastData.qualified_strikes.length;
@@ -451,6 +942,8 @@ function handleMmStrikesTickUpdate(data) {
   const elMaxEdge = document.getElementById('mmStatMaxEdge');
   if (elMaxEdge) elMaxEdge.textContent = `${maxEdge.toFixed(1)}%`;
 
+  const elNavBadge = document.getElementById('navMmBadge');
+  if (elNavBadge) elNavBadge.textContent = `${qualCount} Opps`;
   const elDrawerBadge = document.getElementById('drawerMmBadge');
   if (elDrawerBadge) elDrawerBadge.textContent = `${qualCount} Opps`;
 
@@ -461,83 +954,53 @@ function handleMmStrikesTickUpdate(data) {
   }
 
   const elRow = document.getElementById(`mmRow_${sym}`);
+  const tbody = document.getElementById('mmTbody');
 
-  // Auto-render rows dynamically when qualification status changes
-  if (mmOnlyQualified) {
-    // 1. If contract is qualified but missing from table DOM or just qualified, render immediately!
-    if (isNowQualified && (!elRow || qualStatusChanged)) {
-      renderMmTableRows();
-      const newRow = document.getElementById(`mmRow_${sym}`);
-      if (newRow) {
-        const flashClass = isBidHigher ? 'tick-flash-up' : 'tick-flash-down';
-        newRow.classList.add(flashClass);
-        setTimeout(() => newRow.classList.remove(flashClass), 500);
+  // If search filter is active, check if this contract matches the search term
+  if (mmSearchTerm && mmSearchTerm.trim()) {
+    const term = mmSearchTerm.trim().toLowerCase();
+    const matchesSearch = sym.toLowerCase().includes(term) || String(item.strike || '').includes(term);
+    if (!matchesSearch) {
+      if (elRow) elRow.remove();
+      return;
+    }
+  }
+
+  // If in 'Show Only Qualified' mode (and no search query overriding it), handle dynamic row entry/exit seamlessly
+  if (mmOnlyQualified && (!mmSearchTerm || !mmSearchTerm.trim())) {
+    if (isNowQualified && !elRow) {
+      // Newly qualified strike! If table currently has empty placeholder, re-render
+      if (tbody && tbody.querySelector('td[colspan]')) {
+        renderMmTableRows();
+        return;
+      } else if (tbody) {
+        tbody.insertAdjacentHTML('beforeend', buildMmRowHtml(item));
+        return;
+      }
+    } else if (!isNowQualified && elRow) {
+      // Strike fell out of qualification
+      elRow.remove();
+      if (tbody && tbody.children.length === 0) {
+        renderMmTableRows();
       }
       return;
     }
-
-    // 2. If contract disqualified and was in the table:
-    if (!isNowQualified && (elRow || qualStatusChanged)) {
-      renderMmTableRows();
-      return;
-    }
-
-    // 3. If unqualified and not displayed, done
-    if (!isNowQualified) {
-      return;
-    }
-  } else {
-    // When showing ALL strikes:
-    if (!elRow) {
-      renderMmTableRows();
-      return;
-    }
   }
 
-  // Update existing row in-place for 0-latency microsecond rendering
-  if (elRow) {
-    elRow.style.display = '';
-
-    const elBid = document.getElementById(`mmBid_${sym}`);
-    if (elBid) elBid.textContent = item.bid > 0 ? item.bid.toFixed(2) : '--';
-
-    const elAsk = document.getElementById(`mmAsk_${sym}`);
-    if (elAsk) elAsk.textContent = item.ask > 0 ? item.ask.toFixed(2) : '--';
-
-    const elSpread = document.getElementById(`mmSpread_${sym}`);
-    if (elSpread) elSpread.textContent = item.spread > 0 ? item.spread.toFixed(2) : '--';
-
-    const elTicks = document.getElementById(`mmTicks_${sym}`);
-    if (elTicks) elTicks.textContent = item.spread_ticks.toFixed(1);
-
-    const elMid = document.getElementById(`mmMid_${sym}`);
-    if (elMid) elMid.textContent = item.mid_price > 0 ? item.mid_price.toFixed(2) : '--';
-
-    const elEdge = document.getElementById(`mmEdge_${sym}`);
-    if (elEdge) elEdge.textContent = item.net_edge.toFixed(2);
-
-    const elEdgePct = document.getElementById(`mmEdgePct_${sym}`);
-    if (elEdgePct) {
-      elEdgePct.textContent = `${item.net_edge_pct.toFixed(1)}%`;
-      elEdgePct.className = `text-right ${item.net_edge_pct >= 50 ? 'edge-highlight-high' : (item.net_edge_pct >= 25 ? 'edge-highlight-med' : '')}`;
+  if (!elRow) {
+    // If not in DOM, check if it should now be added
+    if (isNowQualified || (mmSearchTerm && mmSearchTerm.trim())) {
+      if (tbody && tbody.querySelector('td[colspan]')) {
+        renderMmTableRows();
+      } else if (tbody) {
+        tbody.insertAdjacentHTML('beforeend', buildMmRowHtml(item));
+      }
     }
-
-    const elStatus = document.getElementById(`mmStatus_${sym}`);
-    if (elStatus) {
-      elStatus.innerHTML = item.qualified
-        ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
-        : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
-    }
-
-    elRow.className = item.qualified ? 'row-qualified' : '';
-
-    // Micro-animation flash indicating live tick received
-    const flashClass = isBidHigher ? 'tick-flash-up' : 'tick-flash-down';
-    elRow.classList.add(flashClass);
-    setTimeout(() => {
-      elRow.classList.remove(flashClass);
-    }, 180);
+    return;
   }
+
+  // Update existing row in-place for 0-latency microsecond rendering with ZERO table rebuilds
+  updateMmRowInPlace(item, sym, elRow);
 }
 
 /**
@@ -573,22 +1036,38 @@ function onMmCriteriaChange() {
     // Instantly re-evaluate all strikes in memory with new criteria
     const criteria = getActiveMmCriteria();
     mmLastData.all_strikes.forEach(item => {
+      const isEth = (item.underlying === 'ETH') || (item.symbol && item.symbol.includes('ETH'));
+      const tick = item.tick_size ? item.tick_size : (isEth ? 0.01 : 0.1);
       const bid = item.bid || 0;
-      const ticks = item.spread_ticks || 0;
-      const edge = item.net_edge_pct || 0;
+      const ask = item.ask || 0;
 
-      const reasons = [];
-      if (bid < criteria.min_bid_price) reasons.push(`Bid < ${criteria.min_bid_price}`);
-      if (ticks < criteria.min_spread_ticks) reasons.push(`Spread Ticks < ${criteria.min_spread_ticks}`);
-      if (edge < criteria.min_net_edge_pct) reasons.push(`Net Edge % < ${criteria.min_net_edge_pct}%`);
+      if (bid > 0 && ask > 0 && ask >= bid) {
+        item.spread = ask - bid;
+        item.mid_price = (bid + ask) / 2.0;
+        item.net_edge = item.spread - (2.0 * tick);
+        item.net_edge_pct = item.mid_price > 0 ? (item.net_edge / item.mid_price * 100.0) : 0.0;
+        item.spread_ticks = tick > 0 ? (item.spread / tick) : 0.0;
 
-      item.qualified = (bid > 0 && item.ask > 0 && reasons.length === 0);
-      item.reasons_failed = reasons;
+        const reasons = [];
+        if (item.oi_reduce_only_mode) reasons.push("Delta Exchange Max OI Breached (Reduce-Only Mode)");
+        if (bid < criteria.min_bid_price) reasons.push(`Bid ${bid.toFixed(2)} < ${criteria.min_bid_price}`);
+        if (item.spread_ticks < criteria.min_spread_ticks) reasons.push(`Spread Ticks < ${criteria.min_spread_ticks}`);
+        if (item.net_edge_pct < criteria.min_net_edge_pct) reasons.push(`Net Edge % < ${criteria.min_net_edge_pct}%`);
+
+        item.qualified = (reasons.length === 0);
+        item.reasons_failed = reasons;
+      } else {
+        item.spread = 0;
+        item.mid_price = 0;
+        item.net_edge = 0;
+        item.net_edge_pct = 0;
+        item.spread_ticks = 0;
+        item.qualified = false;
+        item.reasons_failed = ['No valid bid/ask quotes'];
+      }
     });
 
-    mmLastData.qualified_strikes = mmLastData.all_strikes
-      .filter(x => x.qualified)
-      .sort((a, b) => b.net_edge_pct - a.net_edge_pct || b.spread_ticks - a.spread_ticks);
+    mmLastData.qualified_strikes = getStableQualifiedStrikes();
 
     mmLastData.summary = {
       total_scanned: mmLastData.all_strikes.length,
@@ -678,7 +1157,15 @@ let mmTradePollTimer = null;
  */
 function open1LotMmModalBySymbol(symbol) {
   if (!symbol) return;
-  const sym = symbol.toUpperCase();
+  const sym = symbol.toUpperCase().trim();
+
+  // Guard against starting duplicate trade on active strike
+  const activeInfo = getActiveTradeOrPositionForSymbol(sym);
+  if (activeInfo) {
+    handleActiveTradeBtnClick(sym);
+    return;
+  }
+
   let item = null;
 
   if (mmLastData && mmLastData.all_strikes) {
@@ -687,6 +1174,14 @@ function open1LotMmModalBySymbol(symbol) {
 
   if (!item) {
     if (typeof showToast === 'function') showToast(`Could not find details for ${sym}`, 'error');
+    return;
+  }
+
+  // Guard against Max OI Breached (Delta Exchange Reduce-Only Mode)
+  if (item.oi_reduce_only_mode) {
+    if (typeof showToast === 'function') {
+      showToast(`⛔ ${sym} cannot be traded: Delta Exchange has placed this strike into Reduce-Only mode because Max Open Interest is breached. Please choose an adjacent strike.`, 'error');
+    }
     return;
   }
 
@@ -706,7 +1201,8 @@ function open1LotMmModalBySymbol(symbol) {
     elAccount.textContent = activeAcct;
   }
 
-  const tick = item.tick_size || 0.1;
+  const isEth = (item.underlying === 'ETH') || (item.symbol && item.symbol.includes('ETH'));
+  const tick = item.tick_size ? item.tick_size : (isEth ? 0.01 : 0.1);
   const bidVal = item.bid !== null && item.bid > 0 ? item.bid : 0;
   const askVal = item.ask !== null && item.ask > 0 ? item.ask : 0;
 
@@ -790,6 +1286,20 @@ async function confirmAndLaunch1LotTrade() {
 
   const selectedSymbol = mmSelectedTradeItem ? mmSelectedTradeItem.symbol : '';
 
+  // Prevent duplicate trade execution if trade cycle is already active
+  const activeInfo = getActiveTradeOrPositionForSymbol(selectedSymbol);
+  if (activeInfo) {
+    if (typeof showToast === 'function') {
+      showToast(`⚠️ Cannot start trade: ${selectedSymbol} is already active (${activeInfo.label})! Duplicate trade blocked.`, 'error');
+    }
+    close1LotMmModal();
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = `⚡ Launch MM Order (${tradeSize} Lot${tradeSize > 1 ? 's' : ''})`;
+    }
+    return;
+  }
+
   try {
     const payload = {
       symbol: selectedSymbol,
@@ -855,6 +1365,7 @@ function renderActiveMmTrades(trades) {
   if (activeTrades.length === 0) {
     panel.style.display = 'none';
     listEl.innerHTML = '';
+    updateStrikesTableActiveTradeStatus();
     return;
   }
 
@@ -865,10 +1376,26 @@ function renderActiveMmTrades(trades) {
     let stateBadge = '';
     let cardClass = 'mm-trade-card';
 
-    if (t.state === 'BUY_OPEN' || t.state === 'PLACING_BUY') {
+    if (t.state === 'DUAL_ACTIVE') {
+      const tot = t.total_size || t.size || 1;
+      const bFill = t.buy_filled_qty || 0;
+      const sFill = t.sell_filled_qty || 0;
+      const sPlaced = t.sell_placed_qty || (bFill - sFill);
+      const bPrice = t.buy_limit_price ? `$${t.buy_limit_price.toFixed(2)}` : '--';
+      const sPrice = t.sell_limit_price ? `$${t.sell_limit_price.toFixed(2)}` : '--';
+      stateBadge = `<span class="mm-trade-badge dual" title="Dual-Sided: Resting Buy pegging bid while Sell exit floats at ask">⚡ DUAL: BUY ${bFill}/${tot} @ ${bPrice} | SELL ${sPlaced} Lots @ ${sPrice}</span>`;
+      cardClass += ' dual-active';
+    } else if (t.state === 'BUY_PARTIAL') {
+      const tot = t.total_size || t.size || 1;
+      const filled = t.buy_filled_qty || 0;
+      stateBadge = `<span class="mm-trade-badge buying">⚡ PARTIAL BUY: ${filled}/${tot} Lots Filled @ $${t.buy_fill_price || t.buy_limit_price || '--'}</span>`;
+    } else if (t.state === 'BUY_OPEN' || t.state === 'PLACING_BUY') {
       stateBadge = `<span class="mm-trade-badge buying">🎯 BUY PEG: #1 Bid @ $${t.buy_limit_price || '--'}</span>`;
     } else if (t.state === 'BUY_FILLED') {
-      stateBadge = `<span class="mm-trade-badge selling">BUY FILLED @ $${t.buy_fill_price || '--'}</span>`;
+      stateBadge = `<span class="mm-trade-badge selling">BUY FILLED (${t.size} Lots) @ $${t.buy_fill_price || '--'}</span>`;
+    } else if (t.state === 'SELL_PARTIAL') {
+      const sold = t.sell_filled_qty || 0;
+      stateBadge = `<span class="mm-trade-badge selling">⚡ PARTIAL EXIT: ${sold}/${t.size} Sold @ $${t.sell_fill_price || t.sell_limit_price || '--'}</span>`;
     } else if (t.state === 'SELL_OPEN' || t.state === 'PLACING_SELL') {
       stateBadge = `<span class="mm-trade-badge selling">🚀 SELL PEG: Float @ $${t.sell_limit_price || '--'}</span>`;
     } else if (t.state === 'WAITING_COST_TO_COST') {
@@ -890,11 +1417,11 @@ function renderActiveMmTrades(trades) {
     const activeOrderPrice = t.sell_limit_price || t.buy_limit_price || 0;
 
     html += `
-      <div class="${cardClass} mm-trade-strip" id="card_${t.trade_id}">
+      <div class="${cardClass} mm-trade-strip" id="card_${t.trade_id}" data-symbol="${t.symbol}">
         <div class="mm-strip-left">
           <span class="mm-trade-symbol">${t.symbol}</span>
           ${stateBadge}
-          <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (1 Lot)</strong></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Bid / Ask:</span> <span class="text-green">${curBidStr}</span> / <span class="text-red">${curAskStr}</span></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
@@ -903,7 +1430,12 @@ function renderActiveMmTrades(trades) {
 
         ${t.is_running ? `
           <div class="mm-strip-actions">
-            <span style="font-size: 0.72rem; color: #94a3b8;">Price:</span>
+            ${t.state === 'DUAL_ACTIVE' ? `
+              <select id="selSide_${t.trade_id}" class="mm-upload-input" style="width: auto; padding: 2px 4px;" data-buy="${t.buy_limit_price || ''}" data-sell="${t.sell_limit_price || ''}" onchange="document.getElementById('inpUpload_${t.trade_id}').value = this.value === 'buy' ? (this.dataset.buy || '') : (this.dataset.sell || '');">
+                <option value="sell" selected>SELL Exit ($${t.sell_limit_price ? t.sell_limit_price.toFixed(2) : '--'})</option>
+                <option value="buy">BUY Peg ($${t.buy_limit_price ? t.buy_limit_price.toFixed(2) : '--'})</option>
+              </select>
+            ` : `<span style="font-size: 0.72rem; color: #94a3b8;">Price:</span>`}
             <input type="number" step="${t.tick_size || 0.1}" class="mm-upload-input" id="inpUpload_${t.trade_id}" value="${activeOrderPrice > 0 ? activeOrderPrice.toFixed(2) : ''}" placeholder="Price" />
             <button type="button" class="mm-btn-upload" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
             <button type="button" class="mm-btn-cancel" onclick="cancelActiveTrade('${t.trade_id}')">Stop</button>
@@ -914,6 +1446,7 @@ function renderActiveMmTrades(trades) {
   });
 
   listEl.innerHTML = html;
+  updateStrikesTableActiveTradeStatus();
 }
 
 /**
@@ -926,10 +1459,12 @@ async function uploadActiveTradePrice(tradeId) {
     return;
   }
   const price = parseFloat(inp.value);
+  const sideEl = document.getElementById(`selSide_${tradeId}`);
+  const side = sideEl ? sideEl.value : null;
   try {
-    const res = await ApiService.uploadMMPrice(tradeId, price);
+    const res = await ApiService.uploadMMPrice(tradeId, price, side);
     if (res && res.success) {
-      showToast(`Uploaded new limit price $${price} for trade`, 'success');
+      showToast(`Uploaded new limit price $${price}${side ? ` (${side.toUpperCase()})` : ''} for trade`, 'success');
       pollActiveMmTrades();
     } else {
       showToast(`Upload failed: ${res?.error || 'Unknown error'}`, 'error');
@@ -961,7 +1496,7 @@ async function cancelActiveTrade(tradeId) {
  * Updates the Drawer Status Badge and Modal Status Indicator
  */
 function updateTgStatusBadges(cfg) {
-  const badge = document.getElementById('drawerTgStatusBadge');
+  const badge = document.getElementById('drawerTgStatusBadge') || document.getElementById('navTgBadge');
   const indicator = document.getElementById('tgModalStatusIndicator');
   if (!cfg) return;
 
@@ -1130,6 +1665,9 @@ async function saveProfileSettingsFromModal() {
     if (res && res.success) {
       window.profileLotSizeBtc = res.lot_size_btc || lotBtc;
       window.profileLotSizeEth = res.lot_size_eth || lotEth;
+      if (typeof renderMmTableRows === 'function') {
+        renderMmTableRows();
+      }
 
       // Sync criteria strip inputs
       const barSec = document.getElementById('mmInpTgSec');
@@ -1236,6 +1774,26 @@ document.addEventListener('DOMContentLoaded', () => {
   pollActiveMmTrades();
   if (!mmTradePollTimer) {
     mmTradePollTimer = setInterval(pollActiveMmTrades, 2500);
+  }
+
+  // Delegated click handler on tbody for immediate 1-click fallback response
+  const tbody = document.getElementById('mmTbody');
+  if (tbody) {
+    tbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mm-btn-1lot');
+      if (!btn) return;
+      // If button has an inline onclick, the browser already executed it directly; avoid double invocation
+      if (btn.hasAttribute('onclick')) return;
+
+      const sym = btn.dataset.symbol || btn.closest('tr')?.dataset?.symbol;
+      if (!sym) return;
+      const action = btn.dataset.action;
+      if (action === 'in-trade') {
+        handleActiveTradeBtnClick(sym);
+      } else {
+        open1LotMmModalBySymbol(sym);
+      }
+    });
   }
 });
 

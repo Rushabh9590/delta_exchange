@@ -20,6 +20,183 @@ let ocSearchQuery = '';
 let ocIsFetching = false;
 let ocCurrentSideFilter = 'both';
 
+// High-performance In-Memory Orderbook Engine & Micro-batch Renderer
+const ocOrderBooks = new Map(); // symUpper -> { bids: Map<number, number>, asks: Map<number, number>, lastBid: 0, lastAsk: 0, lastLtp: 0 }
+let ocPendingBatchUpdates = new Map();
+let ocRafScheduled = false;
+
+/**
+ * Parses L2 incremental & snapshot updates with strict zero-wrong-tick sanity guarantees
+ */
+function processOptionChainL2Update(sym, data) {
+  if (!sym) return null;
+  const symUpper = sym.toUpperCase();
+  let book = ocOrderBooks.get(symUpper);
+  if (!book) {
+    book = { bids: new Map(), asks: new Map(), lastBid: 0, lastAsk: 0, lastLtp: 0 };
+    ocOrderBooks.set(symUpper, book);
+  }
+
+  // 1. Snapshot: reset book
+  if (data.action === 'snapshot') {
+    book.bids.clear();
+    book.asks.clear();
+  }
+
+  // 2. Incremental Bids
+  if (Array.isArray(data.bids)) {
+    for (let i = 0; i < data.bids.length; i++) {
+      const p = parseFloat(data.bids[i][0]);
+      const s = parseFloat(data.bids[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) {
+          book.bids.delete(p);
+        } else {
+          book.bids.set(p, s);
+        }
+      }
+    }
+  }
+
+  // 3. Incremental Asks
+  if (Array.isArray(data.asks)) {
+    for (let i = 0; i < data.asks.length; i++) {
+      const p = parseFloat(data.asks[i][0]);
+      const s = parseFloat(data.asks[i][1]);
+      if (!isNaN(p)) {
+        if (s <= 0) {
+          book.asks.delete(p);
+        } else {
+          book.asks.set(p, s);
+        }
+      }
+    }
+  }
+
+  // 4. Calculate best bid (highest valid bid) & best ask (lowest valid ask)
+  let bestBid = null;
+  let bestAsk = null;
+
+  for (const p of book.bids.keys()) {
+    if (bestBid === null || p > bestBid) bestBid = p;
+  }
+  for (const p of book.asks.keys()) {
+    if (bestAsk === null || p < bestAsk) bestAsk = p;
+  }
+
+  // 5. Data Integrity Gate: Reject crossed book anomaly (ask < bid) during network transit
+  if (bestBid !== null && bestAsk !== null && bestAsk < bestBid) {
+    return null;
+  }
+
+  return { bestBid, bestAsk };
+}
+
+/**
+ * Micro-batch cell updater: flushes changes on requestAnimationFrame (sub-16ms lowest latency)
+ */
+function queueOptionChainCellUpdate(sym, updateObj) {
+  if (!sym) return;
+  const symUpper = sym.toUpperCase();
+  const existing = ocPendingBatchUpdates.get(symUpper) || {};
+  ocPendingBatchUpdates.set(symUpper, Object.assign(existing, updateObj));
+
+  if (!ocRafScheduled) {
+    ocRafScheduled = true;
+    requestAnimationFrame(flushOptionChainBatchUpdates);
+  }
+}
+
+function flushOptionChainBatchUpdates() {
+  ocRafScheduled = false;
+  if (ocPendingBatchUpdates.size === 0) return;
+
+  const updates = ocPendingBatchUpdates;
+  ocPendingBatchUpdates = new Map();
+
+  updates.forEach((u, symUpper) => {
+    let book = ocOrderBooks.get(symUpper);
+    if (!book) {
+      book = { bids: new Map(), asks: new Map(), lastBid: 0, lastAsk: 0, lastLtp: 0 };
+      ocOrderBooks.set(symUpper, book);
+    }
+
+    // 1. LTP
+    if (u.ltp !== undefined && u.ltp !== null && Number(u.ltp) > 0) {
+      const elLtp = document.getElementById(`ocLtp_${symUpper}`);
+      if (elLtp) {
+        const numLtp = Number(u.ltp);
+        elLtp.textContent = `$${formatNumber(numLtp, numLtp >= 100 ? 1 : (numLtp >= 1 ? 2 : 4))}`;
+        if (u.flash && book.lastLtp > 0 && numLtp !== book.lastLtp) {
+          const flashCls = numLtp > book.lastLtp ? 'oc-flash-up' : 'oc-flash-down';
+          elLtp.classList.add(flashCls);
+          setTimeout(() => elLtp.classList.remove(flashCls), 250);
+        }
+        book.lastLtp = numLtp;
+      }
+    } else if (u.markPrice && (!document.getElementById(`ocLtp_${symUpper}`)?.textContent || document.getElementById(`ocLtp_${symUpper}`)?.textContent === '--')) {
+      const elLtp = document.getElementById(`ocLtp_${symUpper}`);
+      if (elLtp) elLtp.textContent = `~$${formatNumber(Number(u.markPrice), 2)}`;
+    }
+
+    // 2. Mark Price
+    if (u.markPrice !== undefined && u.markPrice !== null && Number(u.markPrice) > 0) {
+      const elMark = document.getElementById(`ocMark_${symUpper}`);
+      if (elMark) {
+        elMark.textContent = `$${formatNumber(Number(u.markPrice), 2)}`;
+      }
+    }
+
+    // 3. Bid
+    if (u.bid !== undefined && u.bid !== null && Number(u.bid) > 0) {
+      const elBid = document.getElementById(`ocBid_${symUpper}`);
+      if (elBid) {
+        const numBid = Number(u.bid);
+        elBid.textContent = `$${formatNumber(numBid, numBid >= 100 ? 1 : (numBid >= 1 ? 2 : 4))}`;
+        if (u.flash && book.lastBid > 0 && numBid !== book.lastBid) {
+          const flashCls = numBid > book.lastBid ? 'oc-flash-up' : 'oc-flash-down';
+          elBid.classList.add(flashCls);
+          setTimeout(() => elBid.classList.remove(flashCls), 250);
+        }
+        book.lastBid = numBid;
+      }
+    }
+
+    // 4. Ask
+    if (u.ask !== undefined && u.ask !== null && Number(u.ask) > 0) {
+      const elAsk = document.getElementById(`ocAsk_${symUpper}`);
+      if (elAsk) {
+        const numAsk = Number(u.ask);
+        elAsk.textContent = `$${formatNumber(numAsk, numAsk >= 100 ? 1 : (numAsk >= 1 ? 2 : 4))}`;
+        if (u.flash && book.lastAsk > 0 && numAsk !== book.lastAsk) {
+          const flashCls = numAsk < book.lastAsk ? 'oc-flash-up' : 'oc-flash-down';
+          elAsk.classList.add(flashCls);
+          setTimeout(() => elAsk.classList.remove(flashCls), 250);
+        }
+        book.lastAsk = numAsk;
+      }
+    }
+
+    // 5. Volume
+    if (u.vol !== undefined && u.vol !== null) {
+      const elVol = document.getElementById(`ocVol_${symUpper}`);
+      if (elVol) {
+        const numVol = Number(u.vol);
+        elVol.textContent = numVol > 0 ? (numVol >= 10 ? formatNumber(numVol, 0) : formatNumber(numVol, 2)) : '0';
+      }
+    }
+
+    // 6. OI
+    if (u.oi !== undefined && u.oi !== null) {
+      const elOi = document.getElementById(`ocOi_${symUpper}`);
+      if (elOi) {
+        const numOi = Number(u.oi);
+        elOi.textContent = numOi > 0 ? (numOi >= 10 ? formatNumber(numOi, 0) : formatNumber(numOi, 2)) : '0';
+      }
+    }
+  });
+}
+
 /**
  * Handles Side Filtering (Both Matrix / Calls Only / Puts Only) for mobile & desktop
  */
@@ -61,6 +238,9 @@ async function loadOptionChain(underlying = 'BTC', expiry = '', isBackground = f
   const safeUnderlying = cleanAsset === 'ETH' ? 'ETH' : 'BTC';
   const prevUnderlying = ocCurrentUnderlying;
   const prevExpiry = ocSelectedExpiry;
+  if (prevUnderlying !== safeUnderlying || (expiry && expiry !== prevExpiry)) {
+    ocOrderBooks.clear();
+  }
   ocCurrentUnderlying = safeUnderlying;
   try {
     localStorage.setItem('delta_oc_underlying', safeUnderlying);
@@ -162,25 +342,34 @@ function updateAllChainCellsFromData(chainRows) {
   if (!chainRows || !Array.isArray(chainRows)) return;
   chainRows.forEach(row => {
     if (row.call && row.call.symbol) {
+      const b = ocOrderBooks.get(row.call.symbol.toUpperCase());
+      // Preserve live WebSocket best bid/ask if already active in memory
+      const bid = (b && b.lastBid > 0) ? b.lastBid : row.call.best_bid;
+      const ask = (b && b.lastAsk > 0) ? b.lastAsk : row.call.best_ask;
       updateOptionChainRowQuote(
         row.call.symbol,
         row.call.ltp,
         row.call.mark_price,
-        row.call.best_bid,
-        row.call.best_ask,
+        bid,
+        ask,
         row.call.volume,
-        row.call.open_interest
+        row.call.open_interest,
+        false
       );
     }
     if (row.put && row.put.symbol) {
+      const b = ocOrderBooks.get(row.put.symbol.toUpperCase());
+      const bid = (b && b.lastBid > 0) ? b.lastBid : row.put.best_bid;
+      const ask = (b && b.lastAsk > 0) ? b.lastAsk : row.put.best_ask;
       updateOptionChainRowQuote(
         row.put.symbol,
         row.put.ltp,
         row.put.mark_price,
-        row.put.best_bid,
-        row.put.best_ask,
+        bid,
+        ask,
         row.put.volume,
-        row.put.open_interest
+        row.put.open_interest,
+        false
       );
     }
   });
@@ -196,14 +385,19 @@ async function fetchOptionChainBatchQuotes(symbols) {
     if (res && res.success && res.tickers) {
       Object.values(res.tickers).forEach(tick => {
         if (tick && tick.symbol) {
+          const symUpper = tick.symbol.toUpperCase();
+          const b = ocOrderBooks.get(symUpper);
+          const bid = (b && b.lastBid > 0) ? b.lastBid : tick.bid;
+          const ask = (b && b.lastAsk > 0) ? b.lastAsk : tick.ask;
           updateOptionChainRowQuote(
             tick.symbol,
             tick.ltp,
             tick.mark_price,
-            tick.bid,
-            tick.ask,
+            bid,
+            ask,
             tick.volume,
-            tick.oi
+            tick.oi,
+            false
           );
         }
       });
@@ -216,56 +410,7 @@ async function fetchOptionChainBatchQuotes(symbols) {
  */
 function updateOptionChainRowQuote(sym, ltp, markPrice, bid, ask, vol, oi, flash = false) {
   if (!sym) return;
-  const symUpper = sym.toUpperCase();
-
-  // 1. LTP
-  const elLtp = document.getElementById(`ocLtp_${symUpper}`);
-  if (elLtp) {
-    if (ltp !== undefined && ltp !== null && Number(ltp) > 0) {
-      const numLtp = Number(ltp);
-      elLtp.textContent = `$${formatNumber(numLtp, numLtp >= 100 ? 1 : (numLtp >= 1 ? 2 : 4))}`;
-      if (flash) {
-        elLtp.classList.add('oc-flash-up');
-        setTimeout(() => elLtp.classList.remove('oc-flash-up'), 300);
-      }
-    } else if (markPrice && (!elLtp.textContent || elLtp.textContent === '--')) {
-      elLtp.textContent = `~$${formatNumber(markPrice, 2)}`;
-    }
-  }
-
-  // 2. Mark Price
-  const elMark = document.getElementById(`ocMark_${symUpper}`);
-  if (elMark && markPrice !== undefined && markPrice !== null && Number(markPrice) > 0) {
-    elMark.textContent = `$${formatNumber(markPrice, 2)}`;
-  }
-
-  // 3. Bid
-  const elBid = document.getElementById(`ocBid_${symUpper}`);
-  if (elBid && bid !== undefined && bid !== null && Number(bid) > 0) {
-    const numBid = Number(bid);
-    elBid.textContent = `$${formatNumber(numBid, numBid >= 100 ? 1 : (numBid >= 1 ? 2 : 4))}`;
-  }
-
-  // 4. Ask
-  const elAsk = document.getElementById(`ocAsk_${symUpper}`);
-  if (elAsk && ask !== undefined && ask !== null && Number(ask) > 0) {
-    const numAsk = Number(ask);
-    elAsk.textContent = `$${formatNumber(numAsk, numAsk >= 100 ? 1 : (numAsk >= 1 ? 2 : 4))}`;
-  }
-
-  // 5. Volume
-  const elVol = document.getElementById(`ocVol_${symUpper}`);
-  if (elVol && vol !== undefined && vol !== null) {
-    const numVol = Number(vol);
-    elVol.textContent = numVol > 0 ? (numVol >= 10 ? formatNumber(numVol, 0) : formatNumber(numVol, 2)) : '0';
-  }
-
-  // 6. Open Interest (OI)
-  const elOi = document.getElementById(`ocOi_${symUpper}`);
-  if (elOi && oi !== undefined && oi !== null) {
-    const numOi = Number(oi);
-    elOi.textContent = numOi > 0 ? (numOi >= 10 ? formatNumber(numOi, 0) : formatNumber(numOi, 2)) : '0';
-  }
+  queueOptionChainCellUpdate(sym, { ltp, markPrice, bid, ask, vol, oi, flash });
 }
 
 /**
@@ -463,6 +608,33 @@ function handleOptionChainTickUpdate(data) {
   const sym = (data.symbol || '').toUpperCase();
   if (!sym) return;
 
+  const msgType = data.type || data.channel || data.name || '';
+
+  // 1. Live Order Book (Best Bid & Best Ask) via L2 Updates
+  if (msgType === 'l2_updates' || data.bids !== undefined || data.asks !== undefined) {
+    const l2Res = processOptionChainL2Update(sym, data);
+    if (l2Res && (l2Res.bestBid !== null || l2Res.bestAsk !== null)) {
+      queueOptionChainCellUpdate(sym, {
+        bid: l2Res.bestBid,
+        ask: l2Res.bestAsk,
+        flash: true
+      });
+    }
+    return;
+  }
+
+  // 2. Live Mark Price
+  if (msgType === 'mark_price' || (data.mark_price !== undefined && msgType !== 'v2/ticker')) {
+    const markVal = Number(data.mark_price);
+    if (!isNaN(markVal) && markVal > 0) {
+      queueOptionChainCellUpdate(sym, {
+        markPrice: markVal
+      });
+    }
+    return;
+  }
+
+  // 3. Live Trades / LTP, Volume, OI & Top Quotes via v2/ticker
   const quotes = data.quotes || {};
   const closeVal = data.close;
   const bestBid = quotes.best_bid !== undefined ? quotes.best_bid : data.bid;
@@ -472,14 +644,13 @@ function handleOptionChainTickUpdate(data) {
   const oiVal = data.oi !== undefined ? data.oi : (data.oi_contracts !== undefined ? data.oi_contracts : data.open_interest);
   const ltp = closeVal !== undefined && closeVal !== null ? Number(closeVal) : (data.ltp !== undefined && data.ltp !== null ? Number(data.ltp) : null);
 
-  updateOptionChainRowQuote(
-    sym,
-    ltp,
-    markVal !== undefined && markVal !== null ? Number(markVal) : null,
-    bestBid !== undefined && bestBid !== null ? Number(bestBid) : null,
-    bestAsk !== undefined && bestAsk !== null ? Number(bestAsk) : null,
-    volVal !== undefined && volVal !== null ? Number(volVal) : null,
-    oiVal !== undefined && oiVal !== null ? Number(oiVal) : null,
-    true
-  );
+  const updatePayload = { flash: true };
+  if (ltp !== null && !isNaN(ltp) && ltp > 0) updatePayload.ltp = ltp;
+  if (markVal !== undefined && markVal !== null && !isNaN(Number(markVal)) && Number(markVal) > 0) updatePayload.markPrice = Number(markVal);
+  if (bestBid !== undefined && bestBid !== null && !isNaN(Number(bestBid)) && Number(bestBid) > 0) updatePayload.bid = Number(bestBid);
+  if (bestAsk !== undefined && bestAsk !== null && !isNaN(Number(bestAsk)) && Number(bestAsk) > 0) updatePayload.ask = Number(bestAsk);
+  if (volVal !== undefined && volVal !== null && !isNaN(Number(volVal))) updatePayload.vol = Number(volVal);
+  if (oiVal !== undefined && oiVal !== null && !isNaN(Number(oiVal))) updatePayload.oi = Number(oiVal);
+
+  queueOptionChainCellUpdate(sym, updatePayload);
 }
