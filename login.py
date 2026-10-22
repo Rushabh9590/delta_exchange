@@ -106,9 +106,32 @@ def load_credentials(env_path=None, account=None):
 _cached_clients = {}
 
 
-def get_delta_client(api_key=None, api_secret=None, base_url=None, account=None, raise_for_status=False, force_new=False):
+def get_public_delta_client(base_url=None):
+    """
+    Returns an unauthenticated DeltaRestClient instance for public market data queries
+    (products, tickers, option chain, candles) when API credentials are not configured.
+    """
+    creds = load_credentials()
+    final_base_url = base_url or creds.get("base_url") or URL_INDIA_PROD
+    cache_key = ("__public__", None, final_base_url)
+    if cache_key in _cached_clients:
+        return _cached_clients[cache_key]
+
+    client = DeltaRestClient(
+        base_url=final_base_url,
+        api_key=None,
+        api_secret=None,
+        raise_for_status=False
+    )
+    client.account_name = "public"
+    _cached_clients[cache_key] = client
+    return client
+
+
+def get_delta_client(api_key=None, api_secret=None, base_url=None, account=None, raise_for_status=False, force_new=False, require_auth=True, *args, **kwargs):
     """
     Initializes and returns a DeltaRestClient instance for the requested or active account.
+    If require_auth is False and no credentials exist, gracefully returns an unauthenticated public client.
     """
     creds = load_credentials(account=account)
     final_api_key = api_key or creds["api_key"]
@@ -117,6 +140,8 @@ def get_delta_client(api_key=None, api_secret=None, base_url=None, account=None,
     active_acct = creds["active_account"]
 
     if not final_api_key or not final_api_secret:
+        if not require_auth:
+            return get_public_delta_client(base_url=final_base_url)
         raise ValueError(
             f"Delta API Key and API Secret must be provided for account '{active_acct}' either in .env or as arguments."
         )

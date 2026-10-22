@@ -338,7 +338,7 @@ def evaluate_mm_strikes(
             "timestamp": time.time()
         }
 
-    c = client or get_delta_client()
+    c = client or get_delta_client(require_auth=False)
     chain_data = get_option_chain_data(underlying=asset, expiry=expiry, client=c)
 
     selected_expiry = chain_data.get("selected_expiry")

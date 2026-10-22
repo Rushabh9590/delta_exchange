@@ -265,15 +265,19 @@ async function loadOptionChain(underlying = 'BTC', expiry = '', isBackground = f
 
       // Populate Expiry Dropdown
       const selExpiry = document.getElementById('ocSelExpiry');
-      if (selExpiry && ocAvailableExpiries.length > 0) {
-        let opts = '';
-        ocAvailableExpiries.forEach(exp => {
-          const isSel = exp.expiry === ocSelectedExpiry ? 'selected' : '';
-          const totalStr = exp.total_strikes ? ` (${exp.total_strikes} strikes)` : '';
-          opts += `<option value="${exp.expiry}" ${isSel}>${exp.label || exp.expiry} [${exp.expiry}]${totalStr}</option>`;
-        });
-        if (selExpiry.innerHTML !== opts) {
-          selExpiry.innerHTML = opts;
+      if (selExpiry) {
+        if (ocAvailableExpiries.length > 0) {
+          let opts = '';
+          ocAvailableExpiries.forEach(exp => {
+            const isSel = exp.expiry === ocSelectedExpiry ? 'selected' : '';
+            const totalStr = exp.total_strikes ? ` (${exp.total_strikes} strikes)` : '';
+            opts += `<option value="${exp.expiry}" ${isSel}>${exp.label || exp.expiry} [${exp.expiry}]${totalStr}</option>`;
+          });
+          if (selExpiry.innerHTML !== opts) {
+            selExpiry.innerHTML = opts;
+          }
+        } else {
+          selExpiry.innerHTML = '<option value="">No Active Expiries</option>';
         }
       }
 

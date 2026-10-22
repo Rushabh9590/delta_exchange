@@ -5,12 +5,32 @@
  * ==============================================================================
  */
 
+// Automatically attach credentials (e.g. Cloudflare Access CF_Authorization cookies) to all API fetch calls
+(function() {
+  const _origFetch = window.fetch;
+  window.fetch = function(input, init = {}) {
+    const opts = { ...init };
+    if (!opts.credentials) {
+      opts.credentials = 'include';
+    }
+    return _origFetch.call(this, input, opts);
+  };
+})();
+
 const ApiService = {
   /**
    * Fetches consolidated dashboard data (wallet + positions + summary)
    */
   async getDashboard() {
     const res = await fetch('/api/dashboard');
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.error) msg = errJson.error;
+      } catch (e) {}
+      throw new Error(msg);
+    }
     return await res.json();
   },
 
@@ -229,6 +249,14 @@ const ApiService = {
     if (params.min_ticks !== undefined && params.min_ticks !== '') q.set('min_ticks', params.min_ticks);
     if (params.min_edge !== undefined && params.min_edge !== '') q.set('min_edge', params.min_edge);
     const res = await fetch(`/api/mm/strikes?${q.toString()}`);
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.error) msg = errJson.error;
+      } catch (e) {}
+      throw new Error(msg);
+    }
     return await res.json();
   },
 

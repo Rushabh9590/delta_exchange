@@ -8,7 +8,7 @@ import sys
 import time
 import logging
 from pathlib import Path
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, make_response
 
 # Suppress Werkzeug / Flask HTTP request access logging
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -32,7 +32,8 @@ from multileg import (
     get_option_chain_data,
     sync_master_scrips,
     get_master_status,
-    start_master_sync_daemon
+    start_master_sync_daemon,
+    get_client
 )
 from mm_strikes import evaluate_mm_strikes, get_mm_config, start_mm_background_scanner
 from mm_execution import mm_engine
@@ -56,11 +57,32 @@ start_mm_background_scanner(interval_seconds=4.0)
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        res = make_response()
+        origin = request.headers.get("Origin") or "*"
+        res.headers["Access-Control-Allow-Origin"] = origin
+        if origin != "*":
+            res.headers["Access-Control-Allow-Credentials"] = "true"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Cf-Access-Jwt-Assertion, CF-Access-Client-Id, CF-Access-Client-Secret, Cookie"
+        return res
+
 @app.after_request
 def add_cache_headers(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Cf-Access-Jwt-Assertion, CF-Access-Client-Id, CF-Access-Client-Secret, Cookie"
     return response
 
 # Cached client instance & WebSocket Manager
@@ -82,11 +104,12 @@ def get_ws_manager():
     return _ws_manager
 
 
-def get_client(account=None, force_new=False):
+def get_client(account=None, force_new=False, *args, **kwargs):
     global _client
+    require_auth = kwargs.get("require_auth", True)
     current_acct = (account or os.getenv("ACTIVE_ACCOUNT") or "main").strip().lower()
     if _client is None or force_new or account is not None or getattr(_client, "account_name", None) != current_acct:
-        _client = get_delta_client(account=current_acct, force_new=True)
+        _client = get_delta_client(account=current_acct, force_new=True, require_auth=require_auth)
     return _client
 
 
@@ -357,14 +380,18 @@ def get_dashboard():
     Consolidated endpoint for positions and wallet data in a single request.
     """
     try:
-        client = get_client()
+        client = get_client(require_auth=False)
 
         # Positions
-        pos_res = client.request("GET", "/v2/positions/margined", auth=True).json()
-        raw_positions = pos_res.get("result", [])
-        if isinstance(raw_positions, dict):
-            raw_positions = [raw_positions]
-        elif not isinstance(raw_positions, list):
+        raw_positions = []
+        try:
+            pos_res = client.request("GET", "/v2/positions/margined", auth=True).json()
+            raw_positions = pos_res.get("result", [])
+            if isinstance(raw_positions, dict):
+                raw_positions = [raw_positions]
+            elif not isinstance(raw_positions, list):
+                raw_positions = []
+        except Exception:
             raw_positions = []
 
         enriched_positions = []
@@ -695,7 +722,7 @@ def refresh_master_scrips():
     Forces immediate fresh download and sync of master scrips from Delta Exchange.
     """
     try:
-        client = get_client()
+        client = get_client(require_auth=False)
         res = sync_master_scrips(client=client, force=True)
         return jsonify(res)
     except Exception as e:
@@ -708,7 +735,7 @@ def get_options_expiries():
     Fetches available expiration dates, strikes, contract value, and underlying asset prices.
     """
     try:
-        client = get_client()
+        client = get_client(require_auth=False)
         underlying = request.args.get("underlying", "BTC").strip().upper()
         if underlying not in ["BTC", "ETH"]:
             return jsonify({
@@ -733,7 +760,7 @@ def get_options_chain():
     Fetches full live option chain matrix (Calls & Puts) for specified underlying and expiry.
     """
     try:
-        client = get_client()
+        client = get_client(require_auth=False)
         underlying = request.args.get("underlying", "BTC").strip().upper()
         if underlying not in ["BTC", "ETH"]:
             return jsonify({
@@ -811,7 +838,7 @@ def get_market_making_strikes():
         min_ticks = _parse_float(request.args.get("min_ticks"))
         min_edge = _parse_float(request.args.get("min_edge"))
 
-        client = get_client()
+        client = get_client(require_auth=False)
 
         if underlying == "ALL":
             btc_data = evaluate_mm_strikes(

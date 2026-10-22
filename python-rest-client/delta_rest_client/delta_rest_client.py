@@ -63,7 +63,7 @@ class DeltaRestClient:
     except Exception:
       pass
 
-  def request(self, method, path, payload=None, query=None, auth=False, base_url=None, headers={}, retry_on_time_sync=True):
+  def request(self, method, path, payload=None, query=None, auth=False, base_url=None, headers={}, retry_on_time_sync=True, timeout=None):
     if base_url == None:
       base_url = self.base_url
     url = '%s%s' % (base_url, path)
@@ -81,8 +81,9 @@ class DeltaRestClient:
       if headers:
         auth_headers.update(headers)
 
+      req_timeout = timeout or (3, 6)
       res = self.session.request(
-        method, url, data=body_string(payload), params=query, timeout=(3, 6), headers=auth_headers
+        method, url, data=body_string(payload), params=query, timeout=req_timeout, headers=auth_headers
       )
 
       # Check for expired_signature and auto-recalculate offset
@@ -93,14 +94,15 @@ class DeltaRestClient:
             server_time = data["error"].get("context", {}).get("server_time")
             if server_time:
               self.time_offset = int(server_time) - int(time.time())
-              return self.request(method, path, payload=payload, query=query, auth=auth, base_url=base_url, headers=headers, retry_on_time_sync=False)
+              return self.request(method, path, payload=payload, query=query, auth=auth, base_url=base_url, headers=headers, retry_on_time_sync=False, timeout=timeout)
         except Exception:
           pass
     else:
       non_auth_headers = {'User-Agent':'delta-rest-client-v%s'%version, 'Content-Type':'application/json'}
       if headers:
         non_auth_headers.update(headers)
-      res = requests.request(method, url, data=body_string(payload), params=query, timeout=(3, 6), headers=non_auth_headers)
+      req_timeout = timeout or (5, 20)
+      res = requests.request(method, url, data=body_string(payload), params=query, timeout=req_timeout, headers=non_auth_headers)
 
     if self.raise_for_status:
       raise_for_status(res)

@@ -156,13 +156,17 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
       // Subscribe all option symbols to the Delta WebSocket tick stream
       subscribeAllMmOptionSymbols(data.all_strikes || []);
     } else {
-      if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Failed to load strike data: ${data?.error || 'Unknown error'}</td></tr>`;
+      if (tbody && !mmLastData && !isBackground) {
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Failed to load strike data: ${data?.error || 'Unknown error'}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
+      } else {
+        console.warn('[MM Strikes] Sync notice:', data?.error);
       }
     }
   } catch (err) {
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Error connecting to API: ${err.message}</td></tr>`;
+    if (tbody && !mmLastData && !isBackground) {
+      tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Error connecting to API: ${err.message}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
+    } else {
+      console.warn('[MM Strikes] Transient connection error:', err.message);
     }
   } finally {
     mmIsLoading = false;

@@ -18,7 +18,7 @@ if REPO_PATH not in sys.path:
     sys.path.insert(0, REPO_PATH)
 
 from delta_rest_client import DeltaRestClient, OrderType, TimeInForce, round_by_tick_size
-from login import get_delta_client
+from login import get_delta_client, get_public_delta_client
 
 import json
 import threading
@@ -40,10 +40,20 @@ _MASTER_STATUS = {
     "error": None
 }
 
+_BULK_TICKERS_CACHE = {}
+_BULK_TICKERS_FETCH_TIME = 0
+_BULK_TICKERS_LOCK = threading.Lock()
 
-def get_client() -> DeltaRestClient:
-    """Returns an authenticated DeltaRestClient instance."""
-    return get_delta_client()
+
+def get_client(*args, **kwargs) -> DeltaRestClient:
+    """Returns a DeltaRestClient instance (authenticated if available, public client fallback)."""
+    require_auth = kwargs.get("require_auth", False)
+    try:
+        return get_delta_client(require_auth=require_auth)
+    except Exception:
+        if require_auth:
+            raise
+        return get_public_delta_client()
 
 
 def load_master_from_disk():
@@ -95,10 +105,44 @@ def save_master_to_disk(products: list):
         pass
 
 
+def get_cached_bulk_tickers(client: DeltaRestClient = None, max_age_seconds: float = 2.0) -> dict:
+    """
+    Returns cached live tickers across all option products.
+    Thread-safe in-memory cache with short TTL (2.0s) to eliminate duplicate 4MB
+    REST calls from concurrent web requests and background scanners.
+    """
+    global _BULK_TICKERS_CACHE, _BULK_TICKERS_FETCH_TIME
+    now = time.time()
+    with _BULK_TICKERS_LOCK:
+        if _BULK_TICKERS_CACHE and (now - _BULK_TICKERS_FETCH_TIME < max_age_seconds):
+            return _BULK_TICKERS_CACHE
+
+        c = client or get_client(require_auth=False)
+        try:
+            # Query options contract types to reduce payload size by 75%
+            raw = c.get_tickers(query={"contract_types": "call_options,put_options"}) or []
+            if not raw:
+                raw = c.get_tickers() or []
+            mapped = {}
+            for t in raw:
+                if t and t.get("symbol"):
+                    mapped[t["symbol"].upper()] = t
+            if mapped:
+                _BULK_TICKERS_CACHE = mapped
+                _BULK_TICKERS_FETCH_TIME = now
+                return _BULK_TICKERS_CACHE
+        except Exception as e:
+            print(f"[WARN] Failed to fetch bulk tickers in option chain: {e}")
+            if _BULK_TICKERS_CACHE:
+                return _BULK_TICKERS_CACHE
+        return _BULK_TICKERS_CACHE or {}
+
+
 def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
     """
     Downloads the freshest master scrips from Delta Exchange API.
     Updates in-memory caches and persists to disk.
+    Resilient to missing credentials and network region differences.
     """
     global _ALL_PRODUCTS_CACHE, _PRODUCT_CACHE, _LAST_PRODUCTS_FETCH, _MASTER_STATUS
     with _MASTER_LOCK:
@@ -110,9 +154,25 @@ def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
                 **_MASTER_STATUS
             }
 
-        c = client or get_client()
+        c = client or get_client(require_auth=False)
+        products = None
+        last_err = None
+
+        # Try primary client first
         try:
             products = c.get_products()
+        except Exception as e:
+            last_err = e
+
+        # If primary failed or returned empty, try unauthenticated global fallback
+        if not products or not isinstance(products, list):
+            try:
+                fallback_c = DeltaRestClient(base_url="https://api.delta.exchange", api_key=None, api_secret=None, raise_for_status=False)
+                products = fallback_c.get_products()
+            except Exception as e:
+                last_err = e
+
+        try:
             if isinstance(products, list) and len(products) > 0:
                 _ALL_PRODUCTS_CACHE = products
                 _LAST_PRODUCTS_FETCH = now
@@ -143,7 +203,8 @@ def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
                     **_MASTER_STATUS
                 }
             else:
-                raise ValueError("Exchange returned empty product list.")
+                err_msg = str(last_err) if last_err else "Exchange returned empty product list."
+                raise ValueError(err_msg)
         except Exception as e:
             _MASTER_STATUS["error"] = str(e)
             _MASTER_STATUS["status"] = "sync_failed"
@@ -585,7 +646,7 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
     """
     Fetches available expiration dates, strikes, contract value, and live underlying prices for an asset.
     """
-    c = client or get_client()
+    c = client or get_client(require_auth=False)
     underlying = (underlying or "BTC").strip().upper()
 
     if underlying not in SUPPORTED_OPTION_UNDERLYINGS:
@@ -597,6 +658,17 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
         }
 
     all_prods = get_all_products(c)
+    now_utc = datetime.now(timezone.utc)
+
+    # If cache has no active option contracts (e.g. fresh clone / outdated master_products.json), force live sync
+    has_active_options = any(
+        ("call" in (p.get("contract_type") or "").lower() or "put" in (p.get("contract_type") or "").lower())
+        and (not p.get("settlement_time") or p.get("settlement_time") > now_utc.isoformat())
+        for p in all_prods
+    )
+    if not has_active_options:
+        sync_master_scrips(c, force=True)
+        all_prods = _ALL_PRODUCTS_CACHE
 
     # Fetch underlying ticker for spot & mark price & contract value
     spot_price = 0.0
@@ -791,15 +863,8 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
 
     all_prods = get_all_products(c)
 
-    # Fetch live tickers across all option products for instantaneous quote matrix
-    live_tickers = {}
-    try:
-        raw_tickers = c.get_tickers() or []
-        for t in raw_tickers:
-            if t and t.get("symbol"):
-                live_tickers[t["symbol"].upper()] = t
-    except Exception as e:
-        print(f"[WARN] Failed to fetch bulk tickers in option chain: {e}")
+    # Fetch live tickers across all option products (fast in-memory cache to eliminate duplicate 4MB calls)
+    live_tickers = get_cached_bulk_tickers(client=c, max_age_seconds=2.0)
 
     # Map products by (strike, call/put)
     chain_map = {}
