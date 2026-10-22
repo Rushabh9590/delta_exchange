@@ -58,7 +58,7 @@ start_mm_background_scanner(interval_seconds=4.0)
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
 @app.before_request
-def handle_preflight():
+def handle_preflight_and_auth():
     if request.method == "OPTIONS":
         res = make_response()
         origin = request.headers.get("Origin") or "*"
@@ -68,6 +68,16 @@ def handle_preflight():
         res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Cf-Access-Jwt-Assertion, CF-Access-Client-Id, CF-Access-Client-Secret, Cookie"
         return res
+
+    # Optional built-in password protection (enabled only if WEB_AUTH_USERNAME and WEB_AUTH_PASSWORD are set in .env)
+    auth_user = os.getenv("WEB_AUTH_USERNAME")
+    auth_pass = os.getenv("WEB_AUTH_PASSWORD")
+    if auth_user and auth_pass:
+        auth = request.authorization
+        if not auth or auth.username != auth_user or auth.password != auth_pass:
+            res = make_response(jsonify({"error": "Unauthorized"}), 401)
+            res.headers["WWW-Authenticate"] = 'Basic realm="Delta Exchange Trading Dashboard"'
+            return res
 
 @app.after_request
 def add_cache_headers(response):
