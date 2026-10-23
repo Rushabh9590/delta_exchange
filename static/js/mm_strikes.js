@@ -1510,7 +1510,7 @@ function renderActiveMmTrades(trades) {
         inp.step = t.tick_size || 0.1;
       }
 
-      // Update Auto button (for resuming dynamic floating peg)
+      // Update Auto button and Logs button
       const actionsEl = cardEl.querySelector('.mm-strip-actions');
       if (actionsEl) {
         let btnAuto = actionsEl.querySelector(`#btnAuto_${t.trade_id}`);
@@ -1528,6 +1528,18 @@ function renderActiveMmTrades(trades) {
           }
         } else if (btnAuto) {
           btnAuto.remove();
+        }
+
+        let btnLogs = actionsEl.querySelector(`#btnLogs_${t.trade_id}`);
+        if (!btnLogs) {
+          btnLogs = document.createElement('button');
+          btnLogs.type = 'button';
+          btnLogs.id = `btnLogs_${t.trade_id}`;
+          btnLogs.className = 'mm-btn-logs-link';
+          btnLogs.title = 'View real-time execution logs for this trade';
+          btnLogs.innerText = 'Logs';
+          btnLogs.onclick = () => openLiveLogsForTrade(t.trade_id);
+          actionsEl.appendChild(btnLogs);
         }
       }
 
@@ -1567,6 +1579,7 @@ function renderActiveMmTrades(trades) {
             <button type="button" class="mm-btn-upload" id="btnUpload_${t.trade_id}" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
             ${isManualLocked ? `<button type="button" class="mm-btn-autopeg" id="btnAuto_${t.trade_id}" title="Clear manual price lock and resume dynamic floating peg" onclick="resumeActiveTradePeg('${t.trade_id}')">Auto</button>` : ''}
             <button type="button" class="mm-btn-cancel" onclick="cancelActiveTrade('${t.trade_id}')">Stop</button>
+            <button type="button" class="mm-btn-logs-link" id="btnLogs_${t.trade_id}" title="View real-time execution logs for this trade" onclick="openLiveLogsForTrade('${t.trade_id}')">Logs</button>
           </div>
         ` : ''}
       `;
@@ -1997,6 +2010,592 @@ document.addEventListener('DOMContentLoaded', () => {
         open1LotMmModalBySymbol(sym);
       }
     });
+  }
+});
+
+
+// ==============================================================================
+// ==============================================================================
+// LIVE EXECUTION & SYSTEM LOGS VIEWER MODULE (REAL-TIME SSE STREAMING)
+// ==============================================================================
+let currentLogsTab = 'mm';
+let logsAutoRefreshTimer = null;
+let cachedLogsData = null;
+let logsEventSource = null;
+let logsSearchDebounceTimer = null;
+
+async function openLiveLogsModal() {
+  const modal = document.getElementById('liveLogsModal');
+  if (!modal) {
+    console.error('liveLogsModal element not found');
+    return;
+  }
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+
+  try {
+    updateLogsToolbarControls();
+    await refreshCurrentLogs();
+  } catch (err) {
+    console.error('Failed to load initial logs:', err);
+  }
+
+  // Connect real-time SSE stream
+  connectLogsSSE();
+}
+window.openLiveLogsModal = openLiveLogsModal;
+
+function closeLiveLogsModal() {
+  const modal = document.getElementById('liveLogsModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
+  }
+  closeLogsSSE();
+}
+window.closeLiveLogsModal = closeLiveLogsModal;
+
+function connectLogsSSE() {
+  closeLogsSSE();
+
+  const chk = document.getElementById('chkAutoRefreshLogs');
+  if (chk && !chk.checked) {
+    updateSseStatusBadge('offline');
+    return;
+  }
+
+  if (!window.EventSource) {
+    console.warn('EventSource not supported in this browser; falling back to 2s polling.');
+    if (!logsAutoRefreshTimer) {
+      logsAutoRefreshTimer = setInterval(refreshCurrentLogs, 2000);
+    }
+    updateSseStatusBadge('polling');
+    return;
+  }
+
+  updateSseStatusBadge('connecting');
+
+  const searchVal = (document.getElementById('inpFilterLogs')?.value || '').trim();
+  const tradeVal = document.getElementById('selLogTradeFilter')?.value || 'ALL';
+  const sseUrl = `/api/system/logs/stream?source=${encodeURIComponent(currentLogsTab)}&trade_id=${encodeURIComponent(tradeVal)}&search=${encodeURIComponent(searchVal)}`;
+
+  try {
+    logsEventSource = new EventSource(sseUrl);
+
+    logsEventSource.addEventListener('handshake', () => {
+      updateSseStatusBadge('connected');
+    });
+
+    logsEventSource.onopen = () => {
+      updateSseStatusBadge('connected');
+    };
+
+    logsEventSource.onmessage = (event) => {
+      if (!event || !event.data) return;
+      try {
+        const item = JSON.parse(event.data);
+        if (item && item.text) {
+          appendLiveLogLine(item);
+        }
+      } catch (err) {
+        console.warn('Failed to parse SSE payload:', err);
+      }
+    };
+
+    logsEventSource.onerror = (err) => {
+      updateSseStatusBadge('reconnecting');
+    };
+  } catch (e) {
+    console.error('Failed to initialize EventSource:', e);
+    updateSseStatusBadge('offline');
+  }
+}
+
+function closeLogsSSE() {
+  if (logsEventSource) {
+    try {
+      logsEventSource.close();
+    } catch (e) {}
+    logsEventSource = null;
+  }
+  if (logsAutoRefreshTimer) {
+    clearInterval(logsAutoRefreshTimer);
+    logsAutoRefreshTimer = null;
+  }
+}
+
+function updateSseStatusBadge(state) {
+  const badge = document.getElementById('lblSseStatus');
+  const dot = document.getElementById('dotSseStatus');
+  const txt = document.getElementById('lblSseStatusText');
+  if (!badge || !txt) return;
+
+  if (state === 'connected') {
+    badge.style.color = '#10b981';
+    if (dot) dot.style.background = '#10b981';
+    txt.textContent = 'Live SSE';
+  } else if (state === 'connecting') {
+    badge.style.color = '#38bdf8';
+    if (dot) dot.style.background = '#38bdf8';
+    txt.textContent = 'Connecting...';
+  } else if (state === 'reconnecting') {
+    badge.style.color = '#f59e0b';
+    if (dot) dot.style.background = '#f59e0b';
+    txt.textContent = 'Reconnecting...';
+  } else if (state === 'polling') {
+    badge.style.color = '#a855f7';
+    if (dot) dot.style.background = '#a855f7';
+    txt.textContent = 'Polling (2s)';
+  } else {
+    badge.style.color = '#64748b';
+    if (dot) dot.style.background = '#64748b';
+    txt.textContent = 'Offline';
+  }
+}
+
+function appendLiveLogLine(item) {
+  const container = document.getElementById('logsConsoleContainer');
+  if (!container) return;
+
+  // If trade filter is active, verify match
+  const selectedTradeId = document.getElementById('selLogTradeFilter')?.value || 'ALL';
+  if (currentLogsTab === 'mm' && selectedTradeId !== 'ALL') {
+    const itemTid = item.trade_id || '';
+    if (itemTid !== selectedTradeId && !itemTid.endsWith(selectedTradeId) && !selectedTradeId.endsWith(itemTid)) {
+      return;
+    }
+  }
+
+  // If text search filter is active, verify match across text, symbol, trade_id
+  const filterText = (document.getElementById('inpFilterLogs')?.value || '').toLowerCase().trim();
+  if (filterText) {
+    const txt = (item.text || '').toLowerCase();
+    const sym = (item.symbol || '').toLowerCase();
+    const tid = (item.trade_id || '').toLowerCase();
+    const st = (item.status || '').toLowerCase();
+    if (!txt.includes(filterText) && !sym.includes(filterText) && !tid.includes(filterText) && !st.includes(filterText)) {
+      return;
+    }
+  }
+
+  // Clear any placeholder message (e.g. "Loading..." or "No log records...")
+  const firstChild = container.firstElementChild;
+  if (firstChild && firstChild.style && firstChild.style.fontStyle === 'italic') {
+    container.innerHTML = '';
+  }
+
+  const lineHtml = formatSingleLogLine(item);
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = lineHtml;
+  while (tempDiv.firstChild) {
+    container.appendChild(tempDiv.firstChild);
+  }
+
+  // Store into in-memory cache so client-side filter includes this item
+  if (cachedLogsData) {
+    if (item.source === 'mm' || item.is_mm) {
+      if (!cachedLogsData.mm_logs) cachedLogsData.mm_logs = [];
+      cachedLogsData.mm_logs.push(item);
+    } else if (item.source === 'server') {
+      if (!cachedLogsData.server_logs) cachedLogsData.server_logs = [];
+      cachedLogsData.server_logs.push(item.text);
+    } else if (item.source === 'tunnel' || item.is_tunnel) {
+      if (!cachedLogsData.tunnel_logs) cachedLogsData.tunnel_logs = [];
+      cachedLogsData.tunnel_logs.push(item.text);
+    }
+  }
+
+  // Update count
+  const countEl = document.getElementById('lblLogsCount');
+  if (countEl) {
+    const lines = container.querySelectorAll('.log-line');
+    countEl.textContent = `Showing ${lines.length.toLocaleString()} entries (Live SSE)`;
+  }
+
+  // Update timestamp
+  const tsEl = document.getElementById('lblLogsTimestamp');
+  if (tsEl) {
+    tsEl.textContent = `Updated: ${new Date().toLocaleTimeString()} (Real-Time)`;
+  }
+
+  // Auto-scroll
+  const chkScroll = document.getElementById('chkAutoScrollLogs');
+  if (chkScroll && chkScroll.checked) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function toggleLogsAutoRefresh() {
+  const chk = document.getElementById('chkAutoRefreshLogs');
+  if (chk && chk.checked) {
+    connectLogsSSE();
+  } else {
+    closeLogsSSE();
+    updateSseStatusBadge('offline');
+  }
+}
+window.toggleLogsAutoRefresh = toggleLogsAutoRefresh;
+
+function switchLogsTab(tab) {
+  currentLogsTab = tab;
+  ['tabLogsMM', 'tabLogsServer', 'tabLogsTunnel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+
+  const activeTabBtn = document.getElementById(tab === 'mm' ? 'tabLogsMM' : (tab === 'server' ? 'tabLogsServer' : 'tabLogsTunnel'));
+  if (activeTabBtn) activeTabBtn.classList.add('active');
+
+  updateLogsToolbarControls();
+  renderLogsContent();
+  connectLogsSSE();
+}
+window.switchLogsTab = switchLogsTab;
+
+function updateLogsToolbarControls() {
+  const selTrade = document.getElementById('selLogTradeFilter');
+  if (selTrade) {
+    selTrade.style.display = (currentLogsTab === 'mm') ? 'inline-block' : 'none';
+  }
+  const banner = document.getElementById('tunnelUrlBanner');
+  if (banner) {
+    if (currentLogsTab === 'tunnel' && cachedLogsData && cachedLogsData.tunnel_url) {
+      banner.style.display = 'flex';
+      const link = document.getElementById('linkTunnelUrl');
+      const openBtn = document.getElementById('btnOpenTunnelUrl');
+      if (link) {
+        link.href = cachedLogsData.tunnel_url;
+        link.textContent = cachedLogsData.tunnel_url;
+      }
+      if (openBtn) {
+        openBtn.href = cachedLogsData.tunnel_url;
+      }
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+}
+
+async function onLogsLimitChange() {
+  await refreshCurrentLogs();
+  connectLogsSSE();
+}
+window.onLogsLimitChange = onLogsLimitChange;
+
+async function onLogTradeFilterChange() {
+  renderLogsContent();
+  connectLogsSSE();
+}
+window.onLogTradeFilterChange = onLogTradeFilterChange;
+
+function downloadCurrentLogFile() {
+  const url = ApiService.getLogsDownloadUrl(currentLogsTab);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (typeof showToast === 'function') {
+    showToast(`Downloading full ${currentLogsTab.toUpperCase()} log file...`, 'info');
+  }
+}
+window.downloadCurrentLogFile = downloadCurrentLogFile;
+
+async function refreshCurrentLogs() {
+  try {
+    const limitEl = document.getElementById('selLogsLimit');
+    const limitVal = limitEl ? parseInt(limitEl.value, 10) : 1000;
+    const searchVal = (document.getElementById('inpFilterLogs')?.value || '').trim();
+    const tradeVal = document.getElementById('selLogTradeFilter')?.value || 'ALL';
+
+    const res = await ApiService.getSystemLogs(currentLogsTab, limitVal, searchVal, tradeVal);
+    if (res && res.success) {
+      cachedLogsData = res;
+      updateTradeFilterDropdown(res.trades_list || res.mm_logs || []);
+      updateLogsToolbarControls();
+      renderLogsContent();
+      const tsEl = document.getElementById('lblLogsTimestamp');
+      if (tsEl) tsEl.textContent = `Updated: ${res.timestamp || new Date().toLocaleTimeString()}`;
+    } else {
+      const container = document.getElementById('logsConsoleContainer');
+      if (container && (!cachedLogsData || !cachedLogsData.mm_logs)) {
+        container.innerHTML = `<div style="color: #ef4444; font-style: italic; padding: 20px; text-align: center;">⚠️ Error: ${escapeLogHtml(res?.error || 'Failed to load logs')}. Please restart server.py.</div>`;
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching system logs:', err);
+    const container = document.getElementById('logsConsoleContainer');
+    if (container && (!cachedLogsData || !cachedLogsData.mm_logs)) {
+      container.innerHTML = `<div style="color: #ef4444; font-style: italic; padding: 20px; text-align: center;">⚠️ Connection error: ${escapeLogHtml(err.message)}.</div>`;
+    }
+  }
+}
+window.refreshCurrentLogs = refreshCurrentLogs;
+
+function updateTradeFilterDropdown(tradesList) {
+  const sel = document.getElementById('selLogTradeFilter');
+  if (!sel) return;
+  const currentVal = sel.value;
+
+  const tradeMap = new Map();
+  tradesList.forEach(item => {
+    const tid = item.trade_id || (item.text && item.text.match(/\[MM-([a-zA-Z0-9]+)\]/)?.[1]);
+    if (!tid) return;
+    const shortTid = tid.slice(-6);
+    const sym = item.symbol || 'Option';
+    const status = (item.status === 'active') ? '🟢 ACTIVE' : '⚪ HIST';
+    if (!tradeMap.has(tid)) {
+      tradeMap.set(tid, `${status}: ${sym} (${shortTid})`);
+    }
+  });
+
+  let html = '<option value="ALL">All MM Trades</option>';
+  tradeMap.forEach((label, tid) => {
+    html += `<option value="${tid}" ${currentVal === tid ? 'selected' : ''}>${label}</option>`;
+  });
+  sel.innerHTML = html;
+}
+
+function renderLogsContent() {
+  const container = document.getElementById('logsConsoleContainer');
+  const countEl = document.getElementById('lblLogsCount');
+  if (!container || !cachedLogsData) return;
+
+  const filterText = (document.getElementById('inpFilterLogs')?.value || '').toLowerCase().trim();
+  const selectedTradeId = document.getElementById('selLogTradeFilter')?.value || 'ALL';
+
+  let rawLines = [];
+  let totalAvailable = 0;
+
+  if (currentLogsTab === 'mm') {
+    const list = cachedLogsData.mm_logs || [];
+    totalAvailable = cachedLogsData.total_mm_count || list.length;
+    rawLines = list
+      .filter(item => {
+        if (selectedTradeId !== 'ALL') {
+          const itemTid = item.trade_id || '';
+          if (itemTid !== selectedTradeId && !itemTid.endsWith(selectedTradeId) && !selectedTradeId.endsWith(itemTid)) {
+            return false;
+          }
+        }
+        if (filterText) {
+          const txt = (item.text || '').toLowerCase();
+          const sym = (item.symbol || '').toLowerCase();
+          const tid = (item.trade_id || '').toLowerCase();
+          const st = (item.status || '').toLowerCase();
+          if (!txt.includes(filterText) && !sym.includes(filterText) && !tid.includes(filterText) && !st.includes(filterText)) {
+            return false;
+          }
+        }
+        return true;
+      })
+      .map(item => ({
+        type: 'mm',
+        trade_id: item.trade_id,
+        symbol: item.symbol,
+        status: item.status,
+        text: item.text
+      }));
+  } else if (currentLogsTab === 'server') {
+    const list = cachedLogsData.server_logs || [];
+    totalAvailable = cachedLogsData.total_server_count || list.length;
+    rawLines = list
+      .filter(line => !filterText || (typeof line === 'string' ? line.toLowerCase().includes(filterText) : JSON.stringify(line).toLowerCase().includes(filterText)))
+      .map(line => ({ type: 'server', text: typeof line === 'string' ? line : line.text || JSON.stringify(line) }));
+  } else if (currentLogsTab === 'tunnel') {
+    const list = cachedLogsData.tunnel_logs || [];
+    totalAvailable = cachedLogsData.total_tunnel_count || list.length;
+    rawLines = list
+      .filter(line => !filterText || (typeof line === 'string' ? line.toLowerCase().includes(filterText) : JSON.stringify(line).toLowerCase().includes(filterText)))
+      .map(line => ({ type: 'tunnel', text: typeof line === 'string' ? line : line.text || JSON.stringify(line) }));
+  }
+
+  if (countEl) {
+    countEl.textContent = `Showing ${rawLines.length.toLocaleString()} of ${totalAvailable.toLocaleString()} entries`;
+  }
+
+  if (rawLines.length === 0) {
+    container.innerHTML = `<div style="color: #64748b; font-style: italic; padding: 20px; text-align: center;">No log records found for this view.</div>`;
+    return;
+  }
+
+  const html = rawLines.map(lineItem => formatSingleLogLine(lineItem)).join('');
+  container.innerHTML = html;
+
+  const chkScroll = document.getElementById('chkAutoScrollLogs');
+  if (chkScroll && chkScroll.checked) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function onFilterLogsInput() {
+  // 1. Instant client-side filtering on loaded logs (0ms latency)
+  renderLogsContent();
+
+  // 2. Debounced server-side query across full history + SSE reconnect (350ms)
+  if (logsSearchDebounceTimer) clearTimeout(logsSearchDebounceTimer);
+  logsSearchDebounceTimer = setTimeout(async () => {
+    await refreshCurrentLogs();
+    connectLogsSSE();
+  }, 350);
+}
+window.filterDisplayedLogs = onFilterLogsInput;
+
+function formatSingleLogLine(item) {
+  let raw = item.text || '';
+  let dtPart = '';
+  let tagPart = '';
+  let rest = raw;
+
+  // Extract [YYYY-MM-DD HH:MM:SS] timestamp if present
+  const dtMatch = raw.match(/^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]\s*/);
+  if (dtMatch) {
+    dtPart = `<span class="log-dt">[${dtMatch[1]}]</span>`;
+    rest = rest.slice(dtMatch[0].length);
+  } else {
+    const tsMatch = raw.match(/^\[(\d{2}:\d{2}:\d{2})\]\s*/);
+    if (tsMatch) {
+      dtPart = `<span class="log-dt">[${tsMatch[1]}]</span>`;
+      rest = rest.slice(tsMatch[0].length);
+    }
+  }
+
+  // Extract [MM-xxxxxx] trade tag if present
+  const mmMatch = rest.match(/^(\[MM-[a-zA-Z0-9]+\])\s*/);
+  if (mmMatch) {
+    tagPart = `<span class="log-tag">${escapeLogHtml(mmMatch[1])}</span>`;
+    rest = rest.slice(mmMatch[0].length);
+  }
+
+  // Extract [C-BTC-...] or [P-BTC-...] bracketed symbol if present in rest
+  const symBracketMatch = rest.match(/^(\[[CP]-[A-Z]+-[\d\.]+-[\d]+\])\s*/);
+  if (symBracketMatch) {
+    if (!item.symbol) {
+      item.symbol = symBracketMatch[1].slice(1, -1);
+    }
+    rest = rest.slice(symBracketMatch[0].length);
+  }
+
+  // Symbol / Status badge if available in item
+  let metaBadge = '';
+  if (item.symbol) {
+    metaBadge = `<span class="log-sym">${escapeLogHtml(item.symbol)}</span>`;
+  }
+  if (item.status === 'active') {
+    metaBadge += `<span class="log-badge-active">ACTIVE</span>`;
+  } else if (item.status === 'history') {
+    metaBadge += `<span class="log-badge-hist">HIST</span>`;
+  }
+
+  // Keyword highlighting
+  let styledRest = escapeLogHtml(rest);
+  styledRest = styledRest
+    .replace(/(BUY FULLY FILLED|PROFIT EXIT|MARKET \w+ order|Executed \d+\/\d+ lots|Closed \d+ lots @ MARKET)/gi, '<strong class="log-text-green">$1</strong>')
+    .replace(/(SELL Exit|Limit BUY|Limit SELL|BUY PEG|SELL PEG|Cost-to-Cost floor|Average Fill)/gi, '<span class="log-text-cyan">$1</span>')
+    .replace(/(TWO-WAY ASK PEG|TWO-WAY BID PEG|Adjusting SELL|Manual price override|Notice:)/gi, '<span class="log-text-amber">$1</span>')
+    .replace(/(CANCELLED|Cancelled by user|Error placing|failed|REJECTED)/gi, '<span class="log-text-red">$1</span>');
+
+  return `<div class="log-line">${dtPart}${metaBadge}${tagPart}${styledRest}</div>`;
+}
+
+function clearLogsViewer() {
+  const container = document.getElementById('logsConsoleContainer');
+  if (container) {
+    container.innerHTML = `<div style="color: #64748b; font-style: italic; padding: 20px; text-align: center;">Console view cleared. Click Refresh to reload.</div>`;
+  }
+  const countEl = document.getElementById('lblLogsCount');
+  if (countEl) countEl.textContent = '0 log entries';
+}
+window.clearLogsViewer = clearLogsViewer;
+
+async function copyCurrentLogs() {
+  const container = document.getElementById('logsConsoleContainer');
+  if (!container) return;
+  const text = container.innerText;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (typeof showToast === 'function') {
+      showToast('Copied logs to clipboard!', 'success');
+    }
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (typeof showToast === 'function') {
+      showToast('Copied logs to clipboard!', 'success');
+    }
+  }
+}
+window.copyCurrentLogs = copyCurrentLogs;
+
+function escapeLogHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function copyTunnelUrl() {
+  const url = cachedLogsData?.tunnel_url;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    if (typeof showToast === 'function') {
+      showToast('Copied public tunnel URL to clipboard!', 'success');
+    }
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (typeof showToast === 'function') {
+      showToast('Copied public tunnel URL to clipboard!', 'success');
+    }
+  }
+}
+window.copyTunnelUrl = copyTunnelUrl;
+
+async function openLiveLogsForTrade(tradeId) {
+  if (!tradeId) return;
+  await openLiveLogsModal();
+  switchLogsTab('mm');
+  const sel = document.getElementById('selLogTradeFilter');
+  if (sel) {
+    const rawTid = String(tradeId).trim();
+    let found = false;
+    for (let i = 0; i < sel.options.length; i++) {
+      const val = sel.options[i].value;
+      if (val === rawTid || val.endsWith(rawTid) || rawTid.endsWith(val)) {
+        sel.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      sel.value = rawTid;
+    }
+    renderLogsContent();
+    connectLogsSSE();
+  }
+}
+window.openLiveLogsForTrade = openLiveLogsForTrade;
+
+// Global Escape key listener to close Live Logs modal
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('liveLogsModal');
+    if (modal && modal.style.display !== 'none') {
+      closeLiveLogsModal();
+    }
   }
 });
 

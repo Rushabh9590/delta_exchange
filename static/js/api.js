@@ -430,6 +430,24 @@ const ApiService = {
       body: JSON.stringify({ margin_mode: mode })
     });
     return await res.json();
+  },
+
+  /**
+   * Fetches real-time and historical execution logs (MM trades, server console, and tunnel)
+   */
+  async getSystemLogs(source = 'all', limit = 1000, search = '', tradeId = 'ALL') {
+    let url = `/api/system/logs?source=${encodeURIComponent(source)}&limit=${encodeURIComponent(limit)}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (tradeId && tradeId !== 'ALL') url += `&trade_id=${encodeURIComponent(tradeId)}`;
+    const res = await fetch(url);
+    return await res.json();
+  },
+
+  /**
+   * Returns download URL for complete raw log files
+   */
+  getLogsDownloadUrl(source = 'mm') {
+    return `/api/system/logs/download?source=${encodeURIComponent(source)}`;
   }
 };
 

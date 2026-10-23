@@ -6,13 +6,136 @@ Serves real-time positions, wallet balances, account metrics, and 1-click multi-
 import os
 import sys
 import time
+import json
+import re
+import queue
+import threading
 import logging
+from collections import deque
+from datetime import datetime
 from pathlib import Path
-from flask import Flask, jsonify, request, send_from_directory, make_response
+from flask import Flask, jsonify, request, send_from_directory, make_response, send_file, Response
 
 # Suppress Werkzeug / Flask HTTP request access logging
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 logger = logging.getLogger("server")
+
+def _safe_str(val):
+    if val is None:
+        return ""
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return str(val)
+
+class LogBroadcaster:
+    """Thread-safe pub/sub broadcaster for Real-Time SSE live log streaming."""
+    def __init__(self):
+        self._listeners = []
+        self._lock = threading.Lock()
+
+    def subscribe(self) -> queue.Queue:
+        q = queue.Queue(maxsize=1000)
+        with self._lock:
+            self._listeners.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue):
+        with self._lock:
+            if q in self._listeners:
+                self._listeners.remove(q)
+
+    def broadcast(self, raw_line: str, source: str = None):
+        if not raw_line:
+            return
+        raw = _safe_str(raw_line).strip()
+        if not raw:
+            return
+
+        is_mm = ("[MM-" in raw) or (source == "mm")
+        is_tunnel = (source == "tunnel")
+
+        item = {
+            "text": raw,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "is_mm": is_mm,
+            "is_tunnel": is_tunnel,
+            "source": "tunnel" if is_tunnel else ("mm" if is_mm else "server")
+        }
+
+        if is_mm:
+            tid_m = re.search(r"\[MM-([a-zA-Z0-9_-]+)\]", raw)
+            if tid_m:
+                item["trade_id"] = tid_m.group(1)
+            sym_m = re.search(r"\b([CP]-[A-Z]+-[\d\.]+-[\d]+)\b", raw)
+            if sym_m:
+                item["symbol"] = sym_m.group(1)
+            # Ensure symbol tag is present in raw text for consistent display and searching
+            sym = item.get("symbol")
+            if sym and f"[{sym}]" not in raw:
+                tid = item.get("trade_id")
+                if tid and f"[MM-{tid[-6:]}]" in raw:
+                    raw = raw.replace(f"[MM-{tid[-6:]}]", f"[MM-{tid[-6:]}] [{sym}]")
+                else:
+                    raw = f"[{sym}] " + raw
+                item["text"] = raw
+
+        with self._lock:
+            if not self._listeners:
+                return
+            dead = []
+            for q in self._listeners:
+                try:
+                    q.put_nowait(item)
+                except queue.Full:
+                    try:
+                        q.get_nowait()
+                        q.put_nowait(item)
+                    except Exception:
+                        pass
+                except Exception:
+                    dead.append(q)
+            for d in dead:
+                if d in self._listeners:
+                    self._listeners.remove(d)
+
+log_broadcaster = LogBroadcaster()
+
+# In-memory console log buffer for live UI log streaming (holds up to 15,000 lines)
+class StdoutBufferWrapper:
+    def __init__(self, original_stream, maxlen=15000):
+        self._stream = original_stream
+        self.buffer = deque(maxlen=maxlen)
+
+    def write(self, s):
+        if s:
+            try:
+                s_str = _safe_str(s)
+                for line in s_str.splitlines():
+                    l_str = line.strip()
+                    if l_str:
+                        self.buffer.append(l_str)
+                        log_broadcaster.broadcast(l_str)
+            except Exception:
+                pass
+        try:
+            return self._stream.write(s)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            return self._stream.flush()
+        except Exception:
+            pass
+
+    def get_lines(self, count=250):
+        raw = list(self.buffer)[-count:]
+        return [_safe_str(x) for x in raw]
+
+if not hasattr(sys.stdout, "get_lines"):
+    sys.stdout = StdoutBufferWrapper(sys.stdout, maxlen=15000)
+if not hasattr(sys.stderr, "get_lines"):
+    sys.stderr = StdoutBufferWrapper(sys.stderr, maxlen=15000)
 
 # Ensure project and python-rest-client paths are in sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,7 +159,7 @@ from multileg import (
     get_client
 )
 from mm_strikes import evaluate_mm_strikes, get_mm_config, start_mm_background_scanner
-from mm_execution import mm_engine
+from mm_execution import mm_engine, rotate_log_file, set_log_broadcast_callback
 from websocket import DeltaWebSocketManager
 from telegram_notify import (
     get_telegram_config,
@@ -46,6 +169,9 @@ from telegram_notify import (
     is_active_telegram_sender
 )
 
+# Connect MM execution log callback to push directly to SSE log broadcaster
+set_log_broadcast_callback(lambda line: log_broadcaster.broadcast(line, source="mm"))
+
 # Designate this process as server role (mm_strikes has priority when open)
 set_process_role("server")
 
@@ -54,6 +180,59 @@ start_master_sync_daemon(interval_seconds=900)
 
 # Start 24/7 MM Telegram Alert scanner daemon (scans BTC & ETH continuously without requiring browser to be open)
 start_mm_background_scanner(interval_seconds=4.0)
+
+# Start 60-second log file rotation daemon (enforces 10 MB per file limit with 3 backups)
+def _start_log_rotation_daemon():
+    def _rotate_loop():
+        while True:
+            time.sleep(60.0)
+            try:
+                log_dir = BASE_DIR / "logs"
+                if log_dir.exists():
+                    for name in ["mm_trades.log", "python.log", "tunnel.log", "startup.log"]:
+                        fp = log_dir / name
+                        rotate_log_file(fp, max_bytes=10 * 1024 * 1024, backup_count=3)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_rotate_loop, name="log_rotation_daemon", daemon=True)
+    t.start()
+
+# Start background Cloudflare tunnel log watcher to stream tunnel lines via SSE
+def _start_tunnel_log_watcher():
+    def _tail():
+        tunnel_file = BASE_DIR / "logs" / "tunnel.log"
+        last_pos = 0
+        if tunnel_file.exists():
+            try:
+                last_pos = tunnel_file.stat().st_size
+            except Exception:
+                pass
+        while True:
+            time.sleep(1.0)
+            try:
+                if not tunnel_file.exists():
+                    continue
+                cur_size = tunnel_file.stat().st_size
+                if cur_size < last_pos:
+                    last_pos = 0
+                if cur_size > last_pos:
+                    with open(tunnel_file, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(last_pos)
+                        new_lines = f.readlines()
+                        last_pos = f.tell()
+                    for nl in new_lines:
+                        nl_str = nl.strip()
+                        if nl_str:
+                            log_broadcaster.broadcast(nl_str, source="tunnel")
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_tail, name="tunnel_log_watcher", daemon=True)
+    t.start()
+
+_start_log_rotation_daemon()
+_start_tunnel_log_watcher()
 
 app = Flask(__name__, static_folder=str(BASE_DIR / "static"), static_url_path="/static")
 
@@ -1334,6 +1513,430 @@ def cancel_all_market_making_trades():
         return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit: int = 1000):
+    """
+    Collects, deduplicates, and chronologically orders MM trade logs from:
+    1. Persistent logs/mm_trades.log
+    2. Server console logs/python.log (harvesting any [MM-xxxxxx] events from past runs)
+    3. Active & historical cycles from mm_engine and .mm_trades_state.json
+    Returns: (list_of_log_objects, list_of_trades_metadata, total_count)
+    """
+    logs_map = {}
+    trades_metadata = {}
+
+    def _ingest(line, default_tid="", default_sym="", status=None):
+        if not line:
+            return
+        raw = line.strip()
+        dt_str = ""
+        dt_m = re.match(r"^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]\s*", raw)
+        if dt_m:
+            dt_str = dt_m.group(1)
+            raw = raw[len(dt_m.group(0)):].strip()
+        else:
+            ts_m = re.match(r"^\[(\d{2}:\d{2}:\d{2})\]\s*", raw)
+            if ts_m:
+                dt_str = ts_m.group(1)
+                raw = raw[len(ts_m.group(0)):].strip()
+
+        tid = default_tid
+        mm_m = re.match(r"^\[MM-([a-zA-Z0-9_-]+)\]\s*", raw)
+        if mm_m:
+            tid = mm_m.group(1)
+            raw = raw[len(mm_m.group(0)):].strip()
+        elif not tid:
+            mm_any = re.search(r"\[MM-([a-zA-Z0-9_-]+)\]", raw)
+            if mm_any:
+                tid = mm_any.group(1)
+
+        sym = default_sym
+        sym_m = re.search(r"\b([CP]-[A-Z]+-[\d\.]+-[\d]+)\b", raw)
+        if sym_m:
+            sym = sym_m.group(1)
+            raw = re.sub(r"\[" + re.escape(sym) + r"\]\s*", "", raw).strip()
+
+        parts = []
+        if dt_str:
+            parts.append(f"[{dt_str}]")
+        if tid:
+            parts.append(f"[MM-{tid[-6:]}]")
+        if sym:
+            parts.append(f"[{sym}]")
+        parts.append(raw)
+        normalized_text = " ".join(parts)
+
+        key = f"{dt_str}_{tid}_{raw}"
+        if key in logs_map:
+            if sym and not logs_map[key].get("symbol"):
+                logs_map[key]["symbol"] = sym
+            return
+
+        if dt_str and len(dt_str) == 8:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            sort_val = f"{today_str} {dt_str}"
+        else:
+            sort_val = dt_str or "0000-00-00 00:00:00"
+
+        logs_map[key] = {
+            "trade_id": tid,
+            "symbol": sym,
+            "status": status or "history",
+            "timestamp": dt_str,
+            "sort_key": sort_val,
+            "text": normalized_text
+        }
+
+    # 1. State file & memory
+    try:
+        with mm_engine._lock:
+            for tid, cycle in mm_engine.active_cycles.items():
+                trades_metadata[tid] = {"trade_id": tid, "symbol": cycle.symbol, "status": "active"}
+                for l in cycle.logs:
+                    _ingest(l, default_tid=tid, default_sym=cycle.symbol, status="active")
+            for h in mm_engine.history_cycles:
+                tid = h.get("trade_id", "")
+                sym = h.get("symbol", "")
+                if tid:
+                    trades_metadata[tid] = {"trade_id": tid, "symbol": sym, "status": "history"}
+                for l in h.get("logs", []):
+                    _ingest(l, default_tid=tid, default_sym=sym, status="history")
+    except Exception:
+        pass
+
+    try:
+        state_file = BASE_DIR / ".mm_trades_state.json"
+        if state_file.exists():
+            with open(state_file, "r", encoding="utf-8", errors="replace") as f:
+                sdata = json.load(f)
+            for h in sdata.get("history", []):
+                tid = h.get("trade_id", "")
+                sym = h.get("symbol", "")
+                if tid and tid not in trades_metadata:
+                    trades_metadata[tid] = {"trade_id": tid, "symbol": sym, "status": "history"}
+                for l in h.get("logs", []):
+                    _ingest(l, default_tid=tid, default_sym=sym, status="history")
+    except Exception:
+        pass
+
+    # 2. logs/mm_trades.log (and rotated backup mm_trades.log.1)
+    for mm_f in [BASE_DIR / "logs" / "mm_trades.log.1", BASE_DIR / "logs" / "mm_trades.log"]:
+        if mm_f.exists():
+            try:
+                with open(mm_f, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        _ingest(line)
+            except Exception:
+                pass
+
+    # 3. logs/python.log (and rotated backup python.log.1)
+    for py_f in [BASE_DIR / "logs" / "python.log.1", BASE_DIR / "logs" / "python.log"]:
+        if py_f.exists():
+            try:
+                with open(py_f, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if "[MM-" in line:
+                            _ingest(line)
+            except Exception:
+                pass
+
+    # Populate any discovered trades into trades_metadata
+    for item in logs_map.values():
+        tid = item.get("trade_id")
+        sym = item.get("symbol")
+        if tid and tid not in trades_metadata:
+            trades_metadata[tid] = {
+                "trade_id": tid,
+                "symbol": sym or "Option",
+                "status": item.get("status", "history")
+            }
+        elif tid and sym and trades_metadata.get(tid, {}).get("symbol") in ["", "Option", None]:
+            trades_metadata[tid]["symbol"] = sym
+
+    # Fill in symbol for items if missing but in metadata
+    for item in logs_map.values():
+        tid = item.get("trade_id")
+        if tid and not item.get("symbol") and tid in trades_metadata:
+            item["symbol"] = trades_metadata[tid]["symbol"]
+        sym = item.get("symbol")
+        if sym and sym not in item["text"]:
+            if tid and f"[MM-{tid[-6:]}]" in item["text"]:
+                item["text"] = item["text"].replace(f"[MM-{tid[-6:]}]", f"[MM-{tid[-6:]}] [{sym}]")
+            else:
+                item["text"] = f"[{sym}] " + item["text"]
+
+    # Convert to list and sort chronologically
+    all_items = list(logs_map.values())
+    all_items.sort(key=lambda x: x["sort_key"])
+
+    total_count = len(all_items)
+
+    # Filter by trade
+    if trade_filter and trade_filter != "ALL":
+        tf = trade_filter.lower().strip()
+        all_items = [
+            it for it in all_items
+            if (it.get("trade_id", "").lower().endswith(tf) or tf in it.get("trade_id", "").lower())
+        ]
+
+    # Filter by search across text, symbol, trade_id, and status
+    if search_query:
+        sq = search_query.lower().strip()
+        all_items = [
+            it for it in all_items
+            if (
+                sq in (it.get("text") or "").lower()
+                or sq in (it.get("symbol") or "").lower()
+                or sq in (it.get("trade_id") or "").lower()
+                or sq in (it.get("status") or "").lower()
+            )
+        ]
+
+    # Limit
+    if limit > 0 and len(all_items) > limit:
+        all_items = all_items[-limit:]
+
+    trades_list = list(trades_metadata.values())
+    return all_items, trades_list, total_count
+
+
+@app.route("/api/system/logs", methods=["GET"])
+def get_system_logs():
+    """
+    Returns real-time and historical execution logs (MM trades, server console, and tunnel output).
+    Supports high limit / full history, trade filtering, and text search across old logs.
+    """
+    try:
+        source = request.args.get("source", "all").lower()
+        limit_arg = request.args.get("limit", "1000")
+        try:
+            limit = int(limit_arg)
+        except Exception:
+            limit = 1000
+        if limit < 0:
+            limit = 0
+
+        search_query = (request.args.get("search") or "").strip()
+        trade_filter = (request.args.get("trade_id") or "ALL").strip()
+
+        # 1. MM trade logs (active + historical across all runs)
+        mm_items, trades_list, total_mm_count = collect_all_mm_logs(
+            trade_filter=trade_filter,
+            search_query=search_query,
+            limit=limit
+        )
+
+        # 2. Server console logs (from logs/python.log or in-memory stdout wrapper)
+        server_logs = []
+        py_log_path = BASE_DIR / "logs" / "python.log"
+        total_server_lines = 0
+        if py_log_path.exists():
+            try:
+                with open(py_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = [line.strip() for line in f if line.strip()]
+                    total_server_lines = len(all_lines)
+                    if search_query:
+                        sq = search_query.lower()
+                        all_lines = [l for l in all_lines if sq in l.lower()]
+                    if limit > 0:
+                        server_logs = all_lines[-limit:]
+                    else:
+                        server_logs = all_lines[-50000:]
+            except Exception:
+                pass
+
+        if not server_logs and hasattr(sys.stdout, "get_lines"):
+            all_lines = sys.stdout.get_lines(count=15000)
+            total_server_lines = len(all_lines)
+            if search_query:
+                sq = search_query.lower()
+                all_lines = [l for l in all_lines if sq in l.lower()]
+            if limit > 0:
+                server_logs = all_lines[-limit:]
+            else:
+                server_logs = all_lines
+
+        # 3. Cloudflare tunnel logs
+        tunnel_logs = []
+        tunnel_path = BASE_DIR / "logs" / "tunnel.log"
+        total_tunnel_lines = 0
+        if tunnel_path.exists():
+            try:
+                with open(tunnel_path, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = [line.strip() for line in f if line.strip()]
+                    total_tunnel_lines = len(all_lines)
+                    if search_query:
+                        sq = search_query.lower()
+                        all_lines = [l for l in all_lines if sq in l.lower()]
+                    if limit > 0:
+                        tunnel_logs = all_lines[-limit:]
+                    else:
+                        tunnel_logs = all_lines[-10000:]
+            except Exception:
+                pass
+
+        tunnel_url = None
+        url_file = BASE_DIR / "logs" / "latest_tunnel_url.txt"
+        if url_file.exists():
+            try:
+                tunnel_url = url_file.read_text().strip()
+            except Exception:
+                pass
+
+        safe_mm_items = [
+            {
+                "trade_id": _safe_str(it.get("trade_id")),
+                "symbol": _safe_str(it.get("symbol")),
+                "status": _safe_str(it.get("status")),
+                "timestamp": _safe_str(it.get("timestamp")),
+                "text": _safe_str(it.get("text"))
+            }
+            for it in mm_items
+        ]
+        safe_trades_list = [
+            {
+                "trade_id": _safe_str(t.get("trade_id")),
+                "symbol": _safe_str(t.get("symbol")),
+                "status": _safe_str(t.get("status"))
+            }
+            for t in trades_list
+        ]
+        safe_server_logs = [_safe_str(x) for x in server_logs]
+        safe_tunnel_logs = [_safe_str(x) for x in tunnel_logs]
+
+        return jsonify({
+            "success": True,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "mm_logs": safe_mm_items,
+            "trades_list": safe_trades_list,
+            "total_mm_count": total_mm_count,
+            "server_logs": safe_server_logs,
+            "total_server_count": total_server_lines,
+            "tunnel_logs": safe_tunnel_logs,
+            "total_tunnel_count": total_tunnel_lines,
+            "tunnel_url": _safe_str(tunnel_url) if tunnel_url else None
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/system/logs/download", methods=["GET"])
+def download_system_logs():
+    """
+    Downloads raw log file as attachment (mm_trades.log, python.log, or tunnel.log).
+    """
+    try:
+        source = request.args.get("source", "mm").lower()
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if source in ("mm", "all"):
+            items, _, _ = collect_all_mm_logs(trade_filter="ALL", search_query="", limit=0)
+            content = "\n".join([item["text"] for item in items])
+            filename = f"delta_mm_execution_logs_{now_str}.log"
+            return Response(
+                content,
+                mimetype="text/plain; charset=utf-8",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+
+        elif source == "server":
+            py_log = BASE_DIR / "logs" / "python.log"
+            filename = f"delta_server_console_{now_str}.log"
+            if py_log.exists():
+                return send_file(py_log, as_attachment=True, download_name=filename, mimetype="text/plain")
+            elif hasattr(sys.stdout, "get_lines"):
+                content = "\n".join(sys.stdout.get_lines(count=15000))
+                return Response(
+                    content,
+                    mimetype="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"}
+                )
+            return Response("No server console logs available.", mimetype="text/plain")
+
+        elif source == "tunnel":
+            tunnel_log = BASE_DIR / "logs" / "tunnel.log"
+            filename = f"delta_cloudflare_tunnel_{now_str}.log"
+            if tunnel_log.exists():
+                return send_file(tunnel_log, as_attachment=True, download_name=filename, mimetype="text/plain")
+            return Response("No tunnel logs available.", mimetype="text/plain")
+
+        return jsonify({"success": False, "error": "Invalid log source"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/system/logs/stream", methods=["GET"])
+def stream_system_logs():
+    """
+    Real-Time Server-Sent Events (SSE) log stream.
+    Delivers sub-millisecond execution logs to the UI without HTTP polling overhead.
+    """
+    source = request.args.get("source", "all").lower()
+    trade_filter = (request.args.get("trade_id") or "ALL").strip()
+    search_query = (request.args.get("search") or "").strip().lower()
+
+    q = log_broadcaster.subscribe()
+
+    def generate():
+        # Handshake event to confirm SSE connection
+        handshake_payload = json.dumps({
+            "status": "connected",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        yield f"event: handshake\ndata: {handshake_payload}\n\n"
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=2.0)
+                except queue.Empty:
+                    # Keep-alive heartbeat comment every 2 seconds
+                    yield ": heartbeat\n\n"
+                    continue
+
+                item_is_mm = item.get("is_mm", False)
+                item_is_tunnel = item.get("is_tunnel", False)
+
+                # Tab source filtering
+                if source == "mm" and not item_is_mm:
+                    continue
+                elif source == "server" and (item_is_mm or item_is_tunnel):
+                    continue
+                elif source == "tunnel" and not item_is_tunnel:
+                    continue
+
+                # Trade ID filtering for MM
+                if item_is_mm and trade_filter != "ALL":
+                    tf = trade_filter.lower()
+                    it_tid = item.get("trade_id", "").lower()
+                    if not (it_tid.endswith(tf) or tf.endswith(it_tid) or tf in it_tid):
+                        continue
+
+                # Text search filtering across text, symbol, trade_id, and status
+                if search_query:
+                    txt = (item.get("text") or "").lower()
+                    sym = (item.get("symbol") or "").lower()
+                    tid = (item.get("trade_id") or "").lower()
+                    st = (item.get("status") or "").lower()
+                    if search_query not in txt and search_query not in sym and search_query not in tid and search_query not in st:
+                        continue
+
+                yield f"data: {json.dumps(item)}\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            log_broadcaster.unsubscribe(q)
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Content-Type": "text/event-stream",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
 
 
 @app.route("/api/ws/private/status", methods=["GET"])

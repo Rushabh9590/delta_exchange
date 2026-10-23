@@ -61,6 +61,73 @@ logger = logging.getLogger("delta_mm_engine")
 
 STATE_FILE_PATH = os.path.join(str(BASE_DIR), ".mm_trades_state.json")
 _STATE_LOCK = threading.Lock()
+MM_LOG_FILE = BASE_DIR / "logs" / "mm_trades.log"
+MAX_LOG_FILE_BYTES = 10 * 1024 * 1024  # 10 MB per file limit
+LOG_BACKUP_COUNT = 3                   # Retain up to 3 rotated backups (.1, .2, .3)
+_LOG_BROADCAST_CALLBACK = None
+
+def set_log_broadcast_callback(cb):
+    """Registers an SSE log broadcaster callback for real-time live streaming."""
+    global _LOG_BROADCAST_CALLBACK
+    _LOG_BROADCAST_CALLBACK = cb
+
+def rotate_log_file(file_path, max_bytes: int = MAX_LOG_FILE_BYTES, backup_count: int = LOG_BACKUP_COUNT) -> bool:
+    """
+    Safely rotates file_path if its size exceeds max_bytes.
+    Rotates existing backups (.2 -> .3, .1 -> .2) and moves file_path to .1.
+    Handles Windows PermissionError (locked handles) via safe copy-truncate.
+    """
+    try:
+        p = Path(file_path)
+        if not p.exists() or p.stat().st_size < max_bytes:
+            return False
+
+        for i in range(backup_count - 1, 0, -1):
+            sfn = p.with_name(f"{p.name}.{i}")
+            dfn = p.with_name(f"{p.name}.{i + 1}")
+            if sfn.exists():
+                try:
+                    if dfn.exists():
+                        dfn.unlink()
+                    sfn.rename(dfn)
+                except Exception:
+                    pass
+
+        target = p.with_name(f"{p.name}.1")
+        try:
+            if target.exists():
+                target.unlink()
+            p.rename(target)
+            return True
+        except PermissionError:
+            # File is held open by another process on Windows: fallback to copy & truncate
+            try:
+                import shutil
+                shutil.copyfile(str(p), str(target))
+                with open(p, "w", encoding="utf-8") as f:
+                    f.truncate(0)
+                return True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return False
+
+def append_to_mm_log(line: str):
+    """Safely appends a real-time MM execution log line to persistent disk file with size-limit rotation."""
+    try:
+        MM_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log_file(MM_LOG_FILE, max_bytes=MAX_LOG_FILE_BYTES, backup_count=LOG_BACKUP_COUNT)
+        with open(MM_LOG_FILE, "a", encoding="utf-8", errors="replace") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+    if _LOG_BROADCAST_CALLBACK:
+        try:
+            _LOG_BROADCAST_CALLBACK(line)
+        except Exception:
+            pass
 
 
 def save_all_trades_state(active_dict: dict, history_list: list = None):
@@ -232,18 +299,20 @@ class MMTradeCycle:
                 pass
 
     def log(self, msg: str):
-        ts = datetime.now().strftime("%H:%M:%S")
-        entry = f"[{ts}] {msg}"
+        dt_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = f"[{dt_str}] {msg}"
         self.logs.append(entry)
         self.status_message = msg
         self.updated_at = datetime.now(timezone.utc).isoformat()
         self._persist_state()
+        full_line = f"[{dt_str}] [MM-{self.trade_id[-6:]}] [{self.symbol}] {msg}"
+        append_to_mm_log(full_line)
         try:
-            print(f"[MM-{self.trade_id[-6:]}] {msg}", flush=True)
+            print(full_line, flush=True)
         except Exception:
             try:
-                safe_msg = msg.encode("ascii", errors="replace").decode("ascii")
-                print(f"[MM-{self.trade_id[-6:]}] {safe_msg}", flush=True)
+                safe_msg = full_line.encode("ascii", errors="replace").decode("ascii")
+                print(safe_msg, flush=True)
             except Exception:
                 pass
 
