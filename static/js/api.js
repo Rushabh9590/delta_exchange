@@ -337,13 +337,25 @@ const ApiService = {
   },
 
   /**
-   * Cancels an active MM trade
+   * Cancels an active MM trade and closes open positions at market
    */
-  async cancelMMTrade(tradeId) {
+  async cancelMMTrade(tradeId, marketClose = true) {
     const res = await fetch('/api/mm/trade/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trade_id: tradeId })
+      body: JSON.stringify({ trade_id: tradeId, market_close: marketClose })
+    });
+    return await res.json();
+  },
+
+  /**
+   * Cancels all active MM trades and closes open positions at market in 1 click
+   */
+  async cancelAllMMTrades(marketClose = true) {
+    const res = await fetch('/api/mm/trade/cancel-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market_close: marketClose })
     });
     return await res.json();
   },

@@ -1307,7 +1307,7 @@ def resume_trade_peg():
 @app.route("/api/mm/trade/cancel", methods=["POST"])
 def cancel_market_making_trade():
     """
-    Cancels an active MM trade cycle.
+    Cancels an active MM trade cycle and closes open positions at market order.
     """
     try:
         data = request.get_json() or {}
@@ -1315,7 +1315,22 @@ def cancel_market_making_trade():
         if not trade_id:
             return jsonify({"success": False, "error": "'trade_id' is required."}), 400
 
-        res = mm_engine.cancel_trade(trade_id)
+        market_close = data.get("market_close", True)
+        res = mm_engine.cancel_trade(trade_id, market_close=market_close)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/mm/trade/cancel-all", methods=["POST"])
+def cancel_all_market_making_trades():
+    """
+    Stops all active MM trade cycles and immediately closes any open positions at market order.
+    """
+    try:
+        data = request.get_json() or {}
+        market_close = data.get("market_close", True)
+        res = mm_engine.cancel_all_trades(market_close=market_close)
         return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

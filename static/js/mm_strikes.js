@@ -1452,8 +1452,10 @@ function renderActiveMmTrades(trades) {
       stateBadge = `<span class="mm-trade-badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">${t.state}</span>`;
     }
 
-    const curBidStr = t.current_bid ? `$${t.current_bid.toFixed(2)}` : '--';
-    const curAskStr = t.current_ask ? `$${t.current_ask.toFixed(2)}` : '--';
+    const curBid = (t.current_bid != null && t.current_bid > 0) ? t.current_bid : (t.competitor_bid || t.buy_limit_price);
+    const curAsk = (t.current_ask != null && t.current_ask > 0) ? t.current_ask : (t.competitor_ask || t.sell_limit_price);
+    const curBidStr = (curBid != null && curBid > 0) ? `$${formatMmPrice(curBid, t.tick_size)}` : '--';
+    const curAskStr = (curAsk != null && curAsk > 0) ? `$${formatMmPrice(curAsk, t.tick_size)}` : '--';
     const costStr = t.buy_fill_price ? `$${t.buy_fill_price.toFixed(2)}` : 'Pending Buy';
     const activeOrderPrice = t.sell_limit_price || t.buy_limit_price || 0;
     const isManualLocked = Boolean(t.manual_buy_override || t.manual_sell_override);
@@ -1471,9 +1473,11 @@ function renderActiveMmTrades(trades) {
         leftEl.innerHTML = `
           <span class="mm-trade-symbol">${t.symbol}</span>
           ${stateBadge}
+          <span class="mm-strip-chip mm-chip-bidask" title="Live Market Best Bid / Ask">
+            <span style="color: #94a3b8; font-weight: 600;">Bid / Ask:</span> <strong class="text-green">${curBidStr}</strong> <span style="color: #64748b;">/</span> <strong class="text-red">${curAskStr}</strong>
+          </span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
-          <span class="mm-strip-chip"><span style="color: #94a3b8;">Bid / Ask:</span> <span class="text-green">${curBidStr}</span> / <span class="text-red">${curAskStr}</span></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
           <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
         `;
@@ -1542,9 +1546,11 @@ function renderActiveMmTrades(trades) {
         <div class="mm-strip-left">
           <span class="mm-trade-symbol">${t.symbol}</span>
           ${stateBadge}
+          <span class="mm-strip-chip mm-chip-bidask" title="Live Market Best Bid / Ask">
+            <span style="color: #94a3b8; font-weight: 600;">Bid / Ask:</span> <strong class="text-green">${curBidStr}</strong> <span style="color: #64748b;">/</span> <strong class="text-red">${curAskStr}</strong>
+          </span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
-          <span class="mm-strip-chip"><span style="color: #94a3b8;">Bid / Ask:</span> <span class="text-green">${curBidStr}</span> / <span class="text-red">${curAskStr}</span></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
           <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
         </div>
@@ -1648,14 +1654,18 @@ async function resumeActiveTradePeg(tradeId) {
 window.resumeActiveTradePeg = resumeActiveTradePeg;
 
 /**
- * Cancels an active trade
+ * Cancels an active trade and squares off any open position at market order
  */
 async function cancelActiveTrade(tradeId) {
-  if (!confirm('Cancel this active trade order?')) return;
+  if (!confirm('🛑 Stop this MM trade and immediately close any open position with a MARKET order?')) return;
   try {
-    const res = await ApiService.cancelMMTrade(tradeId);
+    const res = await ApiService.cancelMMTrade(tradeId, true);
     if (res && res.success) {
-      showToast('Trade stop requested', 'normal');
+      if (res.closed_lots > 0) {
+        showToast(`Trade stopped! Closed ${res.closed_lots} lot(s) at MARKET ($${res.market_fill_price || '--'})`, 'success');
+      } else {
+        showToast('Trade stopped and limit orders cancelled.', 'normal');
+      }
       pollActiveMmTrades();
     } else {
       showToast(`Cancel failed: ${res?.error || 'Error'}`, 'error');
@@ -1664,6 +1674,26 @@ async function cancelActiveTrade(tradeId) {
     showToast(`Error: ${e.message}`, 'error');
   }
 }
+window.cancelActiveTrade = cancelActiveTrade;
+
+/**
+ * Emergency stops all active MM trades and closes all open positions at market order
+ */
+async function cancelAllActiveTrades() {
+  if (!confirm('🛑 EMERGENCY STOP: Stop ALL active MM trades and immediately CLOSE all open positions at MARKET order?')) return;
+  try {
+    const res = await ApiService.cancelAllMMTrades(true);
+    if (res && res.success) {
+      showToast(res.message || 'All active trades stopped and positions closed at market!', 'success');
+      pollActiveMmTrades();
+    } else {
+      showToast(`Stop all failed: ${res?.error || 'Error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+window.cancelAllActiveTrades = cancelAllActiveTrades;
 
 /**
  * Updates the Drawer Status Badge and Modal Status Indicator

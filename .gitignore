@@ -7,3 +7,4 @@ command
 .alert_history.json
 .tg_sender.lock
 .mm_trades_state.json*
+start_delta.sh

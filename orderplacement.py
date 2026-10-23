@@ -303,9 +303,13 @@ def resume_mm_peg(trade_id: str, side: str = None):
     """Resumes dynamic two-way floating peg (clears manual price override)."""
     return mm_engine.resume_peg(trade_id, side=side)
 
-def cancel_mm_trade(trade_id: str):
-    """Cancels an active MM trade."""
-    return mm_engine.cancel_trade(trade_id)
+def cancel_mm_trade(trade_id: str, market_close: bool = True):
+    """Cancels an active MM trade and closes any open position at market order."""
+    return mm_engine.cancel_trade(trade_id, market_close=market_close)
+
+def cancel_all_mm_trades(market_close: bool = True):
+    """Cancels all active MM trades and closes any open positions at market order."""
+    return mm_engine.cancel_all_trades(market_close=market_close)
 
 def get_active_mm_trades():
     """Returns all active MM trades."""

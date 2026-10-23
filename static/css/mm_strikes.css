@@ -782,26 +782,26 @@ tr.row-max-oi:hover {
 .mm-trade-cards-grid {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  min-width: 960px;
 }
 
 .mm-trade-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-left: 4px solid #10b981;
-  border-radius: 6px;
-  padding: 7px 14px;
+  border-radius: 8px;
+  padding: 8px 14px;
   display: flex;
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 10px 14px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   width: 100%;
   box-sizing: border-box;
-  min-height: 44px;
+  min-height: 46px;
+  flex-wrap: wrap;
 }
 
 .mm-trade-card.waiting-cost {
@@ -811,11 +811,10 @@ tr.row-max-oi:hover {
 .mm-strip-left {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 
 .mm-trade-symbol {
@@ -841,6 +840,14 @@ tr.row-max-oi:hover {
   flex-shrink: 0;
 }
 
+.mm-chip-bidask {
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  font-family: var(--font-mono);
+  font-size: 0.76rem !important;
+  padding: 3px 9px !important;
+}
+
 .mm-strip-status-chip {
   flex: 1 1 auto;
   min-width: 140px;
@@ -862,7 +869,7 @@ tr.row-max-oi:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 12px;
+  margin-left: auto;
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -982,5 +989,27 @@ tr.row-max-oi:hover {
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.4);
   letter-spacing: 0.5px;
+}
+
+.mm-btn-stop-all {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #f87171;
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mm-btn-stop-all:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.45);
 }
 

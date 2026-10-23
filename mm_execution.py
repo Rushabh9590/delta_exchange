@@ -468,6 +468,37 @@ class MMTradeCycle:
 
     def to_dict(self) -> dict:
         """Serializes current trade status for API and Dashboard consumption."""
+        # Ensure fresh bid & ask are available for UI monitor
+        bid = self.current_bid
+        ask = self.current_ask
+        if bid is None or ask is None:
+            try:
+                if getattr(self, "public_ws", None):
+                    wq = self.public_ws.get_latest_quote(self.symbol)
+                    if wq.get("bid"): bid = float(wq["bid"])
+                    if wq.get("ask"): ask = float(wq["ask"])
+                if (bid is None or ask is None):
+                    from websocket import get_public_ws_manager
+                    pws = get_public_ws_manager([self.symbol])
+                    if pws:
+                        wq2 = pws.get_latest_quote(self.symbol)
+                        if wq2.get("bid"): bid = float(wq2["bid"])
+                        if wq2.get("ask"): ask = float(wq2["ask"])
+                if bid is None and self.competitor_bid:
+                    bid = float(self.competitor_bid)
+                if ask is None and self.competitor_ask:
+                    ask = float(self.competitor_ask)
+                if bid is None and self.buy_limit_price:
+                    bid = float(self.buy_limit_price)
+                if ask is None and self.sell_limit_price:
+                    ask = float(self.sell_limit_price)
+                if bid is not None:
+                    self.current_bid = bid
+                if ask is not None:
+                    self.current_ask = ask
+            except Exception:
+                pass
+
         return {
             "trade_id": self.trade_id,
             "symbol": self.symbol,
@@ -554,6 +585,9 @@ class MMTradeCycle:
             "manual_buy_price": getattr(self, "manual_buy_price", None),
             "manual_sell_override": getattr(self, "manual_sell_override", False),
             "manual_sell_price": getattr(self, "manual_sell_price", None),
+            "current_bid": self.current_bid,
+            "current_ask": self.current_ask,
+            "current_ltp": self.current_ltp,
             "realized_pnl": self.realized_pnl,
             "unrealized_pnl": self.unrealized_pnl,
             "created_at": self.created_at,
@@ -597,6 +631,9 @@ class MMTradeCycle:
         cycle.manual_buy_price = float(data["manual_buy_price"]) if data.get("manual_buy_price") is not None else None
         cycle.manual_sell_override = bool(data.get("manual_sell_override", False))
         cycle.manual_sell_price = float(data["manual_sell_price"]) if data.get("manual_sell_price") is not None else None
+        cycle.current_bid = float(data["current_bid"]) if data.get("current_bid") is not None else None
+        cycle.current_ask = float(data["current_ask"]) if data.get("current_ask") is not None else None
+        cycle.current_ltp = float(data["current_ltp"]) if data.get("current_ltp") is not None else None
         cycle.realized_pnl = float(data.get("realized_pnl", 0.0))
         cycle.unrealized_pnl = float(data.get("unrealized_pnl", 0.0))
         cycle.state = data.get("state", "INIT")
@@ -610,6 +647,7 @@ class MMTradeCycle:
             cycle._order_fills_map[int(cycle.sell_order_id)] = float(cycle.sell_filled_qty)
         return cycle
 
+
     def reconcile_with_exchange(self) -> bool:
         """
         Reconciles the trade cycle against live Delta Exchange API state upon server recovery.
@@ -622,6 +660,10 @@ class MMTradeCycle:
         Returns False if the trade is already concluded or cancelled.
         """
         self.log(f"[RECOVERY] Reconciling {self.trade_id} ({self.symbol}) with Delta Exchange...")
+        try:
+            self.fetch_live_quote()
+        except Exception:
+            pass
 
         # Step 0: Fetch all live open/pending orders for this contract from Delta Exchange
         live_orders = []
@@ -920,10 +962,142 @@ class MMTradeCycle:
         self._thread = threading.Thread(target=self._run_lifecycle, daemon=True, name=f"MM-{self.trade_id}")
         self._thread.start()
 
-    def stop(self):
-        """Requests graceful stop."""
+    def stop(self, market_close: bool = True) -> dict:
+        """
+        Stops the MM trade cycle immediately:
+        1. Sets stop_requested = True and is_running = False.
+        2. Cancels any open BUY and SELL orders for this product on Delta Exchange.
+        3. If market_close=True and an open position is held, executes an immediate MARKET order
+           with reduce_only=True to square off the position at market.
+        4. Updates trade state to CANCELLED and persists state.
+        """
         self.stop_requested = True
-        self.log("Cancellation / Stop requested by user")
+        self.is_running = False
+        self.log("Cancellation / Stop requested by user.")
+
+        cancelled_orders = []
+        # Step 1: Cancel active buy order if any
+        if self.buy_order_id:
+            try:
+                self.client.cancel_order(product_id=self.product_id, order_id=int(self.buy_order_id))
+                cancelled_orders.append(f"BUY {self.buy_order_id}")
+            except Exception as e:
+                self.log(f"Notice cancelling buy order {self.buy_order_id}: {e}")
+            self.buy_order_id = None
+            self.buy_unfilled_qty = 0
+
+        # Step 2: Cancel active sell order if any
+        if self.sell_order_id:
+            try:
+                self.client.cancel_order(product_id=self.product_id, order_id=int(self.sell_order_id))
+                cancelled_orders.append(f"SELL {self.sell_order_id}")
+            except Exception as e:
+                self.log(f"Notice cancelling sell order {self.sell_order_id}: {e}")
+            self.sell_order_id = None
+            self.sell_placed_qty = 0
+            self.sell_unfilled_qty = 0
+
+        # Also cancel any dangling orders for this product on Delta Exchange
+        try:
+            self.client.cancel_all_orders(payload={"product_id": self.product_id})
+        except Exception:
+            pass
+
+        # Unregister WebSocket listeners
+        if self.private_ws:
+            try:
+                if self.buy_order_id:
+                    self.private_ws.remove_order_listener(self.buy_order_id, self._on_buy_order_update)
+                if self.sell_order_id:
+                    self.private_ws.remove_order_listener(self.sell_order_id, self._on_sell_order_update)
+            except Exception:
+                pass
+
+        closed_lots = 0
+        market_fill_price = None
+
+        # Step 3: Check position on Delta Exchange and square off with MARKET order
+        if market_close:
+            actual_pos = 0.0
+            try:
+                p = self.client.get_position(self.product_id)
+                actual_pos = float(p.get("size", 0)) if p else 0.0
+            except Exception:
+                actual_pos = 0.0
+
+            # Fallback to margined positions check if get_position returned 0 but we hold inventory
+            if actual_pos == 0.0:
+                try:
+                    all_pos = self.client.request("GET", "/v2/positions/margined", auth=True).json().get("result", [])
+                    if isinstance(all_pos, list):
+                        p_match = next((p for p in all_pos if str(p.get("product_id")) == str(self.product_id)), None)
+                        if p_match:
+                            actual_pos = float(p_match.get("size", 0))
+                except Exception:
+                    pass
+
+            # Fallback to internal inventory if Delta API had any transient latency
+            if actual_pos == 0.0 and (self.buy_filled_qty > self.sell_filled_qty):
+                open_inv = self.buy_filled_qty - self.sell_filled_qty
+                time.sleep(0.1)
+                try:
+                    p2 = self.client.get_position(self.product_id)
+                    actual_pos = float(p2.get("size", 0)) if p2 else 0.0
+                except Exception:
+                    actual_pos = float(open_inv)
+
+            if abs(actual_pos) > 0:
+                closed_lots = int(abs(actual_pos))
+                opposing_side = "sell" if actual_pos > 0 else "buy"
+                self.log(f"[STOP MARKET EXIT] Held position: {actual_pos} lots on {self.symbol}. Placing MARKET {opposing_side.upper()} order for {closed_lots} lots...")
+                try:
+                    market_order = self.client.place_order(
+                        product_id=self.product_id,
+                        size=closed_lots,
+                        side=opposing_side,
+                        order_type=OrderType.MARKET,
+                        reduce_only="true"
+                    )
+                    avg_fill = float(market_order.get("average_fill_price") or 0.0)
+                    if avg_fill <= 0:
+                        quote = self.fetch_live_quote()
+                        avg_fill = float(quote.get("bid" if opposing_side == "sell" else "ask") or quote.get("ltp") or 0.0)
+                    market_fill_price = avg_fill
+
+                    if actual_pos > 0:
+                        self.sell_filled_qty = self.buy_filled_qty
+                        self.sell_fill_price = avg_fill
+                        self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                        if self.buy_fill_price and avg_fill > 0:
+                            chunk_pnl = (avg_fill - self.buy_fill_price) * closed_lots * self.contract_value
+                            self.realized_pnl += chunk_pnl
+                            self.log(f"[STOP MARKET EXIT] Closed {closed_lots} lots @ MARKET ${avg_fill:.4f}! Realized PnL: ${chunk_pnl:.5f} USD.")
+                    else:
+                        self.log(f"[STOP MARKET EXIT] Closed {closed_lots} lots @ MARKET ${avg_fill:.4f}!")
+                except Exception as m_err:
+                    err_str = str(m_err).lower()
+                    if "no_position_for_reduce_only" in err_str:
+                        self.log(f"[STOP MARKET EXIT] Position on Delta Exchange is already flat (0).")
+                        closed_lots = 0
+                    else:
+                        self.log(f"[STOP MARKET EXIT] Error placing market exit order: {m_err}")
+
+        self.state = "CANCELLED"
+        if closed_lots > 0:
+            self.status_message = f"Stopped by user. Closed {closed_lots} lots at MARKET (${market_fill_price:.2f})"
+        else:
+            self.status_message = "Stopped by user (0 open positions)"
+
+        self._persist_state()
+        return {
+            "success": True,
+            "trade_id": self.trade_id,
+            "state": self.state,
+            "closed_lots": closed_lots,
+            "market_fill_price": market_fill_price,
+            "realized_pnl": round(self.realized_pnl, 6),
+            "cancelled_orders": cancelled_orders
+        }
 
     def upload_limit_price(self, new_price: float, side: str = None, is_manual: bool = False) -> dict:
         """
@@ -1668,7 +1842,7 @@ class MMTradeCycle:
 
             # Handle user stop request
             if self.stop_requested:
-                self.log("Cycle stop requested. Cancelling any open BUY orders...")
+                self.log("Cycle stop requested. Cancelling any open orders...")
                 if self.buy_order_id and self.buy_unfilled_qty > 0:
                     try:
                         self.client.cancel_order(product_id=self.product_id, order_id=self.buy_order_id)
@@ -1676,11 +1850,36 @@ class MMTradeCycle:
                         pass
                     self.buy_unfilled_qty = 0
 
+                if self.sell_order_id:
+                    try:
+                        self.client.cancel_order(product_id=self.product_id, order_id=self.sell_order_id)
+                    except Exception:
+                        pass
+                    self.sell_order_id = None
+                    self.sell_placed_qty = 0
+                    self.sell_unfilled_qty = 0
+
                 open_inv = max(0, self.buy_filled_qty - self.sell_filled_qty)
                 if open_inv > 0:
-                    self.log(f"Notice: You hold {open_inv} open long lots. Active SELL order {self.sell_order_id} remains protecting your position at {self.sell_limit_price}.")
-                else:
-                    self.state = "CANCELLED"
+                    self.log(f"[STOP MARKET CLOSE] Holding {open_inv} open long lots. Closing position with MARKET SELL order...")
+                    try:
+                        mkt_order = self.client.place_order(
+                            product_id=self.product_id,
+                            size=open_inv,
+                            side="sell",
+                            order_type=OrderType.MARKET,
+                            reduce_only="true"
+                        )
+                        avg_fill = float(mkt_order.get("average_fill_price") or 0.0)
+                        self.sell_filled_qty = self.buy_filled_qty
+                        self.sell_fill_price = avg_fill if avg_fill > 0 else (self.sell_fill_price or self.buy_fill_price or 0.0)
+                        self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                        if self.buy_fill_price and avg_fill > 0:
+                            self.realized_pnl += (avg_fill - self.buy_fill_price) * open_inv * self.contract_value
+                        self.log(f"[STOP MARKET CLOSE] Successfully closed {open_inv} lots at MARKET @ {avg_fill}!")
+                    except Exception as e:
+                        self.log(f"[STOP MARKET CLOSE] Error placing market sell order: {e}")
+                self.state = "CANCELLED"
 
         finally:
             if self.private_ws:
@@ -2596,7 +2795,31 @@ class MMTradeCycle:
                             continue
 
             if self.stop_requested:
-                self.log(f"Manual stop requested while in exit phase. Note: You hold {self.size} lot{'s' if self.size > 1 else ''} long position.")
+                self.log(f"[STOP MARKET CLOSE] Manual stop requested while holding {self.size} lots. Placing MARKET SELL order...")
+                if self.sell_order_id:
+                    try:
+                        self.client.cancel_order(product_id=self.product_id, order_id=self.sell_order_id)
+                    except Exception:
+                        pass
+                    self.sell_order_id = None
+                try:
+                    mkt_order = self.client.place_order(
+                        product_id=self.product_id,
+                        size=self.size,
+                        side="sell",
+                        order_type=OrderType.MARKET,
+                        reduce_only="true"
+                    )
+                    avg_fill = float(mkt_order.get("average_fill_price") or 0.0)
+                    self.sell_filled_qty = self.size
+                    self.sell_fill_price = avg_fill if avg_fill > 0 else (self.sell_fill_price or self.buy_fill_price or 0.0)
+                    self.sell_fill_time = datetime.now(timezone.utc).isoformat()
+                    if self.buy_fill_price and avg_fill > 0:
+                        self.realized_pnl += (avg_fill - self.buy_fill_price) * self.size * self.contract_value
+                    self.log(f"[STOP MARKET CLOSE] Successfully closed {self.size} lots at MARKET @ {avg_fill}!")
+                except Exception as e:
+                    self.log(f"[STOP MARKET CLOSE] Error placing market sell order: {e}")
+                self.state = "CANCELLED"
 
         finally:
             if self.private_ws and self.sell_order_id:
@@ -2726,13 +2949,36 @@ class DeltaMMEngine:
         save_all_trades_state(self.active_cycles, self.history_cycles)
         return res
 
-    def cancel_trade(self, trade_id: str) -> dict:
+    def cancel_trade(self, trade_id: str, market_close: bool = True) -> dict:
         cycle = self.get_cycle(trade_id)
         if not cycle:
             return {"success": False, "error": f"Trade {trade_id} not found."}
-        cycle.stop()
+        res = cycle.stop(market_close=market_close)
         save_all_trades_state(self.active_cycles, self.history_cycles)
-        return {"success": True, "message": f"Stop requested for {trade_id}"}
+        return res
+
+    def cancel_all_trades(self, market_close: bool = True) -> dict:
+        with self._lock:
+            cycles = list(self.active_cycles.values())
+
+        if not cycles:
+            return {"success": True, "message": "No active MM trades running.", "stopped_count": 0}
+
+        results = []
+        for c in cycles:
+            try:
+                res = c.stop(market_close=market_close)
+                results.append({"trade_id": c.trade_id, "symbol": c.symbol, "res": res})
+            except Exception as e:
+                results.append({"trade_id": c.trade_id, "symbol": c.symbol, "error": str(e)})
+
+        save_all_trades_state(self.active_cycles, self.history_cycles)
+        return {
+            "success": True,
+            "message": f"Successfully stopped {len(cycles)} active trade(s) and closed open positions at market.",
+            "stopped_count": len(cycles),
+            "results": results
+        }
 
     def recover_persisted_cycles(self):
         """Reads persisted trades from disk and restores uncompleted trade cycles without duplicates."""
