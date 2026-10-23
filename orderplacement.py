@@ -295,9 +295,13 @@ def start_mm_trade(symbol, size=1, entry_price=None, target_exit_price=None, two
         account=account
     )
 
-def upload_mm_price(trade_id: str, new_price: float):
+def upload_mm_price(trade_id: str, new_price: float, side: str = None):
     """Uploads/updates the limit price of an active MM trade."""
-    return mm_engine.upload_price(trade_id, new_price)
+    return mm_engine.upload_price(trade_id, new_price, side=side)
+
+def resume_mm_peg(trade_id: str, side: str = None):
+    """Resumes dynamic two-way floating peg (clears manual price override)."""
+    return mm_engine.resume_peg(trade_id, side=side)
 
 def cancel_mm_trade(trade_id: str):
     """Cancels an active MM trade."""

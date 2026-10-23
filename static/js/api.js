@@ -323,6 +323,20 @@ const ApiService = {
   },
 
   /**
+   * Resumes dynamic two-way floating peg (clears manual override)
+   */
+  async resumeMMPeg(tradeId, side = null) {
+    const payload = { trade_id: tradeId };
+    if (side) payload.side = side;
+    const res = await fetch('/api/mm/trade/resume-peg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  /**
    * Cancels an active MM trade
    */
   async cancelMMTrade(tradeId) {

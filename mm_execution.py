@@ -169,6 +169,7 @@ class MMTradeCycle:
         self.buy_limit_price = None
         self.buy_fill_price = None
         self.buy_fill_time = None
+        self.buy_placed_qty = self.total_size
 
         self.sell_order_id = None
         self.sell_limit_price = None
@@ -176,6 +177,12 @@ class MMTradeCycle:
         self.sell_fill_time = None
         self.sell_placed_qty = 0
         self.cost_to_cost_price = None
+
+        # Manual price overrides (when user edits price in dashboard UI)
+        self.manual_buy_override = False
+        self.manual_buy_price = None
+        self.manual_sell_override = False
+        self.manual_sell_price = None
 
         # Live tracking
         self.current_bid = None
@@ -277,8 +284,20 @@ class MMTradeCycle:
                 self.buy_fill_time = datetime.now(timezone.utc).isoformat()
 
                 if self.buy_filled_qty >= self.total_size or unfilled == 0 or state == "closed":
-                    if self.sell_filled_qty > 0 and self.sell_filled_qty < self.total_size:
+                    if unfilled == 0 or state == "closed":
+                        self.total_size = self.buy_filled_qty
+                        self.size = self.buy_filled_qty
+                        self.buy_unfilled_qty = 0
+                        self.buy_order_id = None
+                    if self.sell_filled_qty > 0 and self.sell_filled_qty < self.buy_filled_qty:
                         self.state = "DUAL_ACTIVE"
+                    elif self.sell_filled_qty >= self.buy_filled_qty and self.buy_filled_qty > 0:
+                        self.is_running = False
+                        self.stop_requested = True
+                        if self.cost_to_cost_price and self.sell_fill_price and self.sell_fill_price > self.cost_to_cost_price:
+                            self.state = "COMPLETED_PROFIT"
+                        else:
+                            self.state = "COMPLETED_COST"
                     else:
                         self.state = "BUY_FILLED"
                     self.log(f"[WS-STREAM] Sub-50ms BUY FULLY FILLED! Executed {self.buy_filled_qty}/{self.total_size} lots @ {self.buy_fill_price}")
@@ -359,7 +378,10 @@ class MMTradeCycle:
                 chunk_pnl = (self.sell_fill_price - (self.buy_fill_price or 0.0)) * increment * self.contract_value
                 self.realized_pnl += chunk_pnl
 
-                if (self.sell_filled_qty >= self.total_size) or (self.buy_unfilled_qty == 0 and self.sell_filled_qty >= self.buy_filled_qty):
+                is_buy_finished = (self.buy_order_id is None or self.buy_unfilled_qty == 0 or self.buy_filled_qty >= self.total_size)
+                is_all_sold = (self.buy_filled_qty > 0 and self.sell_filled_qty >= self.buy_filled_qty)
+
+                if (self.sell_filled_qty >= self.total_size) or (is_all_sold and is_buy_finished):
                     actual_pos = 0
                     try:
                         p = self.client.get_position(self.product_id)
@@ -379,7 +401,12 @@ class MMTradeCycle:
                         self.sell_fill_event.set()
                     else:
                         self.unrealized_pnl = 0.0
-                        if self.cost_to_cost_price and self.sell_fill_price > self.cost_to_cost_price:
+                        self.is_running = False
+                        self.stop_requested = True
+                        self.sell_order_id = None
+                        self.sell_placed_qty = 0
+                        self.sell_unfilled_qty = 0
+                        if self.cost_to_cost_price and self.sell_fill_price and self.sell_fill_price > self.cost_to_cost_price:
                             self.state = "COMPLETED_PROFIT"
                             self.log(f"[WS-STREAM] Sub-50ms PROFIT EXIT FULLY FILLED at {self.sell_fill_price}! Executed all {self.sell_filled_qty} lots. Total Realized PnL = +${self.realized_pnl:.5f} USD")
                         else:
@@ -387,7 +414,7 @@ class MMTradeCycle:
                             self.log(f"[WS-STREAM] Sub-50ms COST-TO-COST EXIT FULLY FILLED at {self.sell_fill_price}! Executed all {self.sell_filled_qty} lots. Total Realized PnL = ${self.realized_pnl:.5f} USD (Breakeven)")
                         self.sell_fill_event.set()
                 else:
-                    if self.buy_unfilled_qty > 0:
+                    if self.buy_unfilled_qty > 0 and self.buy_order_id:
                         self.state = "DUAL_ACTIVE"
                     else:
                         self.state = "SELL_PARTIAL"
@@ -401,6 +428,10 @@ class MMTradeCycle:
                             self.sell_unfilled_qty = open_inv
                             self.log(f"[WS-STREAM] Sell order {raw_id} fully filled for its size ({int(order_sz)} lots), but {open_inv} open long lots remain! Placing new SELL exit order for {open_inv} lots immediately...")
                             self._place_sell_exit_order(target_qty=open_inv)
+                        else:
+                            self.sell_order_id = None
+                            self.sell_placed_qty = 0
+                            self.sell_unfilled_qty = 0
 
                     self.sell_fill_event.set()
 
@@ -446,6 +477,7 @@ class MMTradeCycle:
             "buy_unfilled_qty": self.buy_unfilled_qty,
             "sell_filled_qty": self.sell_filled_qty,
             "sell_unfilled_qty": self.sell_unfilled_qty,
+            "buy_placed_qty": getattr(self, "buy_placed_qty", self.total_size),
             "sell_placed_qty": self.sell_placed_qty,
             "product_id": self.product_id,
             "tick_size": self.tick_size,
@@ -495,6 +527,7 @@ class MMTradeCycle:
             "buy_unfilled_qty": self.buy_unfilled_qty,
             "sell_filled_qty": self.sell_filled_qty,
             "sell_unfilled_qty": self.sell_unfilled_qty,
+            "buy_placed_qty": getattr(self, "buy_placed_qty", self.total_size),
             "sell_placed_qty": self.sell_placed_qty,
             "product_id": self.product_id,
             "tick_size": self.tick_size,
@@ -517,6 +550,10 @@ class MMTradeCycle:
             "max_entry_price": self.max_entry_price,
             "auto_reprice_buy": self.auto_reprice_buy,
             "two_way_peg_enabled": self.two_way_peg_enabled,
+            "manual_buy_override": getattr(self, "manual_buy_override", False),
+            "manual_buy_price": getattr(self, "manual_buy_price", None),
+            "manual_sell_override": getattr(self, "manual_sell_override", False),
+            "manual_sell_price": getattr(self, "manual_sell_price", None),
             "realized_pnl": self.realized_pnl,
             "unrealized_pnl": self.unrealized_pnl,
             "created_at": self.created_at,
@@ -545,6 +582,7 @@ class MMTradeCycle:
         cycle.buy_unfilled_qty = int(data.get("buy_unfilled_qty", max(0, cycle.total_size - cycle.buy_filled_qty)))
         cycle.sell_filled_qty = int(data.get("sell_filled_qty", 0))
         cycle.sell_unfilled_qty = int(data.get("sell_unfilled_qty", 0))
+        cycle.buy_placed_qty = int(data.get("buy_placed_qty", cycle.total_size))
         cycle.sell_placed_qty = int(data.get("sell_placed_qty", 0))
         cycle.buy_order_id = data.get("buy_order_id")
         cycle.buy_limit_price = float(data["buy_limit_price"]) if data.get("buy_limit_price") is not None else None
@@ -555,6 +593,10 @@ class MMTradeCycle:
         cycle.sell_fill_price = float(data["sell_fill_price"]) if data.get("sell_fill_price") is not None else None
         cycle.sell_fill_time = data.get("sell_fill_time")
         cycle.cost_to_cost_price = float(data["cost_to_cost_price"]) if data.get("cost_to_cost_price") is not None else None
+        cycle.manual_buy_override = bool(data.get("manual_buy_override", False))
+        cycle.manual_buy_price = float(data["manual_buy_price"]) if data.get("manual_buy_price") is not None else None
+        cycle.manual_sell_override = bool(data.get("manual_sell_override", False))
+        cycle.manual_sell_price = float(data["manual_sell_price"]) if data.get("manual_sell_price") is not None else None
         cycle.realized_pnl = float(data.get("realized_pnl", 0.0))
         cycle.unrealized_pnl = float(data.get("unrealized_pnl", 0.0))
         cycle.state = data.get("state", "INIT")
@@ -611,6 +653,7 @@ class MMTradeCycle:
             self.buy_limit_price = float(primary_buy.get("limit_price") or self.buy_limit_price or 0.0)
             self.buy_unfilled_qty = int(float(primary_buy.get("unfilled_size") or 0))
             order_sz = int(float(primary_buy.get("size") or self.total_size))
+            self.buy_placed_qty = order_sz
             c_filled = max(0, order_sz - self.buy_unfilled_qty)
             if c_filled > self.buy_filled_qty:
                 self.buy_filled_qty = c_filled
@@ -882,15 +925,16 @@ class MMTradeCycle:
         self.stop_requested = True
         self.log("Cancellation / Stop requested by user")
 
-    def upload_limit_price(self, new_price: float, side: str = None) -> dict:
+    def upload_limit_price(self, new_price: float, side: str = None, is_manual: bool = False) -> dict:
         """
         Allows uploading/updating the limit price of the active order (Buy or Sell).
+        If is_manual=True, locks the price so dynamic pegging will not revert it.
         """
         if self.stop_requested or self.state in ("CANCELLED", "ERROR", "COMPLETED_PROFIT", "COMPLETED_COST"):
             return {"success": False, "error": f"Trade already finished or cancelled ({self.state})"}
 
         valid_price = align_price(float(new_price), self.tick_size)
-        self.log(f"Requested limit price upload: {valid_price} (side: {side or 'auto'})")
+        self.log(f"Requested limit price upload: {valid_price} (side: {side or 'auto'}, manual: {is_manual})")
 
         target_side = (side or "").lower().strip()
         if not target_side:
@@ -906,10 +950,14 @@ class MMTradeCycle:
                 if res.get("success"):
                     self.buy_limit_price = valid_price
                     self.custom_entry_price = valid_price
+                    if is_manual:
+                        self.manual_buy_override = True
+                        self.manual_buy_price = valid_price
+                        self.buy_peg_status = f"MANUAL_PRICE_{valid_price}"
                     if self.max_entry_price and valid_price > self.max_entry_price:
                         self.max_entry_price = valid_price
-                    self.log(f"Successfully uploaded new BUY limit price: {valid_price}")
-                    return {"success": True, "new_price": valid_price, "order_id": self.buy_order_id, "side": "buy"}
+                    self.log(f"Successfully uploaded new BUY limit price: {valid_price}{' (MANUAL LOCK)' if is_manual else ''}")
+                    return {"success": True, "new_price": valid_price, "order_id": self.buy_order_id, "side": "buy", "manual": is_manual}
                 else:
                     return {"success": False, "error": res.get("error")}
             except Exception as e:
@@ -924,14 +972,33 @@ class MMTradeCycle:
                 res = self._edit_or_replace_order(self.sell_order_id, valid_price, side="sell", reduce_only=True)
                 if res.get("success"):
                     self.sell_limit_price = valid_price
-                    self.log(f"Successfully uploaded new SELL limit price: {valid_price}")
-                    return {"success": True, "new_price": valid_price, "order_id": self.sell_order_id, "side": "sell"}
+                    if is_manual:
+                        self.manual_sell_override = True
+                        self.manual_sell_price = valid_price
+                        self.sell_peg_status = f"MANUAL_PRICE_{valid_price}"
+                    self.log(f"Successfully uploaded new SELL limit price: {valid_price}{' (MANUAL LOCK)' if is_manual else ''}")
+                    return {"success": True, "new_price": valid_price, "order_id": self.sell_order_id, "side": "sell", "manual": is_manual}
                 else:
                     return {"success": False, "error": res.get("error")}
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
         return {"success": False, "error": f"No active open order matching side '{target_side or 'any'}' in current state '{self.state}' to update."}
+
+    def resume_auto_peg(self, side: str = None) -> dict:
+        """Resumes automatic pegging by clearing manual price overrides."""
+        target_side = (side or "").lower().strip()
+        cleared = []
+        if not target_side or target_side == "buy":
+            self.manual_buy_override = False
+            self.manual_buy_price = None
+            cleared.append("buy")
+        if not target_side or target_side == "sell":
+            self.manual_sell_override = False
+            self.manual_sell_price = None
+            cleared.append("sell")
+        self.log(f"Manual price override cleared for {', '.join(cleared)}. Resuming dynamic pegging.")
+        return {"success": True, "message": f"Resumed auto-peg for {', '.join(cleared)}"}
 
     def _edit_or_replace_order(self, order_id: int, new_price: float, side: str, reduce_only: bool = False) -> dict:
         """Edits an order in-place or cancels and re-places if edit is unsupported. Thread-safe."""
@@ -962,7 +1029,18 @@ class MMTradeCycle:
                         st = cur_order.get("state")
                         if st == "closed":
                             avg_fill = float(cur_order.get("average_fill_price") or new_price)
+                            oid = int(order_id)
+                            order_sz = float(cur_order.get("size") or (getattr(self, "buy_placed_qty", self.total_size) if side == "buy" else (self.sell_placed_qty or self.size)))
+                            unfilled = float(cur_order.get("unfilled_size") or 0)
+                            this_order_filled = max(0.0, order_sz - unfilled)
+                            prev_filled = self._order_fills_map.get(oid, 0.0)
+                            increment = max(0.0, this_order_filled - prev_filled)
+
                             if side == "sell":
+                                if increment > 0:
+                                    self._order_fills_map[oid] = this_order_filled
+                                    self.sell_filled_qty += int(increment)
+                                    self.sell_unfilled_qty = max(0, self.buy_filled_qty - self.sell_filled_qty)
                                 self.sell_fill_price = avg_fill
                                 self.sell_fill_time = datetime.now(timezone.utc).isoformat()
                                 self.sell_fill_event.set()
@@ -976,12 +1054,21 @@ class MMTradeCycle:
                                 else:
                                     self.log(f"Order {order_id} already executed/filled on exchange at {avg_fill}!")
                             else:
+                                if increment > 0:
+                                    self._order_fills_map[oid] = this_order_filled
+                                    self.buy_filled_qty += int(increment)
+                                    self.buy_unfilled_qty = max(0, self.total_size - self.buy_filled_qty)
                                 self.buy_fill_price = avg_fill
                                 self.buy_fill_time = datetime.now(timezone.utc).isoformat()
                                 self.buy_fill_event.set()
                                 self.buy_order_id = None
-                                self.log(f"Order {order_id} already executed/filled on exchange at {avg_fill}!")
-                            return {"success": True, "order": cur_order, "filled": True}
+                                self.buy_placed_qty = 0
+                                self.buy_unfilled_qty = max(0, self.total_size - self.buy_filled_qty)
+                                if self.buy_filled_qty > 0 and self.buy_unfilled_qty == 0:
+                                    self.total_size = self.buy_filled_qty
+                                    self.size = self.buy_filled_qty
+                                self.log(f"Order {order_id} already executed/filled on exchange at {avg_fill}! (Total bought: {self.buy_filled_qty}/{self.total_size} lots)")
+                            return {"success": False, "filled": True, "error": f"Order {order_id} already executed/filled on exchange at {avg_fill}"}
                         elif st == "cancelled":
                             if side == "buy":
                                 actual_pos = 0
@@ -1004,21 +1091,36 @@ class MMTradeCycle:
             except Exception:
                 pass
 
-            # Determine exact active quantity to edit / re-place
+            # Determine exact active quantity for fallback re-place
             if side == "buy":
                 active_size = self.buy_unfilled_qty if self.buy_unfilled_qty > 0 else (self.total_size - self.buy_filled_qty)
+                order_total_size = int(getattr(self, "buy_placed_qty", None) or self.total_size)
             else:
                 active_size = (self.size - self.sell_filled_qty) if self.size > self.sell_filled_qty else self.size
+                order_total_size = int(getattr(self, "sell_placed_qty", None) or self.size)
             active_size = max(1, int(active_size))
+            order_total_size = max(1, int(order_total_size))
+
+            # If cur_order was retrieved, ensure order_total_size is at least the existing order size on exchange
+            if cur_order and cur_order.get("size"):
+                try:
+                    cur_sz = int(float(cur_order.get("size")))
+                    if cur_sz > 0:
+                        order_total_size = max(order_total_size, cur_sz)
+                except Exception:
+                    pass
 
             # 2. Try Delta REST edit_order (only if order_id is valid and belongs to this product)
+            # IMPORTANT: For Delta Exchange PUT /v2/orders, 'size' represents the CUMULATIVE TOTAL SIZE
+            # of the order on the book, NOT the remaining unfilled contracts.
+            # Passing active_size (unfilled size) will shrink/truncate the order size and drop lots!
             if order_id:
                 try:
                     edit_payload = {
                         "id": int(order_id),
                         "product_id": int(self.product_id),
                         "limit_price": str(new_price),
-                        "size": int(active_size)
+                        "size": int(order_total_size)
                     }
                     res = self.client.edit_order(edit_payload)
                     if res and isinstance(res, dict) and res.get("id"):
@@ -1073,12 +1175,33 @@ class MMTradeCycle:
                                                 return {"success": False, "cancelled": True, "error": "Order cancelled with active position"}
                                     elif st == "closed":
                                         avg_fill = float(cur_order.get("average_fill_price") or new_price)
+                                        oid = int(order_id)
+                                        order_sz = float(cur_order.get("size") or (getattr(self, "buy_placed_qty", self.total_size) if side == "buy" else (self.sell_placed_qty or self.size)))
+                                        unfilled = float(cur_order.get("unfilled_size") or 0)
+                                        this_order_filled = max(0.0, order_sz - unfilled)
+                                        prev_filled = self._order_fills_map.get(oid, 0.0)
+                                        increment = max(0.0, this_order_filled - prev_filled)
+
                                         if side == "buy":
+                                            if increment > 0:
+                                                self._order_fills_map[oid] = this_order_filled
+                                                self.buy_filled_qty += int(increment)
+                                                self.buy_unfilled_qty = max(0, self.total_size - self.buy_filled_qty)
                                             self.buy_fill_price = avg_fill
                                             self.buy_fill_time = datetime.now(timezone.utc).isoformat()
                                             self.buy_fill_event.set()
                                             self.buy_order_id = None
+                                            self.buy_placed_qty = 0
+                                            self.buy_unfilled_qty = max(0, self.total_size - self.buy_filled_qty)
+                                            if self.buy_filled_qty > 0 and self.buy_unfilled_qty == 0:
+                                                self.total_size = self.buy_filled_qty
+                                                self.size = self.buy_filled_qty
+                                            self.log(f"Order {order_id} already closed on exchange at {avg_fill}! (Total bought: {self.buy_filled_qty}/{self.total_size} lots)")
                                         else:
+                                            if increment > 0:
+                                                self._order_fills_map[oid] = this_order_filled
+                                                self.sell_filled_qty += int(increment)
+                                                self.sell_unfilled_qty = max(0, self.buy_filled_qty - self.sell_filled_qty)
                                             self.sell_fill_price = avg_fill
                                             self.sell_fill_time = datetime.now(timezone.utc).isoformat()
                                             self.sell_fill_event.set()
@@ -1089,7 +1212,7 @@ class MMTradeCycle:
                                             if open_inv > 0:
                                                 self.log(f"Order {order_id} already closed on exchange. Placing new SELL exit for remaining {open_inv} lots...")
                                                 self._place_sell_exit_order(target_qty=open_inv)
-                                        return {"success": True, "order": cur_order, "filled": True}
+                                        return {"success": False, "filled": True, "error": f"Order {order_id} already closed on exchange at {avg_fill}"}
                                     elif st in ("open", "pending"):
                                         # Order is open, but edit was rejected; fall through to Step 3 cancel & re-place
                                         pass
@@ -1203,17 +1326,19 @@ class MMTradeCycle:
                         pass
                     return {"success": False, "error": "Trade was cancelled during replacement"}
 
-                # Update listener IDs
+                # Update listener IDs and placed quantities
                 if side == "buy":
                     if self.private_ws and self.buy_order_id:
                         self.private_ws.remove_order_listener(self.buy_order_id, self._on_buy_order_update)
                     self.buy_order_id = new_order.get("id")
+                    self.buy_placed_qty = active_size
                     if self.private_ws and self.buy_order_id:
                         self.private_ws.add_order_listener(self.buy_order_id, self._on_buy_order_update)
                 else:
                     if self.private_ws and self.sell_order_id:
                         self.private_ws.remove_order_listener(self.sell_order_id, self._on_sell_order_update)
                     self.sell_order_id = new_order.get("id")
+                    self.sell_placed_qty = active_size
                     if self.private_ws and self.sell_order_id:
                         self.private_ws.add_order_listener(self.sell_order_id, self._on_sell_order_update)
 
@@ -1334,6 +1459,7 @@ class MMTradeCycle:
                 self.buy_order_id = primary_buy.get("id")
                 self.buy_limit_price = float(primary_buy.get("limit_price") or valid_price)
                 self.buy_unfilled_qty = int(float(primary_buy.get("unfilled_size") or self.size))
+                self.buy_placed_qty = int(float(primary_buy.get("size") or self.size))
                 self.log(f"Adopted existing live BUY order {self.buy_order_id} @ {self.buy_limit_price}. Avoided duplicate placement!")
                 for extra in live_buys[1:]:
                     try:
@@ -1364,6 +1490,7 @@ class MMTradeCycle:
                 post_only="true"
             )
             self.buy_order_id = order_res.get("id")
+            self.buy_placed_qty = self.size
             self.buy_fill_event.clear()
             if self.private_ws and self.buy_order_id:
                 self.private_ws.add_order_listener(self.buy_order_id, self._on_buy_order_update)
@@ -1397,6 +1524,7 @@ class MMTradeCycle:
                         post_only="true"
                     )
                     self.buy_order_id = order_res.get("id")
+                    self.buy_placed_qty = self.size
                     self.buy_limit_price = fallback_price
                     self.buy_fill_event.clear()
                     if self.private_ws and self.buy_order_id:
@@ -1487,8 +1615,16 @@ class MMTradeCycle:
                 # ----------------------------------------------------
                 # PART 3: Cycle Completion Check
                 # ----------------------------------------------------
-                # All requested lots bought and completely sold
-                if self.sell_filled_qty >= self.total_size:
+                # A cycle is ready for completion check if:
+                # 1. All total_size lots were bought and sold: (sell_filled_qty >= total_size)
+                # 2. OR all actually filled lots were sold (sell_filled_qty >= buy_filled_qty > 0)
+                #    and the buy order is no longer open / active (buy_order_id is None or buy_unfilled_qty == 0)
+                # 3. OR open inventory is 0 and no buy or sell orders exist
+                open_inv = max(0, self.buy_filled_qty - self.sell_filled_qty)
+                is_buy_done = (self.buy_order_id is None or self.buy_unfilled_qty == 0 or self.buy_filled_qty >= self.total_size)
+                is_inventory_flat = (self.buy_filled_qty > 0 and open_inv == 0)
+
+                if (self.sell_filled_qty >= self.total_size) or (is_inventory_flat and is_buy_done):
                     actual_pos = 0
                     try:
                         pos = self.client.get_position(self.product_id)
@@ -1505,38 +1641,18 @@ class MMTradeCycle:
                             self._place_sell_exit_order(target_qty=actual_pos)
                     else:
                         self.unrealized_pnl = 0.0
-                        if self.cost_to_cost_price and self.sell_fill_price > self.cost_to_cost_price:
+                        self.is_running = False
+                        self.stop_requested = True
+                        self.sell_order_id = None
+                        self.sell_placed_qty = 0
+                        self.sell_unfilled_qty = 0
+                        done_qty = self.buy_filled_qty if self.buy_filled_qty > 0 else self.total_size
+                        if self.cost_to_cost_price and self.sell_fill_price and self.sell_fill_price > self.cost_to_cost_price:
                             self.state = "COMPLETED_PROFIT"
-                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {self.total_size} lots bought and sold with PROFIT! Total Realized PnL = +${self.realized_pnl:.5f} USD.")
+                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {done_qty} executed lots bought and sold with PROFIT! Total Realized PnL = +${self.realized_pnl:.5f} USD.")
                         else:
                             self.state = "COMPLETED_COST"
-                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {self.total_size} lots bought and sold at Cost Breakeven. Total Realized PnL = ${self.realized_pnl:.5f} USD.")
-                        return
-
-                # BUY was cancelled/done with partial fill, and all filled lots are completely sold
-                if self.buy_unfilled_qty == 0 and self.buy_filled_qty > 0 and self.sell_filled_qty >= self.buy_filled_qty:
-                    actual_pos = 0
-                    try:
-                        pos = self.client.get_position(self.product_id)
-                        actual_pos = abs(int(pos.get("size") or 0)) if pos else 0
-                    except Exception:
-                        actual_pos = 0
-
-                    if actual_pos > 0:
-                        self.log(f"[DUAL-SIDE MM] Delta Exchange still holds {actual_pos} open long contracts! Resuming exit management.")
-                        self.buy_filled_qty = max(self.buy_filled_qty, self.sell_filled_qty + actual_pos)
-                        self.size = actual_pos
-                        self.state = "SELL_OPEN"
-                        if not self.sell_order_id:
-                            self._place_sell_exit_order(target_qty=actual_pos)
-                    else:
-                        self.unrealized_pnl = 0.0
-                        if self.cost_to_cost_price and self.sell_fill_price > self.cost_to_cost_price:
-                            self.state = "COMPLETED_PROFIT"
-                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {self.buy_filled_qty} executed lots sold with PROFIT! Total Realized PnL = +${self.realized_pnl:.5f} USD.")
-                        else:
-                            self.state = "COMPLETED_COST"
-                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {self.buy_filled_qty} executed lots sold at Cost Breakeven. Total Realized PnL = ${self.realized_pnl:.5f} USD.")
+                            self.log(f"[DUAL-SIDE MM] COMPLETE! All {done_qty} executed lots bought and sold at Cost Breakeven. Total Realized PnL = ${self.realized_pnl:.5f} USD.")
                         return
 
                 # If BUY was cancelled with 0 fills and no inventory
@@ -1611,6 +1727,13 @@ class MMTradeCycle:
                     self.state = "BUY_FILLED"
                 self.log(f"BUY fill detected via REST check: {self.buy_filled_qty}/{self.total_size} lots filled @ {self.buy_fill_price}. ({self.buy_unfilled_qty} lots remaining to buy)")
                 self.buy_fill_event.set()
+
+            if state == "closed" or (order and unfilled == 0 and this_order_filled > 0):
+                self.buy_order_id = None
+                self.buy_unfilled_qty = 0
+                if self.buy_filled_qty > 0:
+                    self.total_size = self.buy_filled_qty
+                    self.size = self.buy_filled_qty
 
             if state == "cancelled":
                 if getattr(self, "_is_replacing_order", False):
@@ -1949,6 +2072,11 @@ class MMTradeCycle:
         self.competitor_bid = comp_bid
         self.competitor_ask = comp_ask
 
+        # If user manually set buy price, DO NOT auto-peg to competitor bids!
+        if getattr(self, "manual_buy_override", False) and getattr(self, "manual_buy_price", None) is not None:
+            self.buy_peg_status = f"MANUAL_PRICE_{self.manual_buy_price}"
+            return
+
         if comp_bid is not None and comp_bid > 0:
             if comp_ask and (comp_bid + self.tick_size) < comp_ask:
                 ideal_buy = align_price(comp_bid + self.tick_size, self.tick_size)
@@ -1970,7 +2098,7 @@ class MMTradeCycle:
                     else:
                         self.buy_peg_status = f"RETREATING_DOWN_{ideal_buy}"
                         self.log(f"[TWO-WAY BID PEG] Market bids retreated to {comp_bid}. Dropping BUY limit DOWN from {self.buy_limit_price} to {ideal_buy} to protect against adverse drop!")
-                    self.upload_limit_price(ideal_buy, side="buy")
+                    self.upload_limit_price(ideal_buy, side="buy", is_manual=False)
         else:
             self.buy_peg_status = f"TRACKING_BID_{self.buy_limit_price}"
 
@@ -1986,6 +2114,11 @@ class MMTradeCycle:
         cur_ask = ext_ask if ext_ask is not None else quote.get("ask")
         self.competitor_ask = cur_ask
 
+        # If user manually set sell price, DO NOT auto-peg to competitor asks!
+        if getattr(self, "manual_sell_override", False) and getattr(self, "manual_sell_price", None) is not None:
+            self.sell_peg_status = f"MANUAL_PRICE_{self.manual_sell_price}"
+            return
+
         if cur_ask is not None and self.cost_to_cost_price:
             if cur_ask <= self.cost_to_cost_price:
                 if self.buy_unfilled_qty == 0:
@@ -1997,7 +2130,7 @@ class MMTradeCycle:
                     if now - self.last_edit_time >= self.edit_debounce_sec:
                         self.last_edit_time = now
                         self.log(f"[TWO-WAY ASK PEG] Market Ask dropped to {cur_ask}. Adjusting SELL limit down to Cost-to-Cost floor: {self.cost_to_cost_price}")
-                        self.upload_limit_price(self.cost_to_cost_price, side="sell")
+                        self.upload_limit_price(self.cost_to_cost_price, side="sell", is_manual=False)
 
             elif cur_ask > self.cost_to_cost_price:
                 if self.buy_unfilled_qty > 0:
@@ -2018,7 +2151,7 @@ class MMTradeCycle:
                         else:
                             self.sell_peg_status = f"TIGHTENING_DOWN_{ideal_sell}"
                             self.log(f"[TWO-WAY ASK PEG] Competitor Ask tightened to {cur_ask}. Tightening SELL limit DOWN from {self.sell_limit_price} to {ideal_sell} to hold #1 seller priority.")
-                        self.upload_limit_price(ideal_sell, side="sell")
+                        self.upload_limit_price(ideal_sell, side="sell", is_manual=False)
 
     def calculate_cost_to_cost_price(self, buy_price: float) -> tuple[float, float, float, float]:
         """
@@ -2401,6 +2534,11 @@ class MMTradeCycle:
                     self.competitor_ask = cur_ask
                     self.competitor_bid = cur_bid
 
+                    # If user manually set sell price, DO NOT auto-peg to competitor asks!
+                    if getattr(self, "manual_sell_override", False) and getattr(self, "manual_sell_price", None) is not None:
+                        self.sell_peg_status = f"MANUAL_PRICE_{self.manual_sell_price}"
+                        continue
+
                     # Analyze Market Condition based on Market ASK
                     if cur_ask is not None and self.two_way_peg_enabled:
                         # Scenario A: Market ASK dropped to or below Cost-to-Cost price
@@ -2548,6 +2686,16 @@ class DeltaMMEngine:
             active_list = []
             to_remove = []
             for tid, c in list(self.active_cycles.items()):
+                # Auto-finalize any cycle where all bought lots are sold and no exchange orders remain
+                if c.is_running and c.buy_filled_qty > 0 and c.sell_filled_qty >= c.buy_filled_qty and not c.buy_order_id and not c.sell_order_id:
+                    c.is_running = False
+                    c.stop_requested = True
+                    if c.cost_to_cost_price and c.sell_fill_price and c.sell_fill_price > c.cost_to_cost_price:
+                        c.state = "COMPLETED_PROFIT"
+                    else:
+                        c.state = "COMPLETED_COST"
+                    c.log(f"[DUAL-SIDE MM] COMPLETE! All {c.buy_filled_qty} executed lots bought and sold. Moving to history.")
+
                 if not c.is_running or c.state in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI"):
                     self.history_cycles.append(c.to_dict())
                     to_remove.append(tid)
@@ -2566,7 +2714,15 @@ class DeltaMMEngine:
         cycle = self.get_cycle(trade_id)
         if not cycle:
             return {"success": False, "error": f"Trade {trade_id} not found."}
-        res = cycle.upload_limit_price(new_price, side=side)
+        res = cycle.upload_limit_price(new_price, side=side, is_manual=True)
+        save_all_trades_state(self.active_cycles, self.history_cycles)
+        return res
+
+    def resume_peg(self, trade_id: str, side: str = None) -> dict:
+        cycle = self.get_cycle(trade_id)
+        if not cycle:
+            return {"success": False, "error": f"Trade {trade_id} not found."}
+        res = cycle.resume_auto_peg(side=side)
         save_all_trades_state(self.active_cycles, self.history_cycles)
         return res
 

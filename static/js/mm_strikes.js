@@ -1354,7 +1354,35 @@ async function pollActiveMmTrades() {
 }
 
 /**
- * Renders active MM trade cards in dashboard
+ * Formats numeric price cleanly according to tick size
+ */
+function formatMmPrice(val, tickSize) {
+  if (val === null || val === undefined || isNaN(val)) return '';
+  const num = Number(val);
+  if (num <= 0) return '';
+  const tickStr = (tickSize || 0.01).toString();
+  const decimals = tickStr.includes('.') ? tickStr.split('.')[1].length : 2;
+  return num.toFixed(Math.max(2, Math.min(4, decimals)));
+}
+
+/**
+ * Handles dropdown change in DUAL_ACTIVE
+ */
+function onMmTradeSideChanged(tradeId) {
+  const sel = document.getElementById(`selSide_${tradeId}`);
+  const inp = document.getElementById(`inpUpload_${tradeId}`);
+  if (!sel || !inp) return;
+  inp.dataset.dirty = 'false';
+  if (sel.value === 'buy') {
+    inp.value = sel.dataset.buy || '';
+  } else {
+    inp.value = sel.dataset.sell || '';
+  }
+}
+window.onMmTradeSideChanged = onMmTradeSideChanged;
+
+/**
+ * Renders active MM trade cards in dashboard (Preserves input focus and typed values!)
  */
 function renderActiveMmTrades(trades) {
   const panel = document.getElementById('mmActiveTradesPanel');
@@ -1375,7 +1403,16 @@ function renderActiveMmTrades(trades) {
 
   panel.style.display = 'flex';
 
-  let html = '';
+  // 1. Remove cards that are no longer active
+  const activeIds = new Set(activeTrades.map(t => String(t.trade_id)));
+  Array.from(listEl.children).forEach(child => {
+    const tid = child.id ? child.id.replace('card_', '') : null;
+    if (tid && !activeIds.has(tid)) {
+      child.remove();
+    }
+  });
+
+  // 2. Add or update each trade card
   activeTrades.forEach(t => {
     let stateBadge = '';
     let cardClass = 'mm-trade-card';
@@ -1419,9 +1456,89 @@ function renderActiveMmTrades(trades) {
     const curAskStr = t.current_ask ? `$${t.current_ask.toFixed(2)}` : '--';
     const costStr = t.buy_fill_price ? `$${t.buy_fill_price.toFixed(2)}` : 'Pending Buy';
     const activeOrderPrice = t.sell_limit_price || t.buy_limit_price || 0;
+    const isManualLocked = Boolean(t.manual_buy_override || t.manual_sell_override);
 
-    html += `
-      <div class="${cardClass} mm-trade-strip" id="card_${t.trade_id}" data-symbol="${t.symbol}">
+    let cardEl = document.getElementById(`card_${t.trade_id}`);
+    if (cardEl) {
+      // ----------------------------------------------------
+      // IN-PLACE UPDATE (preserves user typing and focus!)
+      // ----------------------------------------------------
+      cardEl.className = `${cardClass} mm-trade-strip`;
+      cardEl.dataset.symbol = t.symbol;
+
+      const leftEl = cardEl.querySelector('.mm-strip-left');
+      if (leftEl) {
+        leftEl.innerHTML = `
+          <span class="mm-trade-symbol">${t.symbol}</span>
+          ${stateBadge}
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">Bid / Ask:</span> <span class="text-green">${curBidStr}</span> / <span class="text-red">${curAskStr}</span></span>
+          <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
+          <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
+        `;
+      }
+
+      const selSide = cardEl.querySelector(`#selSide_${t.trade_id}`);
+      if (selSide) {
+        selSide.dataset.buy = t.buy_limit_price != null ? t.buy_limit_price : '';
+        selSide.dataset.sell = t.sell_limit_price != null ? t.sell_limit_price : '';
+        if (selSide.options && selSide.options.length >= 2) {
+          selSide.options[0].text = `SELL Exit ($${t.sell_limit_price ? t.sell_limit_price.toFixed(2) : '--'})`;
+          selSide.options[1].text = `BUY Peg ($${t.buy_limit_price ? t.buy_limit_price.toFixed(2) : '--'})`;
+        }
+      }
+
+      const inp = cardEl.querySelector(`#inpUpload_${t.trade_id}`);
+      if (inp) {
+        const isFocused = (document.activeElement === inp);
+        const isDirty = (inp.dataset.dirty === 'true');
+        // Only update input value if user is NOT currently focused or typing in it
+        if (!isFocused && !isDirty) {
+          let targetPrice = activeOrderPrice;
+          if (selSide && selSide.value === 'buy' && t.buy_limit_price != null) {
+            targetPrice = t.buy_limit_price;
+          } else if (selSide && selSide.value === 'sell' && t.sell_limit_price != null) {
+            targetPrice = t.sell_limit_price;
+          }
+          inp.value = formatMmPrice(targetPrice, t.tick_size);
+        }
+        inp.step = t.tick_size || 0.1;
+      }
+
+      // Update Auto button (for resuming dynamic floating peg)
+      const actionsEl = cardEl.querySelector('.mm-strip-actions');
+      if (actionsEl) {
+        let btnAuto = actionsEl.querySelector(`#btnAuto_${t.trade_id}`);
+        if (isManualLocked) {
+          if (!btnAuto) {
+            btnAuto = document.createElement('button');
+            btnAuto.type = 'button';
+            btnAuto.id = `btnAuto_${t.trade_id}`;
+            btnAuto.className = 'mm-btn-autopeg';
+            btnAuto.title = 'Clear manual price lock and resume dynamic floating peg';
+            btnAuto.innerText = 'Auto';
+            btnAuto.onclick = () => resumeActiveTradePeg(t.trade_id);
+            const cancelBtn = actionsEl.querySelector('.mm-btn-cancel');
+            actionsEl.insertBefore(btnAuto, cancelBtn);
+          }
+        } else if (btnAuto) {
+          btnAuto.remove();
+        }
+      }
+
+    } else {
+      // ----------------------------------------------------
+      // INITIAL INSERTION (when card does not exist yet)
+      // ----------------------------------------------------
+      const div = document.createElement('div');
+      div.className = `${cardClass} mm-trade-strip`;
+      div.id = `card_${t.trade_id}`;
+      div.dataset.symbol = t.symbol;
+
+      const formattedVal = formatMmPrice(activeOrderPrice, t.tick_size);
+
+      div.innerHTML = `
         <div class="mm-strip-left">
           <span class="mm-trade-symbol">${t.symbol}</span>
           ${stateBadge}
@@ -1435,21 +1552,22 @@ function renderActiveMmTrades(trades) {
         ${t.is_running ? `
           <div class="mm-strip-actions">
             ${t.state === 'DUAL_ACTIVE' ? `
-              <select id="selSide_${t.trade_id}" class="mm-upload-input" style="width: auto; padding: 2px 4px;" data-buy="${t.buy_limit_price || ''}" data-sell="${t.sell_limit_price || ''}" onchange="document.getElementById('inpUpload_${t.trade_id}').value = this.value === 'buy' ? (this.dataset.buy || '') : (this.dataset.sell || '');">
+              <select id="selSide_${t.trade_id}" class="mm-upload-input" style="width: auto; padding: 2px 4px;" data-buy="${t.buy_limit_price != null ? t.buy_limit_price : ''}" data-sell="${t.sell_limit_price != null ? t.sell_limit_price : ''}" onchange="onMmTradeSideChanged('${t.trade_id}')">
                 <option value="sell" selected>SELL Exit ($${t.sell_limit_price ? t.sell_limit_price.toFixed(2) : '--'})</option>
                 <option value="buy">BUY Peg ($${t.buy_limit_price ? t.buy_limit_price.toFixed(2) : '--'})</option>
               </select>
             ` : `<span style="font-size: 0.72rem; color: #94a3b8;">Price:</span>`}
-            <input type="number" step="${t.tick_size || 0.1}" class="mm-upload-input" id="inpUpload_${t.trade_id}" value="${activeOrderPrice > 0 ? activeOrderPrice.toFixed(2) : ''}" placeholder="Price" />
-            <button type="button" class="mm-btn-upload" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
+            <input type="number" step="${t.tick_size || 0.1}" class="mm-upload-input" id="inpUpload_${t.trade_id}" value="${formattedVal}" placeholder="Price" oninput="this.dataset.dirty='true'" onkeydown="if(event.key==='Enter')uploadActiveTradePrice('${t.trade_id}')" />
+            <button type="button" class="mm-btn-upload" id="btnUpload_${t.trade_id}" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
+            ${isManualLocked ? `<button type="button" class="mm-btn-autopeg" id="btnAuto_${t.trade_id}" title="Clear manual price lock and resume dynamic floating peg" onclick="resumeActiveTradePeg('${t.trade_id}')">Auto</button>` : ''}
             <button type="button" class="mm-btn-cancel" onclick="cancelActiveTrade('${t.trade_id}')">Stop</button>
           </div>
         ` : ''}
-      </div>
-    `;
+      `;
+      listEl.appendChild(div);
+    }
   });
 
-  listEl.innerHTML = html;
   updateStrikesTableActiveTradeStatus();
 }
 
@@ -1458,25 +1576,76 @@ function renderActiveMmTrades(trades) {
  */
 async function uploadActiveTradePrice(tradeId) {
   const inp = document.getElementById(`inpUpload_${tradeId}`);
+  const btn = document.getElementById(`btnUpload_${tradeId}`);
   if (!inp || !inp.value) {
     showToast('Enter valid price to upload', 'error');
     return;
   }
   const price = parseFloat(inp.value);
+  if (isNaN(price) || price <= 0) {
+    showToast('Please enter a positive numeric price', 'error');
+    return;
+  }
   const sideEl = document.getElementById(`selSide_${tradeId}`);
   const side = sideEl ? sideEl.value : null;
+
+  const origBtnText = btn ? btn.innerText : 'Update';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '...';
+  }
+
   try {
     const res = await ApiService.uploadMMPrice(tradeId, price, side);
     if (res && res.success) {
+      inp.dataset.dirty = 'false';
       showToast(`Uploaded new limit price $${price}${side ? ` (${side.toUpperCase()})` : ''} for trade`, 'success');
-      pollActiveMmTrades();
+      await pollActiveMmTrades();
     } else {
       showToast(`Upload failed: ${res?.error || 'Unknown error'}`, 'error');
     }
   } catch (e) {
     showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = origBtnText;
+    }
   }
 }
+window.uploadActiveTradePrice = uploadActiveTradePrice;
+
+/**
+ * Resumes dynamic floating peg for an active MM trade
+ */
+async function resumeActiveTradePeg(tradeId) {
+  const sideEl = document.getElementById(`selSide_${tradeId}`);
+  const side = sideEl ? sideEl.value : null;
+  const btn = document.getElementById(`btnAuto_${tradeId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '...';
+  }
+  try {
+    const res = await ApiService.resumeMMPeg(tradeId, side);
+    if (res && res.success) {
+      const inp = document.getElementById(`inpUpload_${tradeId}`);
+      if (inp) inp.dataset.dirty = 'false';
+      showToast('Resumed dynamic floating peg for trade', 'success');
+      await pollActiveMmTrades();
+    } else {
+      showToast(`Failed: ${res?.error || 'Unknown error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = 'Auto';
+    }
+  }
+}
+window.resumeActiveTradePeg = resumeActiveTradePeg;
 
 /**
  * Cancels an active trade
