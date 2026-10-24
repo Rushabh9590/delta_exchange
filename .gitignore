@@ -9,3 +9,4 @@ command
 .mm_trades_state.json*
 start_delta.sh
 logs/
+master_products.json

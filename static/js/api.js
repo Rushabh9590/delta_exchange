@@ -5,13 +5,24 @@
  * ==============================================================================
  */
 
-// Automatically attach credentials (e.g. Cloudflare Access CF_Authorization cookies) to all API fetch calls
+// Automatically attach credentials (e.g. Cloudflare Access CF_Authorization cookies) and a 10s timeout to prevent hanging fetches during tab sleep
 (function() {
   const _origFetch = window.fetch;
   window.fetch = function(input, init = {}) {
     const opts = { ...init };
     if (!opts.credentials) {
       opts.credentials = 'include';
+    }
+    // Attach default 10s timeout if no custom signal is provided
+    if (!opts.signal && typeof AbortController !== 'undefined') {
+      const controller = new AbortController();
+      opts.signal = controller.signal;
+      const timeoutId = setTimeout(() => {
+        controller.abort(new Error('Request timed out after 10s'));
+      }, 10000);
+      return _origFetch.call(this, input, opts).finally(() => {
+        clearTimeout(timeoutId);
+      });
     }
     return _origFetch.call(this, input, opts);
   };

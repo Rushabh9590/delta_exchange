@@ -902,7 +902,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
         best_bid = quotes.get("best_bid")
         best_ask = quotes.get("best_ask")
         vol_val = t.get("volume")
-        oi_val = t.get("oi") or t.get("oi_value")
+        oi_val = t.get("oi") or t.get("oi_contracts") or t.get("oi_value") or t.get("open_interest")
         oi_reduce_only_mode = bool(t.get("oi_reduce_only_mode", False))
 
         ltp = float(close_val) if close_val is not None else None
@@ -911,6 +911,15 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
         ask_price = float(best_ask) if best_ask is not None else None
         volume = float(vol_val) if vol_val is not None else 0.0
         oi = float(oi_val) if oi_val is not None else 0.0
+
+        oi_usd_raw = t.get("oi_value_usd")
+        if oi_usd_raw is not None:
+            try:
+                oi_usd = float(oi_usd_raw)
+            except (ValueError, TypeError):
+                oi_usd = oi * spot_price if spot_price else 0.0
+        else:
+            oi_usd = oi * spot_price if spot_price else 0.0
 
         prod_data = {
             "product_id": p.get("id"),
@@ -927,6 +936,7 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
             "best_ask": ask_price,
             "volume": volume,
             "open_interest": oi,
+            "open_interest_usd": oi_usd,
             "oi_reduce_only_mode": oi_reduce_only_mode,
             "greeks": greeks
         }

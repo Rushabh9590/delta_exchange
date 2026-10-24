@@ -852,19 +852,19 @@
         <div class="mm-controls-bar">
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Bid Price ($):</span>
-            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3"
+            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3" value="0.3"
               oninput="onMmCriteriaChange()" />
           </div>
 
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Spread Ticks:</span>
-            <input type="number" step="1" min="1" id="mmInpMinTicks" class="mm-filter-input" placeholder="5"
+            <input type="number" step="1" min="1" id="mmInpMinTicks" class="mm-filter-input" placeholder="5" value="5"
               oninput="onMmCriteriaChange()" />
           </div>
 
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Net Edge (%):</span>
-            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0"
+            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0" value="50.0"
               oninput="onMmCriteriaChange()" />
           </div>
 
@@ -947,6 +947,7 @@
                 <th class="col-ticks text-right">Ticks</th>
                 <th class="col-mid text-right">Mid ($)</th>
                 <th class="col-edge text-right">Edge ($)</th>
+                <th class="col-oi text-right" title="Open Interest">Open Interest</th>
                 <th class="col-edgepct text-right">Edge %</th>
                 <th class="col-status text-center">Status</th>
                 <th class="col-action text-center">Action</th>
@@ -954,7 +955,7 @@
             </thead>
             <tbody id="mmTbody">
               <tr>
-                <td colspan="13" style="text-align: center; padding: 32px; color: var(--text-muted);">
+                <td colspan="14" style="text-align: center; padding: 32px; color: var(--text-muted);">
                   Select an expiry or click Refresh to scan market making strikes.
                 </td>
               </tr>
@@ -1502,12 +1503,12 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Modular Scripts Execution in Dependency Order -->
-  <script src="/static/js/api.js?v=2.8.0"></script>
-  <script src="/static/js/positions.js?v=2.8.0"></script>
-  <script src="/static/js/multileg.js?v=2.8.0"></script>
-  <script src="/static/js/optionchain.js?v=2.8.0"></script>
-  <script src="/static/js/mm_strikes.js?v=2.8.0"></script>
-  <script src="/static/js/app.js?v=2.8.0"></script>
+  <script src="/static/js/api.js?v=2.8.2"></script>
+  <script src="/static/js/positions.js?v=2.8.2"></script>
+  <script src="/static/js/multileg.js?v=2.8.2"></script>
+  <script src="/static/js/optionchain.js?v=2.8.2"></script>
+  <script src="/static/js/mm_strikes.js?v=2.8.2"></script>
+  <script src="/static/js/app.js?v=2.8.2"></script>
 </body>
 
 </html>

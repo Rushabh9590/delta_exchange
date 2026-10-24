@@ -23,9 +23,41 @@ window.profileLotSizeEth = 1;
  * Initializes the Market Making Strike Selection module on page load
  */
 async function initMarketMakingModule() {
-  const chk = document.getElementById('mmChkOnlyQual');
-  if (chk) chk.checked = true;
-  mmOnlyQualified = true;
+  // Restore saved criteria from localStorage if available
+  try {
+    const savedBid = localStorage.getItem('mm_filter_min_bid');
+    const savedTicks = localStorage.getItem('mm_filter_min_ticks');
+    const savedEdge = localStorage.getItem('mm_filter_min_edge');
+    const savedOnlyQual = localStorage.getItem('mm_filter_only_qual');
+    const savedUnderlying = localStorage.getItem('mm_filter_underlying');
+
+    if (savedUnderlying && ['ALL', 'BTC', 'ETH'].includes(savedUnderlying.toUpperCase())) {
+      mmCurrentUnderlying = savedUnderlying.toUpperCase();
+    }
+
+    if (savedOnlyQual !== null) {
+      mmOnlyQualified = (savedOnlyQual === 'true');
+      const chk = document.getElementById('mmChkOnlyQual');
+      if (chk) chk.checked = mmOnlyQualified;
+    } else {
+      const chk = document.getElementById('mmChkOnlyQual');
+      if (chk) chk.checked = true;
+      mmOnlyQualified = true;
+    }
+
+    if (savedBid !== null) {
+      const inp = document.getElementById('mmInpMinBid');
+      if (inp) inp.value = savedBid;
+    }
+    if (savedTicks !== null) {
+      const inp = document.getElementById('mmInpMinTicks');
+      if (inp) inp.value = savedTicks;
+    }
+    if (savedEdge !== null) {
+      const inp = document.getElementById('mmInpMinEdge');
+      if (inp) inp.value = savedEdge;
+    }
+  } catch (e) {}
 
   try {
     const res = await ApiService.getMarketMakingConfig();
@@ -104,7 +136,7 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
 
   const tbody = document.getElementById('mmTbody');
   if (tbody && !mmLastData && !isBackground) {
-    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--text-muted);"><span class="spinner"></span> Loading & subscribing to live WebSocket options stream for ${mmCurrentUnderlying}...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14" style="text-align:center; padding:32px; color:var(--text-muted);"><span class="spinner"></span> Loading & subscribing to live WebSocket options stream for ${mmCurrentUnderlying}...</td></tr>`;
   }
 
   mmIsLoading = true;
@@ -142,7 +174,12 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
           }
         });
       }
-      mmSelectedExpiry = data.selected_expiry || mmSelectedExpiry;
+      const validExpiries = (data.expiries || []).map(e => e.expiry);
+      if (validExpiries.length > 0 && (!mmSelectedExpiry || !validExpiries.includes(mmSelectedExpiry))) {
+        mmSelectedExpiry = data.selected_expiry || validExpiries[0];
+      } else {
+        mmSelectedExpiry = data.selected_expiry || mmSelectedExpiry;
+      }
       const incomingQualSyms = (data.qualified_strikes || []).map(x => x.symbol);
       incomingQualSyms.forEach(sym => {
         if (!mmQualifiedSymbolsOrder.includes(sym)) {
@@ -157,14 +194,14 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
       subscribeAllMmOptionSymbols(data.all_strikes || []);
     } else {
       if (tbody && !mmLastData && !isBackground) {
-        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Failed to load strike data: ${data?.error || 'Unknown error'}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="14" style="text-align:center; padding:32px; color:var(--red);">Failed to load strike data: ${data?.error || 'Unknown error'}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
       } else {
         console.warn('[MM Strikes] Sync notice:', data?.error);
       }
     }
   } catch (err) {
     if (tbody && !mmLastData && !isBackground) {
-      tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:32px; color:var(--red);">Error connecting to API: ${err.message}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="14" style="text-align:center; padding:32px; color:var(--red);">Error connecting to API: ${err.message}<br><button type="button" class="btn btn-sm btn-primary mt-2" onclick="loadMarketMakingStrikes('${mmCurrentUnderlying}', '${mmSelectedExpiry}')">🔄 Retry Now</button></td></tr>`;
     } else {
       console.warn('[MM Strikes] Transient connection error:', err.message);
     }
@@ -305,6 +342,9 @@ function getActiveMmCriteria() {
  */
 function toggleMmOnlyQualified(isChecked) {
   mmOnlyQualified = !!isChecked;
+  try {
+    localStorage.setItem('mm_filter_only_qual', mmOnlyQualified ? 'true' : 'false');
+  } catch (e) {}
   renderMmTableRows();
 }
 
@@ -382,7 +422,7 @@ function renderMmTableRows() {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="13" style="text-align: center; padding: 40px; color: var(--text-muted);">
+        <td colspan="14" style="text-align: center; padding: 40px; color: var(--text-muted);">
           <div style="font-size: 1rem; margin-bottom: 6px;">No market making strikes match the selected criteria.</div>
           <div style="font-size: 0.78rem;">Try lowering the Min Net Edge % or Min Spread Ticks, or uncheck "Show Only Qualified".</div>
         </td>
@@ -413,9 +453,7 @@ function reconcileMmTableRows() {
   const hasPlaceholder = tbody.children.length === 0 || tbody.querySelector('td[colspan]');
 
   if (hasPlaceholder) {
-    if (targetList.length > 0) {
-      renderMmTableRows();
-    }
+    renderMmTableRows();
     return;
   }
 
@@ -559,6 +597,30 @@ function getMmButtonLabel(symbol) {
 }
 
 /**
+ * Formats a USD value in compact notation matching Delta Exchange (e.g. $10.21M, $9.31M, $450.5K, $0)
+ */
+function formatCompactUsd(val) {
+  if (val === null || val === undefined || isNaN(val)) return '--';
+  const num = Number(val);
+  if (num <= 0) return '$0';
+  if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+  if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+  if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
+  return `$${num.toFixed(2)}`;
+}
+
+/**
+ * Safe, self-contained coin amount formatter (independent of external script load order)
+ */
+function formatCoinAmount(val, decimals = 3) {
+  if (val === null || val === undefined || isNaN(val)) return '--';
+  return Number(val).toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals
+  });
+}
+
+/**
  * Updates a single strike row in-place with latest metrics and button states.
  */
 function updateMmRowInPlace(item, sym, elRow) {
@@ -586,6 +648,18 @@ function updateMmRowInPlace(item, sym, elRow) {
 
   const elEdge = document.getElementById(`mmEdge_${sym}`);
   if (elEdge) elEdge.textContent = (item.net_edge !== null && item.net_edge !== undefined) ? item.net_edge.toFixed(2) : '--';
+
+  const elOi = document.getElementById(`mmOi_${sym}`);
+  if (elOi) {
+    const spotPrice = (mmLastData && mmLastData.spot_price) ? Number(mmLastData.spot_price) : 0;
+    const oiUsd = (item.open_interest_usd !== undefined && item.open_interest_usd !== null && Number(item.open_interest_usd) > 0)
+      ? Number(item.open_interest_usd)
+      : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : (item.open_interest ? Number(item.open_interest) * 80000 : null));
+    const oiDisplay = formatCompactUsd(oiUsd);
+    elOi.textContent = oiDisplay;
+    const coinStr = item.open_interest ? `${formatCoinAmount(item.open_interest, 3)} ${item.underlying || 'BTC'}` : '';
+    elOi.title = `Open Interest: ${oiDisplay}${coinStr ? ` (${coinStr})` : ''}`;
+  }
 
   const elEdgePct = document.getElementById(`mmEdgePct_${sym}`);
   if (elEdgePct) {
@@ -684,6 +758,12 @@ function buildMmRowHtml(item) {
   const ticks = item.spread_ticks !== null ? item.spread_ticks.toFixed(1) : '0.0';
   const mid = item.mid_price !== null && item.mid_price > 0 ? item.mid_price.toFixed(2) : '--';
   const netEdge = item.net_edge !== null ? item.net_edge.toFixed(2) : '--';
+  const spotPrice = (mmLastData && mmLastData.spot_price) ? Number(mmLastData.spot_price) : 0;
+  const oiUsd = (item.open_interest_usd !== undefined && item.open_interest_usd !== null && Number(item.open_interest_usd) > 0)
+    ? Number(item.open_interest_usd)
+    : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : (item.open_interest ? Number(item.open_interest) * 80000 : null));
+  const oiDisplay = formatCompactUsd(oiUsd);
+  const coinStr = item.open_interest ? `${formatCoinAmount(item.open_interest, 3)} ${item.underlying || 'BTC'}` : '';
   const edgePct = item.net_edge_pct !== null ? `${item.net_edge_pct.toFixed(1)}%` : '0.0%';
 
   let edgeClass = '';
@@ -727,6 +807,7 @@ function buildMmRowHtml(item) {
       <td class="col-ticks text-right ticks-highlight" id="mmTicks_${item.symbol}">${ticks}</td>
       <td class="col-mid text-right" id="mmMid_${item.symbol}">${mid}</td>
       <td class="col-edge text-right" id="mmEdge_${item.symbol}" style="font-weight: 600;">${netEdge}</td>
+      <td class="col-oi text-right" id="mmOi_${item.symbol}" title="Open Interest: ${oiDisplay}${coinStr ? ` (${coinStr})` : ''}" style="font-size: 0.82rem; color: var(--text-secondary);">${oiDisplay}</td>
       <td class="col-edgepct text-right ${edgeClass}" id="mmEdgePct_${item.symbol}" style="font-size: 0.88rem;">${edgePct}</td>
       <td class="col-status text-center" id="mmStatus_${item.symbol}">${statusBadge}</td>
       <td class="col-action text-center" id="mmAction_${item.symbol}" style="white-space: nowrap;">
@@ -872,6 +953,26 @@ function handleMmStrikesTickUpdate(data) {
     }
   }
 
+  const rawOi = data.oi !== undefined ? data.oi : (data.oi_contracts !== undefined ? data.oi_contracts : (data.open_interest !== undefined ? data.open_interest : data.oi_value));
+  if (rawOi !== undefined && rawOi !== null) {
+    const newOi = parseFloat(rawOi);
+    if (!isNaN(newOi) && newOi !== item.open_interest) {
+      item.open_interest = newOi;
+      changed = true;
+    }
+  }
+
+  const rawOiUsd = data.oi_value_usd;
+  if (rawOiUsd !== undefined && rawOiUsd !== null) {
+    const newOiUsd = parseFloat(rawOiUsd);
+    if (!isNaN(newOiUsd) && newOiUsd !== item.open_interest_usd) {
+      item.open_interest_usd = newOiUsd;
+      changed = true;
+    }
+  } else if (item.open_interest && mmLastData && mmLastData.spot_price) {
+    item.open_interest_usd = item.open_interest * mmLastData.spot_price;
+  }
+
   if (!changed) return;
 
   // Recalculate MM criteria in real-time
@@ -1013,6 +1114,9 @@ function handleMmStrikesTickUpdate(data) {
 function onMmUnderlyingChange(asset) {
   const cleanAsset = (asset || 'ALL').toUpperCase();
   mmCurrentUnderlying = ['ALL', 'BTC', 'ETH'].includes(cleanAsset) ? cleanAsset : 'ALL';
+  try {
+    localStorage.setItem('mm_filter_underlying', mmCurrentUnderlying);
+  } catch (e) {}
   mmSelectedExpiry = '';
   loadMarketMakingStrikes(mmCurrentUnderlying, '');
 }
@@ -1032,6 +1136,15 @@ let mmFilterDebounce = null;
 function onMmCriteriaChange() {
   clearTimeout(mmFilterDebounce);
   mmFilterDebounce = setTimeout(() => {
+    try {
+      const b = document.getElementById('mmInpMinBid')?.value;
+      const t = document.getElementById('mmInpMinTicks')?.value;
+      const e = document.getElementById('mmInpMinEdge')?.value;
+      if (b !== undefined && b !== '') localStorage.setItem('mm_filter_min_bid', b);
+      if (t !== undefined && t !== '') localStorage.setItem('mm_filter_min_ticks', t);
+      if (e !== undefined && e !== '') localStorage.setItem('mm_filter_min_edge', e);
+    } catch (err) {}
+
     if (!mmLastData || !mmLastData.all_strikes) {
       loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry);
       return;

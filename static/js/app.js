@@ -688,6 +688,49 @@ window.addEventListener('hashchange', () => {
   }
 });
 
+// Auto-recover live feeds and background polls when returning to an idle or sleeping tab
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    handleAppWakeup();
+  }
+});
+window.addEventListener('focus', () => {
+  handleAppWakeup();
+});
+
+let lastWakeupTime = 0;
+function handleAppWakeup() {
+  const now = Date.now();
+  if (now - lastWakeupTime < 2000) return; // Debounce rapid focus/visibility triggers
+  lastWakeupTime = now;
+
+  console.log('[App] Tab awakened from idle/sleep. Syncing live state...');
+
+  // Reset any stuck loading flags from network drops
+  if (typeof mmIsLoading !== 'undefined') mmIsLoading = false;
+  if (typeof ocIsFetching !== 'undefined') ocIsFetching = false;
+
+  // Re-establish WebSocket if dead, closed, or closing
+  if (!deltaWs || deltaWs.readyState === WebSocket.CLOSED || deltaWs.readyState === WebSocket.CLOSING) {
+    console.log('[App] Reconnecting dead WebSocket after sleep...');
+    initDeltaWebSocket();
+  }
+
+  // Update Exchange Clock
+  updateExchangeClock();
+
+  // Force clean foreground sync for active tab
+  if (activeNavTab === 'mm' && typeof loadMarketMakingStrikes === 'function') {
+    loadMarketMakingStrikes(mmCurrentUnderlying, null, false);
+  } else if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
+    loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, false);
+  } else if (activeNavTab === 'positions') {
+    fetchDashboardData(false);
+  } else if (activeNavTab === 'studio') {
+    fetchDashboardData(false);
+  }
+}
+
 /**
  * Loads and displays active account ('main' or 'sub')
  */

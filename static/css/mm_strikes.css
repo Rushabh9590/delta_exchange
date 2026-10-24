@@ -273,6 +273,8 @@
 .mm-table .col-ticks   { width: 68px;  min-width: 68px;  max-width: 68px;  }
 .mm-table .col-mid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
 .mm-table .col-edge    { width: 78px;  min-width: 78px;  max-width: 78px;  }
+.mm-table .col-oi      { width: 100px; min-width: 100px; max-width: 100px; }
+.mm-table .col-edgepct { width: 84px;  min-width: 84px;  max-width: 84px;  }
 .mm-table .col-status  { width: 116px; min-width: 116px; max-width: 116px; }
 .mm-table .col-action  { width: 116px; min-width: 116px; max-width: 116px; }
 
