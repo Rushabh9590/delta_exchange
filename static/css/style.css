@@ -73,16 +73,19 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
-  padding: 10px 24px;
+  padding: 8px clamp(12px, 1.5vw, 28px);
+  width: 100%;
 }
 
 .nav-container {
-  max-width: 1480px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .brand-group {
@@ -561,19 +564,22 @@ body {
    Main Container & Page View Layout
    -------------------------------------------------------------------------- */
 .main-container {
-  max-width: 1480px;
-  margin: 20px auto;
-  padding: 0 20px;
+  width: 100%;
+  max-width: 100%;
+  margin: 16px auto;
+  padding: 0 clamp(12px, 1.6vw, 28px);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
+  box-sizing: border-box;
 }
 
 .tab-view {
   display: none;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
   animation: fadeIn 0.2s ease;
+  width: 100%;
 }
 
 .tab-view.active {
@@ -590,8 +596,9 @@ body {
    -------------------------------------------------------------------------- */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 18vw, 300px), 1fr));
+  gap: clamp(10px, 1.2vw, 16px);
+  width: 100%;
 }
 
 .metric-card {
@@ -679,7 +686,8 @@ body {
   display: flex;
 }
 
-.modal-card {
+.modal-card,
+.modal-container {
   background: var(--bg-secondary);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
@@ -689,6 +697,7 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8);
+  box-sizing: border-box;
 }
 
 .modal-header {
@@ -704,7 +713,8 @@ body {
   font-weight: 700;
 }
 
-.modal-close {
+.modal-close,
+.modal-close-btn {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -713,7 +723,8 @@ body {
   line-height: 1;
 }
 
-.modal-close:hover {
+.modal-close:hover,
+.modal-close-btn:hover {
   color: #fff;
 }
 
@@ -773,12 +784,140 @@ body {
    Footer
    -------------------------------------------------------------------------- */
 .footer {
-  max-width: 1480px;
+  width: 100%;
+  max-width: 100%;
   margin: 24px auto 0;
-  padding: 0 24px;
+  padding: 0 clamp(12px, 1.6vw, 28px);
   display: flex;
   justify-content: space-between;
   align-items: center;
   color: var(--text-muted);
   font-size: 0.78rem;
+  flex-wrap: wrap;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+/* ==============================================================================
+   UNIVERSAL RESPONSIVE BREAKPOINTS (FOR ANY MONITOR SIZE)
+   From 4K / 2K Ultra-Wide down to Compact Laptops, Tablets & Split Screens
+   ============================================================================== */
+
+/* 1. Ultra-Wide & Large Desktop Displays (>= 1600px) */
+@media (min-width: 1600px) {
+  .metrics-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .modal-card,
+  .modal-container {
+    max-width: 780px;
+  }
+}
+
+/* 2. Standard Laptops & Medium Screens (1201px - 1480px) */
+@media (max-width: 1480px) {
+  .nav-controls {
+    gap: 8px;
+  }
+  .exchange-clock-pill .clock-label {
+    display: none; /* Hide 'EXCHANGE CLOCK:' label, show icon + live time */
+  }
+  .margin-mode-pill .margin-mode-label {
+    display: none; /* Show dot + 'PORTFOLIO' */
+  }
+  .account-switch-pill .account-label {
+    display: none; /* Show SUB / MAIN buttons */
+  }
+  .nav-tab-btn {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+  }
+}
+
+/* 3. Compact Laptops & Medium Viewports (992px - 1200px) */
+@media (max-width: 1200px) {
+  .nav-container {
+    gap: 8px;
+  }
+  .nav-tab-btn {
+    padding: 5px 8px;
+    font-size: 0.74rem;
+    gap: 4px;
+  }
+  .nav-tab-badge {
+    display: none; /* Hide badge inside tab on compact screens */
+  }
+  .rate-badge {
+    display: none; /* Compact header */
+  }
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 4. Tablets, iPads & Split Screen Windows (768px - 991px) */
+@media (max-width: 991px) {
+  .navbar {
+    padding: 8px 12px;
+  }
+  .nav-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .brand-group {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+  }
+  .nav-controls {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .nav-controls::-webkit-scrollbar {
+    display: none;
+  }
+  .nav-menu-tabs {
+    width: 100%;
+    justify-content: space-around;
+    overflow-x: auto;
+  }
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .footer {
+    flex-direction: column;
+    text-align: center;
+    gap: 6px;
+  }
+}
+
+/* 5. Mobile & Very Small Viewports (< 768px) */
+@media (max-width: 767px) {
+  .main-container {
+    padding: 0 10px;
+    margin: 10px auto;
+  }
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .metric-card {
+    padding: 14px 16px;
+  }
+  .modal-card,
+  .modal-container {
+    width: 96vw;
+    max-width: 96vw;
+    padding: 12px;
+    border-radius: var(--radius-md);
+  }
+  .brand-title {
+    font-size: 0.95rem;
+  }
+  .badge-env {
+    display: none;
+  }
 }

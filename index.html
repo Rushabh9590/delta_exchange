@@ -108,7 +108,8 @@
           <span class="drawer-item-desc">Edge & Spread Ticks Filter</span>
         </div>
         <span class="drawer-badge" id="drawerMmBadge"
-          style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">MM Edge</span>
+          style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">MM
+          Edge</span>
       </button>
 
       <!-- Section: Settings -->
@@ -117,22 +118,29 @@
       <!-- Menu Item 5: Settings (Lot sizes & Telegram) -->
       <button class="drawer-menu-item" id="drawerNavTelegram" onclick="closeSidebarDrawer(); openProfileModal();">
         <div class="drawer-item-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+            </path>
           </svg>
         </div>
         <div class="drawer-item-text">
           <span class="drawer-item-title">Settings</span>
           <span class="drawer-item-desc">Traded lot sizes &amp; Telegram alerts</span>
         </div>
-        <span class="drawer-badge" id="drawerTgStatusBadge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">⚙️ Config</span>
+        <span class="drawer-badge" id="drawerTgStatusBadge"
+          style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">⚙️
+          Config</span>
       </button>
 
       <!-- Menu Item 6: Live Execution Logs -->
-      <button class="drawer-menu-item" id="drawerNavLogs" onclick="closeSidebarDrawer(); if (typeof openLiveLogsModal === 'function') { openLiveLogsModal(); } else { const m = document.getElementById('liveLogsModal'); if (m) { m.style.display='flex'; m.classList.add('active'); } }">
+      <button class="drawer-menu-item" id="drawerNavLogs"
+        onclick="closeSidebarDrawer(); if (typeof openLiveLogsModal === 'function') { openLiveLogsModal(); } else { const m = document.getElementById('liveLogsModal'); if (m) { m.style.display='flex'; m.classList.add('active'); } }">
         <div class="drawer-item-icon" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
             <polyline points="4 17 10 11 4 5"></polyline>
             <line x1="12" y1="19" x2="20" y2="19"></line>
           </svg>
@@ -141,7 +149,9 @@
           <span class="drawer-item-title">Live Execution Logs</span>
           <span class="drawer-item-desc">Real-time MM trade events &amp; console</span>
         </div>
-        <span class="drawer-badge" id="drawerLogsBadge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">Live Log</span>
+        <span class="drawer-badge" id="drawerLogsBadge"
+          style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3);">Live
+          Log</span>
       </button>
     </div>
 
@@ -212,7 +222,8 @@
         </div>
 
         <!-- Delta Margin Mode Indicator & Quick Switcher Pill -->
-        <div class="margin-mode-pill" id="marginModePill" onclick="openMarginModeModal()" title="Delta Exchange Margin Mode: Portfolio / Isolated (Click to view or switch)">
+        <div class="margin-mode-pill" id="marginModePill" onclick="openMarginModeModal()"
+          title="Delta Exchange Margin Mode: Portfolio / Isolated (Click to view or switch)">
           <div class="margin-mode-dot"></div>
           <span class="margin-mode-label">Margin Mode:</span>
           <span class="margin-mode-val" id="topMarginModeVal">PORTFOLIO</span>
@@ -221,7 +232,8 @@
         <!-- Delta Account Switcher (Main vs Sub) -->
         <div class="account-switch-pill" title="Switch Delta Trading Account (Main / Sub)">
           <span class="account-label">Acct:</span>
-          <button type="button" class="acct-btn active" id="btnAcctSub" onclick="switchActiveAccount('sub')">SUB</button>
+          <button type="button" class="acct-btn active" id="btnAcctSub"
+            onclick="switchActiveAccount('sub')">SUB</button>
           <button type="button" class="acct-btn" id="btnAcctMain" onclick="switchActiveAccount('main')">MAIN</button>
         </div>
 
@@ -235,7 +247,8 @@
         </div>
 
         <!-- Live Execution Logs Quick Pill -->
-        <button type="button" class="logs-pill-btn" onclick="openLiveLogsModal()" title="Open Live Execution & System Logs Viewer">
+        <button type="button" class="logs-pill-btn" onclick="openLiveLogsModal()"
+          title="Open Live Execution & System Logs Viewer">
           <span class="logs-pill-icon">&gt;_</span>
           <span>Logs</span>
         </button>
@@ -313,7 +326,8 @@
         <div class="metric-card">
           <div class="metric-header">
             <span class="metric-title">Wallet Balance</span>
-            <span class="badge-mode" id="posDashboardMarginMode" style="font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; margin-left: 6px;">PORTFOLIO</span>
+            <span class="badge-mode" id="posDashboardMarginMode"
+              style="font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; margin-left: 6px;">PORTFOLIO</span>
             <div class="metric-icon icon-purple" style="margin-left: auto;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -452,12 +466,16 @@
             <button class="preset-btn" onclick="applyStrategyPreset('bull_call', this)">Bull Call Spread</button>
             <button class="preset-btn" onclick="applyStrategyPreset('bear_put', this)">Bear Put Spread</button>
             <button class="preset-btn" onclick="applyStrategyPreset('iron_condor', this)">Iron Condor</button>
-            <button class="preset-btn" id="btnPresetExpiryHarvest" onclick="applyStrategyPreset('expiry_harvest', this)" title="Sell furthest OTM strike with active Bid at lowest tick price">Expiry 1-Tick Harvest</button>
+            <button class="preset-btn" id="btnPresetExpiryHarvest" onclick="applyStrategyPreset('expiry_harvest', this)"
+              title="Sell furthest OTM strike with active Bid at lowest tick price">Expiry 1-Tick Harvest</button>
             <div class="expiry-harvest-toggle-group" id="expiryHarvestToggleGroup" style="display: none;">
               <span class="harvest-toggle-label">Mode:</span>
-              <button type="button" class="harvest-pill-btn active" id="pillHarvestBoth" onclick="setExpiryHarvestMode('both')" title="Sell both furthest CE and PE">Both (CE+PE)</button>
-              <button type="button" class="harvest-pill-btn" id="pillHarvestCE" onclick="setExpiryHarvestMode('ce')" title="Sell furthest CE only">CE Only</button>
-              <button type="button" class="harvest-pill-btn" id="pillHarvestPE" onclick="setExpiryHarvestMode('pe')" title="Sell furthest PE only">PE Only</button>
+              <button type="button" class="harvest-pill-btn active" id="pillHarvestBoth"
+                onclick="setExpiryHarvestMode('both')" title="Sell both furthest CE and PE">Both (CE+PE)</button>
+              <button type="button" class="harvest-pill-btn" id="pillHarvestCE" onclick="setExpiryHarvestMode('ce')"
+                title="Sell furthest CE only">CE Only</button>
+              <button type="button" class="harvest-pill-btn" id="pillHarvestPE" onclick="setExpiryHarvestMode('pe')"
+                title="Sell furthest PE only">PE Only</button>
             </div>
           </div>
         </div>
@@ -661,9 +679,12 @@
 
             <!-- Mobile & Desktop View Filter Switcher (Both / Calls Only / Puts Only) -->
             <div class="oc-side-tabs" id="ocSideFilterGroup">
-              <button type="button" class="oc-side-btn active" data-side="both" onclick="setOptionChainSideFilter('both', this)">Both (All)</button>
-              <button type="button" class="oc-side-btn" data-side="calls" onclick="setOptionChainSideFilter('calls', this)">Calls (CE)</button>
-              <button type="button" class="oc-side-btn" data-side="puts" onclick="setOptionChainSideFilter('puts', this)">Puts (PE)</button>
+              <button type="button" class="oc-side-btn active" data-side="both"
+                onclick="setOptionChainSideFilter('both', this)">Both (All)</button>
+              <button type="button" class="oc-side-btn" data-side="calls"
+                onclick="setOptionChainSideFilter('calls', this)">Calls (CE)</button>
+              <button type="button" class="oc-side-btn" data-side="puts"
+                onclick="setOptionChainSideFilter('puts', this)">Puts (PE)</button>
             </div>
 
             <!-- Search Strike -->
@@ -790,9 +811,12 @@
           <div class="oc-controls-bar">
             <!-- Asset Tabs -->
             <div class="mm-asset-tabs">
-              <button type="button" class="mm-asset-btn active" data-asset="ALL" onclick="onMmUnderlyingChange('ALL')">ALL</button>
-              <button type="button" class="mm-asset-btn" data-asset="BTC" onclick="onMmUnderlyingChange('BTC')">BTC</button>
-              <button type="button" class="mm-asset-btn" data-asset="ETH" onclick="onMmUnderlyingChange('ETH')">ETH</button>
+              <button type="button" class="mm-asset-btn active" data-asset="ALL"
+                onclick="onMmUnderlyingChange('ALL')">ALL</button>
+              <button type="button" class="mm-asset-btn" data-asset="BTC"
+                onclick="onMmUnderlyingChange('BTC')">BTC</button>
+              <button type="button" class="mm-asset-btn" data-asset="ETH"
+                onclick="onMmUnderlyingChange('ETH')">ETH</button>
             </div>
 
             <!-- Expiry Selector -->
@@ -806,7 +830,8 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <input type="text" id="mmInpSearch" class="search-input" style="width: 140px;" placeholder="Search strike..." oninput="onMmSearch(this.value)" />
+              <input type="text" id="mmInpSearch" class="search-input" style="width: 140px;"
+                placeholder="Search strike..." oninput="onMmSearch(this.value)" />
             </div>
           </div>
         </div>
@@ -827,22 +852,26 @@
         <div class="mm-controls-bar">
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Bid Price ($):</span>
-            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3" oninput="onMmCriteriaChange()" />
+            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3"
+              oninput="onMmCriteriaChange()" />
           </div>
 
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Spread Ticks:</span>
-            <input type="number" step="1" min="1" id="mmInpMinTicks" class="mm-filter-input" placeholder="5" oninput="onMmCriteriaChange()" />
+            <input type="number" step="1" min="1" id="mmInpMinTicks" class="mm-filter-input" placeholder="5"
+              oninput="onMmCriteriaChange()" />
           </div>
 
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Net Edge (%):</span>
-            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0" oninput="onMmCriteriaChange()" />
+            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0"
+              oninput="onMmCriteriaChange()" />
           </div>
 
           <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
             <label class="mm-toggle-label">
-              <input type="checkbox" id="mmChkOnlyQual" class="mm-toggle-checkbox" onchange="toggleMmOnlyQualified(this.checked)" checked />
+              <input type="checkbox" id="mmChkOnlyQual" class="mm-toggle-checkbox"
+                onchange="toggleMmOnlyQualified(this.checked)" checked />
               <span>Show Only Qualified</span>
             </label>
 
@@ -888,10 +917,12 @@
               <span>⚡ Active MM Trade Cycles</span>
             </span>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <button type="button" class="mm-btn-autopeg" onclick="openLiveLogsModal()" title="View live execution & system logs" style="padding: 4px 10px; font-size: 0.75rem;">
+              <button type="button" class="mm-btn-autopeg" onclick="openLiveLogsModal()"
+                title="View live execution & system logs" style="padding: 4px 10px; font-size: 0.75rem;">
                 📋 Live Logs
               </button>
-              <button type="button" class="mm-btn-stop-all" onclick="cancelAllActiveTrades()" title="Emergency Stop: Cancels all open limit orders and immediately closes all open positions at MARKET">
+              <button type="button" class="mm-btn-stop-all" onclick="cancelAllActiveTrades()"
+                title="Emergency Stop: Cancels all open limit orders and immediately closes all open positions at MARKET">
                 🛑 Stop All (Market Close)
               </button>
             </div>
@@ -956,24 +987,33 @@
   </div>
 
   <!-- Market Making Trade Confirmation & Setup Modal -->
-  <div class="modal-overlay" id="mmTradeModal" style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(5px); padding: 12px;" onclick="if(event.target === this) close1LotMmModal()">
-    <div class="modal-card" style="max-width: 480px; width: 94%; max-height: 90vh; overflow-y: auto; background: #131722; border: 1px solid #10b981; border-radius: 12px; padding: 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.85); display: flex; flex-direction: column; position: relative;">
-      
+  <div class="modal-overlay" id="mmTradeModal"
+    style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.78); backdrop-filter: blur(5px); padding: 12px;"
+    onclick="if(event.target === this) close1LotMmModal()">
+    <div class="modal-card"
+      style="max-width: 480px; width: 94%; max-height: 90vh; overflow-y: auto; background: #131722; border: 1px solid #10b981; border-radius: 12px; padding: 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.85); display: flex; flex-direction: column; position: relative;">
+
       <!-- Modal Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 12px; flex-shrink: 0;">
-        <div style="font-weight: 700; font-size: 1.05rem; color: #10b981; display: flex; align-items: center; gap: 8px;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 12px; flex-shrink: 0;">
+        <div
+          style="font-weight: 700; font-size: 1.05rem; color: #10b981; display: flex; align-items: center; gap: 8px;">
           <span>⚡ Execute MM Trade Cycle</span>
         </div>
-        <button type="button" onclick="close1LotMmModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; padding: 2px 6px; line-height: 1; transition: color 0.15s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
+        <button type="button" onclick="close1LotMmModal()"
+          style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; padding: 2px 6px; line-height: 1; transition: color 0.15s;"
+          onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 11px; flex: 1 1 auto;">
-        
+
         <!-- Contract & Account Pill -->
-        <div style="display: flex; justify-content: space-between; background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; border: 1px solid rgba(255,255,255,0.06);">
+        <div
+          style="display: flex; justify-content: space-between; background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; border: 1px solid rgba(255,255,255,0.06);">
           <div>
             <div style="color: #94a3b8; font-size: 0.7rem; font-weight: 600;">CONTRACT:</div>
-            <div id="mmModalSymbol" style="font-weight: 700; font-family: monospace; color: #fff; font-size: 0.92rem;">--</div>
+            <div id="mmModalSymbol" style="font-weight: 700; font-family: monospace; color: #fff; font-size: 0.92rem;">
+              --</div>
           </div>
           <div style="text-align: right;">
             <div style="color: #94a3b8; font-size: 0.7rem; font-weight: 600;">TRADING ACCOUNT:</div>
@@ -983,13 +1023,17 @@
 
         <!-- Best Bid / Ask Grid -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div style="background: rgba(0,0,0,0.3); padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+          <div
+            style="background: rgba(0,0,0,0.3); padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
             <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600;">Best Bid ($)</div>
-            <div id="mmModalBid" style="font-size: 1.05rem; font-weight: 800; color: #10b981; font-family: monospace;">--</div>
+            <div id="mmModalBid" style="font-size: 1.05rem; font-weight: 800; color: #10b981; font-family: monospace;">
+              --</div>
           </div>
-          <div style="background: rgba(0,0,0,0.3); padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2);">
+          <div
+            style="background: rgba(0,0,0,0.3); padding: 7px 12px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2);">
             <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600;">Best Ask ($)</div>
-            <div id="mmModalAsk" style="font-size: 1.05rem; font-weight: 800; color: #ef4444; font-family: monospace;">--</div>
+            <div id="mmModalAsk" style="font-size: 1.05rem; font-weight: 800; color: #ef4444; font-family: monospace;">
+              --</div>
           </div>
         </div>
 
@@ -997,40 +1041,59 @@
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
             <label style="font-size: 0.75rem; color: #cbd5e1; font-weight: 600;">Traded Lot Size (Contracts):</label>
-            <span id="mmModalLotUnitNote" style="font-size: 0.7rem; color: #10b981; font-family: monospace;">1 lot = 0.001 BTC</span>
+            <span id="mmModalLotUnitNote" style="font-size: 0.7rem; color: #10b981; font-family: monospace;">1 lot =
+              0.001 BTC</span>
           </div>
-          <input type="number" min="1" step="1" id="mmModalInpSize" oninput="onMmModalSizeChange()" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #10b981; font-weight: 700; font-family: monospace; font-size: 0.95rem;" placeholder="1" />
-          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Pre-filled from User Profile (.env). You can adjust before launch.</div>
+          <input type="number" min="1" step="1" id="mmModalInpSize" oninput="onMmModalSizeChange()"
+            style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #10b981; font-weight: 700; font-family: monospace; font-size: 0.95rem;"
+            placeholder="1" />
+          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Pre-filled from User Profile (.env). You can
+            adjust before launch.</div>
         </div>
 
         <!-- Buy Limit Price -->
         <div>
-          <label style="display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 3px; font-weight: 600;">Entry Limit Buy Price ($) (Maker / Post-Only):</label>
-          <input type="number" step="0.1" id="mmModalInpBuyPrice" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #fff; font-family: monospace; font-size: 0.95rem;" placeholder="Auto (Bid + 1 Tick)" />
-          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Placed at Best Bid + 1 Tick to capture spread priority with low 0.03% maker fee</div>
+          <label style="display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 3px; font-weight: 600;">Entry
+            Limit Buy Price ($) (Maker / Post-Only):</label>
+          <input type="number" step="0.1" id="mmModalInpBuyPrice"
+            style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #fff; font-family: monospace; font-size: 0.95rem;"
+            placeholder="Auto (Bid + 1 Tick)" />
+          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Placed at Best Bid + 1 Tick to capture
+            spread priority with low 0.03% maker fee</div>
         </div>
 
         <!-- Sell Limit Price -->
         <div>
-          <label style="display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 3px; font-weight: 600;">Target Limit Sell Price ($) (Maker):</label>
-          <input type="number" step="0.1" id="mmModalInpSellPrice" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #fff; font-family: monospace; font-size: 0.95rem;" placeholder="Auto (Ask - 1 Tick)" />
-          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Placed immediately once BUY fills to lock in the Maker-Maker spread</div>
+          <label
+            style="display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 3px; font-weight: 600;">Target
+            Limit Sell Price ($) (Maker):</label>
+          <input type="number" step="0.1" id="mmModalInpSellPrice"
+            style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 7px 10px; color: #fff; font-family: monospace; font-size: 0.95rem;"
+            placeholder="Auto (Ask - 1 Tick)" />
+          <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">Placed immediately once BUY fills to lock in
+            the Maker-Maker spread</div>
         </div>
 
         <!-- Strategy Rules Box -->
-        <div style="background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 8px 11px; font-size: 0.73rem; color: #fbbf24; line-height: 1.4;">
-          <strong>🛡️ STRICT USER STRATEGY RULES:</strong><br/>
-          • Size: User Configured Lot Size (from Profile / .env)<br/>
-          • <strong>NO STOP-LOSS & NO TIMEOUT:</strong> Never trigger market liquidation or sell at a loss.<br/>
+        <div
+          style="background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 8px 11px; font-size: 0.73rem; color: #fbbf24; line-height: 1.4;">
+          <strong>🛡️ STRICT USER STRATEGY RULES:</strong><br />
+          • Size: User Configured Lot Size (from Profile / .env)<br />
+          • <strong>NO STOP-LOSS & NO TIMEOUT:</strong> Never trigger market liquidation or sell at a loss.<br />
           • If price drops: Rest limit order at <strong>Cost-to-Cost or WAIT</strong> for market recovery.
         </div>
 
         <!-- Action Buttons (Cancel & Launch) -->
         <div style="display: flex; gap: 10px; margin-top: 4px; padding-top: 6px;">
-          <button type="button" onclick="close1LotMmModal()" style="flex: 1; background: rgba(255,255,255,0.08); color: #cbd5e1; font-weight: 600; font-size: 0.88rem; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); cursor: pointer; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'">
+          <button type="button" onclick="close1LotMmModal()"
+            style="flex: 1; background: rgba(255,255,255,0.08); color: #cbd5e1; font-weight: 600; font-size: 0.88rem; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); cursor: pointer; transition: all 0.2s ease;"
+            onmouseover="this.style.background='rgba(255,255,255,0.15)'"
+            onmouseout="this.style.background='rgba(255,255,255,0.08)'">
             Cancel
           </button>
-          <button type="button" id="btnLaunchMmTrade" onclick="confirmAndLaunch1LotTrade()" style="flex: 2; background: #10b981; color: #000; font-weight: 800; font-size: 0.92rem; padding: 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 0 14px rgba(16, 185, 129, 0.35);" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+          <button type="button" id="btnLaunchMmTrade" onclick="confirmAndLaunch1LotTrade()"
+            style="flex: 2; background: #10b981; color: #000; font-weight: 800; font-size: 0.92rem; padding: 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 0 14px rgba(16, 185, 129, 0.35);"
+            onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
             ⚡ Launch MM Order
           </button>
         </div>
@@ -1042,96 +1105,137 @@
   <!-- ===================================================================== -->
   <!-- MODAL: USER PROFILE & TELEGRAM AUTOMATION SETTINGS                    -->
   <!-- ===================================================================== -->
-  <div class="modal-overlay" id="telegramModal" style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px);" onclick="if(event.target === this) closeProfileModal()">
-    <div class="modal-card profile-settings-card" style="max-width: 520px; width: 94%; max-height: 90vh; overflow-y: auto; background: #131722; border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 48px rgba(0,0,0,0.9);">
-      
+  <div class="modal-overlay" id="telegramModal"
+    style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(6px);"
+    onclick="if(event.target === this) closeProfileModal()">
+    <div class="modal-card profile-settings-card"
+      style="max-width: 520px; width: 94%; max-height: 90vh; overflow-y: auto; background: #131722; border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 14px; padding: 22px 24px; box-shadow: 0 16px 48px rgba(0,0,0,0.9);">
+
       <!-- Modal Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 16px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+          <div
+            style="width: 34px; height: 34px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             👤
           </div>
           <div>
-            <div style="font-weight: 700; font-size: 1.05rem; color: #fff; letter-spacing: -0.2px;">User Profile &amp; Settings</div>
-            <div style="font-size: 0.72rem; color: #94a3b8;">Trading lot sizes &amp; Telegram alerts (persisted in .env)</div>
+            <div style="font-weight: 700; font-size: 1.05rem; color: #fff; letter-spacing: -0.2px;">User Profile &amp;
+              Settings</div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Trading lot sizes &amp; Telegram alerts (persisted in .env)
+            </div>
           </div>
         </div>
-        <button type="button" onclick="closeProfileModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 2px 6px; transition: color 0.15s;" title="Close" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
+        <button type="button" onclick="closeProfileModal()"
+          style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 2px 6px; transition: color 0.15s;"
+          title="Close" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 16px;">
-        
+
         <!-- SECTION 1: AUTO-TRADE TRADED LOT SIZES -->
-        <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 14px;">
+        <div
+          style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div style="font-size: 0.82rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 6px;">
+            <div
+              style="font-size: 0.82rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 6px;">
               <span>📊 Auto-Trade Traded Lot Sizes</span>
             </div>
-            <span style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">.ENV Persisted</span>
+            <span
+              style="font-size: 0.65rem; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">.ENV
+              Persisted</span>
           </div>
           <div style="font-size: 0.73rem; color: #94a3b8; line-height: 1.4; margin-bottom: 12px;">
-            Configures default lot size used by auto-trade loops and manual 1-click orders. Auto-saved to <code>.env</code> and reloaded on every login.
+            Configures default lot size used by auto-trade loops and manual 1-click orders. Auto-saved to
+            <code>.env</code> and reloaded on every login.
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <!-- BTC Lot Size -->
-            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px;">
+            <div
+              style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <label style="font-size: 0.76rem; color: #f59e0b; font-weight: 700;">BTC Lot Size:</label>
                 <span style="font-size: 0.66rem; color: #64748b; font-family: monospace;">0.001 BTC / lot</span>
               </div>
-              <input type="number" min="1" step="1" id="profileLotSizeBtc" value="1" style="width: 100%; background: #0b0e14; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px; color: #f59e0b; font-weight: 700; font-family: monospace; font-size: 1.05rem;" placeholder="1" />
+              <input type="number" min="1" step="1" id="profileLotSizeBtc" value="1"
+                style="width: 100%; background: #0b0e14; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px; color: #f59e0b; font-weight: 700; font-family: monospace; font-size: 1.05rem;"
+                placeholder="1" />
               <div style="font-size: 0.67rem; color: #64748b; margin-top: 4px;">1 lot = 0.001 BTC contract</div>
             </div>
 
             <!-- ETH Lot Size -->
-            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px;">
+            <div
+              style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <label style="font-size: 0.76rem; color: #38bdf8; font-weight: 700;">ETH Lot Size:</label>
                 <span style="font-size: 0.66rem; color: #64748b; font-family: monospace;">0.01 ETH / lot</span>
               </div>
-              <input type="number" min="1" step="1" id="profileLotSizeEth" value="1" style="width: 100%; background: #0b0e14; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 8px 10px; color: #38bdf8; font-weight: 700; font-family: monospace; font-size: 1.05rem;" placeholder="1" />
+              <input type="number" min="1" step="1" id="profileLotSizeEth" value="1"
+                style="width: 100%; background: #0b0e14; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 8px 10px; color: #38bdf8; font-weight: 700; font-family: monospace; font-size: 1.05rem;"
+                placeholder="1" />
               <div style="font-size: 0.67rem; color: #64748b; margin-top: 4px;">1 lot = 0.01 ETH contract</div>
             </div>
           </div>
         </div>
 
         <!-- SECTION 2: TELEGRAM ALERTS CONFIGURATION -->
-        <div style="background: rgba(56, 189, 248, 0.04); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 10px; padding: 14px;">
+        <div
+          style="background: rgba(56, 189, 248, 0.04); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 10px; padding: 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+            <div
+              style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
               <span>✈️ Telegram Notification Alerts</span>
             </div>
-            <span style="font-size: 0.65rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Continuous Feed</span>
+            <span
+              style="font-size: 0.65rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 7px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Continuous
+              Feed</span>
           </div>
           <div style="font-size: 0.73rem; color: #94a3b8; line-height: 1.4; margin-bottom: 12px;">
-            Instant alerts dispatched to Telegram whenever any strike stays continuously qualified for the configured threshold duration.
+            Instant alerts dispatched to Telegram whenever any strike stays continuously qualified for the configured
+            threshold duration.
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                 <label style="font-size: 0.76rem; color: #cbd5e1; font-weight: 600;">Telegram Bot Token:</label>
-                <button type="button" onclick="toggleTgTokenVisibility()" style="background: none; border: none; color: #38bdf8; font-size: 0.7rem; cursor: pointer; padding: 0;">Show/Hide</button>
+                <button type="button" onclick="toggleTgTokenVisibility()"
+                  style="background: none; border: none; color: #38bdf8; font-size: 0.7rem; cursor: pointer; padding: 0;">Show/Hide</button>
               </div>
-              <input type="password" id="tgModalBotToken" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fff; font-family: monospace; font-size: 0.85rem;" placeholder="e.g. 7123456789:ABCdefGHIjklMNOpqrs..." />
-              <div style="font-size: 0.68rem; color: #64748b; margin-top: 3px;">Obtain from Telegram's official @BotFather</div>
+              <input type="password" id="tgModalBotToken"
+                style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fff; font-family: monospace; font-size: 0.85rem;"
+                placeholder="e.g. 7123456789:ABCdefGHIjklMNOpqrs..." />
+              <div style="font-size: 0.68rem; color: #64748b; margin-top: 3px;">Obtain from Telegram's official
+                @BotFather</div>
             </div>
 
             <div>
-              <label style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Telegram Chat ID:</label>
-              <input type="text" id="tgModalChatId" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fff; font-family: monospace; font-size: 0.85rem;" placeholder="e.g. 123456789 or -100123456789" />
-              <div style="font-size: 0.68rem; color: #64748b; margin-top: 3px;">Get your ID by messaging @userinfobot or @RawDataBot</div>
+              <label
+                style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Telegram
+                Chat ID:</label>
+              <input type="text" id="tgModalChatId"
+                style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fff; font-family: monospace; font-size: 0.85rem;"
+                placeholder="e.g. 123456789 or -100123456789" />
+              <div style="font-size: 0.68rem; color: #64748b; margin-top: 3px;">Get your ID by messaging @userinfobot or
+                @RawDataBot</div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
               <div>
-                <label style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Alert Qual Time (Sec):</label>
-                <input type="number" min="5" step="5" id="tgModalNotifySec" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fbbf24; font-weight: 700; font-family: monospace; font-size: 0.95rem;" placeholder="200" />
+                <label
+                  style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Alert
+                  Qual Time (Sec):</label>
+                <input type="number" min="5" step="5" id="tgModalNotifySec"
+                  style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #fbbf24; font-weight: 700; font-family: monospace; font-size: 0.95rem;"
+                  placeholder="200" />
               </div>
               <div>
-                <label style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Alerts ON / OFF:</label>
-                <select id="tgModalEnabled" onchange="onTgModalEnabledChange()" style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #10b981; font-weight: 700; font-size: 0.88rem;">
+                <label
+                  style="display: block; font-size: 0.76rem; color: #cbd5e1; font-weight: 600; margin-bottom: 4px;">Alerts
+                  ON / OFF:</label>
+                <select id="tgModalEnabled" onchange="onTgModalEnabledChange()"
+                  style="width: 100%; background: #0b0e14; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px 12px; color: #10b981; font-weight: 700; font-size: 0.88rem;">
                   <option value="true">🟢 Alerts ON</option>
                   <option value="false">🔴 Alerts OFF</option>
                 </select>
@@ -1141,14 +1245,17 @@
         </div>
 
         <!-- Status / Feedback Banner -->
-        <div id="tgModalFeedback" style="display: none; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; line-height: 1.4;"></div>
+        <div id="tgModalFeedback"
+          style="display: none; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; line-height: 1.4;"></div>
 
         <!-- Action Buttons -->
         <div style="display: flex; gap: 10px; margin-top: 4px;">
-          <button type="button" id="btnTgTest" onclick="sendTelegramTestAlert()" style="flex: 1; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-weight: 600; font-size: 0.85rem; padding: 11px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;">
+          <button type="button" id="btnTgTest" onclick="sendTelegramTestAlert()"
+            style="flex: 1; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-weight: 600; font-size: 0.85rem; padding: 11px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;">
             ⚡ Send Test Alert
           </button>
-          <button type="button" id="btnTgSave" onclick="saveProfileSettingsFromModal()" style="flex: 1.4; background: #10b981; color: #000; font-weight: 700; font-size: 0.88rem; padding: 11px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
+          <button type="button" id="btnTgSave" onclick="saveProfileSettingsFromModal()"
+            style="flex: 1.4; background: #10b981; color: #000; font-weight: 700; font-size: 0.88rem; padding: 11px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
             💾 Save Profile &amp; Settings
           </button>
         </div>
@@ -1172,46 +1279,60 @@
 
       <div class="modal-body" style="padding: 16px 20px;">
         <!-- Current Margin Status Card -->
-        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+        <div
+          style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <span style="font-size: 0.78rem; color: var(--text-muted);">Current Active Account:</span>
-            <span id="modalMarginActiveAcct" style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">SUB ACCOUNT</span>
+            <span id="modalMarginActiveAcct" style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">SUB
+              ACCOUNT</span>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 0.78rem; color: var(--text-muted);">Current Margin Mode:</span>
-            <span id="modalCurrentMarginMode" style="font-weight: 800; color: #10b981; font-size: 0.88rem; letter-spacing: 0.5px;">PORTFOLIO MARGIN</span>
+            <span id="modalCurrentMarginMode"
+              style="font-weight: 800; color: #10b981; font-size: 0.88rem; letter-spacing: 0.5px;">PORTFOLIO
+              MARGIN</span>
           </div>
         </div>
 
         <!-- Mode Comparison -->
         <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;">
           <!-- Portfolio Option -->
-          <div class="margin-option-card active" id="cardPortfolioMargin" onclick="requestSetMarginMode('portfolio')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.06); transition: all 0.2s;">
+          <div class="margin-option-card active" id="cardPortfolioMargin" onclick="requestSetMarginMode('portfolio')"
+            style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.06); transition: all 0.2s;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-              <span style="font-weight: 700; color: #10b981; font-size: 0.85rem;">🛡️ Portfolio Margin (Recommended)</span>
+              <span style="font-weight: 700; color: #10b981; font-size: 0.85rem;">🛡️ Portfolio Margin
+                (Recommended)</span>
               <span class="badge-accent" id="badgePortfolioActive" style="font-size: 0.65rem;">Active Mode</span>
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
-              Offsets risk across offsetting options &amp; futures positions. Drastically reduces margin requirements for straddles, spreads, and market making.
+              Offsets risk across offsetting options &amp; futures positions. Drastically reduces margin requirements
+              for straddles, spreads, and market making.
             </div>
           </div>
 
           <!-- Cross Margin Option -->
-          <div class="margin-option-card" id="cardCrossMargin" onclick="requestSetMarginMode('cross')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
+          <div class="margin-option-card" id="cardCrossMargin" onclick="requestSetMarginMode('cross')"
+            style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
               <span style="font-weight: 700; color: #38bdf8; font-size: 0.85rem;">⚡ Cross Margin</span>
-              <span class="badge-accent" id="badgeCrossActive" style="font-size: 0.65rem; display: none; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">Active Mode</span>
+              <span class="badge-accent" id="badgeCrossActive"
+                style="font-size: 0.65rem; display: none; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">Active
+                Mode</span>
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
-              Shares available wallet margin balance across all open positions. All account equity is used to cushion and prevent liquidation.
+              Shares available wallet margin balance across all open positions. All account equity is used to cushion
+              and prevent liquidation.
             </div>
           </div>
 
           <!-- Isolated Option -->
-          <div class="margin-option-card" id="cardIsolatedMargin" onclick="requestSetMarginMode('isolated')" style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
+          <div class="margin-option-card" id="cardIsolatedMargin" onclick="requestSetMarginMode('isolated')"
+            style="cursor: pointer; padding: 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: rgba(255,255,255,0.02); transition: all 0.2s;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
               <span style="font-weight: 700; color: var(--text-primary); font-size: 0.85rem;">🔒 Isolated Margin</span>
-              <span class="badge-accent" id="badgeIsolatedActive" style="font-size: 0.65rem; display: none; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-color: rgba(245, 158, 11, 0.4);">Active Mode</span>
+              <span class="badge-accent" id="badgeIsolatedActive"
+                style="font-size: 0.65rem; display: none; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-color: rgba(245, 158, 11, 0.4);">Active
+                Mode</span>
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
               Assigns a fixed, isolated margin to each individual position. No risk or margin sharing across positions.
@@ -1220,7 +1341,8 @@
         </div>
 
         <div style="display: flex; gap: 10px; justify-content: flex-end;">
-          <button type="button" class="btn-secondary" onclick="closeMarginModeModal()" style="padding: 8px 16px; border-radius: 6px; font-size: 0.8rem;">Close</button>
+          <button type="button" class="btn-secondary" onclick="closeMarginModeModal()"
+            style="padding: 8px 16px; border-radius: 6px; font-size: 0.8rem;">Close</button>
         </div>
       </div>
     </div>
@@ -1229,48 +1351,62 @@
   <!-- ===================================================================== -->
   <!-- MODAL: LIVE EXECUTION & SYSTEM LOGS VIEWER                            -->
   <!-- ===================================================================== -->
-  <div class="modal-overlay" id="liveLogsModal" style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.82); backdrop-filter: blur(6px); padding: 12px;" onclick="if(event.target === this) closeLiveLogsModal()">
-    <div class="modal-card logs-modal-card" style="max-width: 960px; width: 96%; max-height: 92vh; height: 86vh; background: #0f131c; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 14px; padding: 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.9); display: flex; flex-direction: column;">
+  <div class="modal-overlay" id="liveLogsModal"
+    style="display: none; align-items: center; justify-content: center; z-index: 10000; position: fixed; inset: 0; background: rgba(0,0,0,0.82); backdrop-filter: blur(6px); padding: 12px;"
+    onclick="if(event.target === this) closeLiveLogsModal()">
+    <div class="modal-card logs-modal-card"
+      style="max-width: 960px; width: 96%; max-height: 92vh; height: 86vh; background: #0f131c; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 14px; padding: 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,0.9); display: flex; flex-direction: column;">
 
       <!-- Modal Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 12px; flex-shrink: 0;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 12px; margin-bottom: 12px; flex-shrink: 0;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; font-family: monospace; font-weight: 700;">
+          <div
+            style="width: 34px; height: 34px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); color: #c084fc; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; font-family: monospace; font-weight: 700;">
             &gt;_
           </div>
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-weight: 700; font-size: 1.05rem; color: #fff;">Live Execution Logs</span>
-              <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
+              <span
+                style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.68rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
                 <span class="spot-pulse-dot" style="background: #10b981; width: 6px; height: 6px;"></span>
                 <span>Live Stream</span>
               </span>
             </div>
-            <div style="font-size: 0.72rem; color: #94a3b8;">Real-time MM trade events, orders, fills, and server console</div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Real-time MM trade events, orders, fills, and server
+              console</div>
           </div>
         </div>
 
         <div style="display: flex; align-items: center; gap: 12px;">
           <!-- SSE Real-Time Stream Toggle & Status -->
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 0.73rem; color: #cbd5e1; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="chkAutoRefreshLogs" checked onchange="toggleLogsAutoRefresh()" style="accent-color: #a855f7;" />
+          <label
+            style="display: flex; align-items: center; gap: 6px; font-size: 0.73rem; color: #cbd5e1; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="chkAutoRefreshLogs" checked onchange="toggleLogsAutoRefresh()"
+              style="accent-color: #a855f7;" />
             <span>Live Stream (SSE)</span>
           </label>
-          <span id="lblSseStatus" style="font-size: 0.68rem; font-weight: 600; color: #10b981; display: inline-flex; align-items: center; gap: 4px;">
+          <span id="lblSseStatus"
+            style="font-size: 0.68rem; font-weight: 600; color: #10b981; display: inline-flex; align-items: center; gap: 4px;">
             <span class="spot-pulse-dot" id="dotSseStatus" style="background: #10b981; width: 6px; height: 6px;"></span>
             <span id="lblSseStatusText">Connecting...</span>
           </span>
           <!-- Auto-Scroll Toggle -->
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 0.73rem; color: #cbd5e1; cursor: pointer; user-select: none;">
+          <label
+            style="display: flex; align-items: center; gap: 6px; font-size: 0.73rem; color: #cbd5e1; cursor: pointer; user-select: none;">
             <input type="checkbox" id="chkAutoScrollLogs" checked style="accent-color: #a855f7;" />
             <span>Auto-Scroll</span>
           </label>
-          <button type="button" onclick="closeLiveLogsModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; padding: 2px 6px; line-height: 1; transition: color 0.15s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
+          <button type="button" onclick="closeLiveLogsModal()"
+            style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer; padding: 2px 6px; line-height: 1; transition: color 0.15s;"
+            onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#94a3b8'">✕</button>
         </div>
       </div>
 
       <!-- Toolbar: Tabs & Filters -->
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; flex-shrink: 0; flex-wrap: wrap;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; flex-shrink: 0; flex-wrap: wrap;">
         <!-- Tabs -->
         <div style="display: flex; gap: 6px;">
           <button type="button" class="log-tab-btn active" id="tabLogsMM" onclick="switchLogsTab('mm')">
@@ -1285,14 +1421,17 @@
         </div>
 
         <!-- Right Controls: Filter & Actions -->
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap;">
+        <div
+          style="display: flex; align-items: center; gap: 8px; flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap;">
           <!-- MM Trade Filter Dropdown (visible on MM tab) -->
-          <select id="selLogTradeFilter" onchange="onLogTradeFilterChange()" style="display: none; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 4px 8px; font-size: 0.73rem; color: #fff; max-width: 190px;">
+          <select id="selLogTradeFilter" onchange="onLogTradeFilterChange()"
+            style="display: none; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 4px 8px; font-size: 0.73rem; color: #fff; max-width: 190px;">
             <option value="ALL">All MM Trades</option>
           </select>
 
           <!-- History Depth Limit Dropdown -->
-          <select id="selLogsLimit" onchange="onLogsLimitChange()" title="Choose history depth or full logs" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 4px 8px; font-size: 0.73rem; color: #38bdf8; font-weight: 600;">
+          <select id="selLogsLimit" onchange="onLogsLimitChange()" title="Choose history depth or full logs"
+            style="background: rgba(0,0,0,0.5); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 4px 8px; font-size: 0.73rem; color: #38bdf8; font-weight: 600;">
             <option value="250">Latest 250 lines</option>
             <option value="500">Latest 500 lines</option>
             <option value="1000" selected>Latest 1,000 lines</option>
@@ -1302,42 +1441,56 @@
           </select>
 
           <!-- Text Search Filter -->
-          <input type="text" id="inpFilterLogs" placeholder="🔍 Search logs..." oninput="filterDisplayedLogs()" onkeydown="if(event.key==='Enter') refreshCurrentLogs();" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; color: #fff; width: 140px;" />
+          <input type="text" id="inpFilterLogs" placeholder="🔍 Search logs..." oninput="filterDisplayedLogs()"
+            onkeydown="if(event.key==='Enter') refreshCurrentLogs();"
+            style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 5px 10px; font-size: 0.74rem; color: #fff; width: 140px;" />
 
-          <button type="button" class="mm-btn-upload" onclick="refreshCurrentLogs()" title="Refresh logs now" style="padding: 4px 9px; font-size: 0.73rem;">
+          <button type="button" class="mm-btn-upload" onclick="refreshCurrentLogs()" title="Refresh logs now"
+            style="padding: 4px 9px; font-size: 0.73rem;">
             🔄 Refresh
           </button>
-          <button type="button" class="mm-btn-autopeg" onclick="downloadCurrentLogFile()" title="Download raw log file (.log)" style="padding: 4px 9px; font-size: 0.73rem; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+          <button type="button" class="mm-btn-autopeg" onclick="downloadCurrentLogFile()"
+            title="Download raw log file (.log)"
+            style="padding: 4px 9px; font-size: 0.73rem; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
             📥 Download
           </button>
-          <button type="button" class="mm-btn-autopeg" onclick="copyCurrentLogs()" title="Copy all visible logs to clipboard" style="padding: 4px 9px; font-size: 0.73rem;">
+          <button type="button" class="mm-btn-autopeg" onclick="copyCurrentLogs()"
+            title="Copy all visible logs to clipboard" style="padding: 4px 9px; font-size: 0.73rem;">
             📋 Copy
           </button>
-          <button type="button" class="mm-btn-cancel" onclick="clearLogsViewer()" title="Clear view" style="padding: 4px 9px; font-size: 0.73rem;">
+          <button type="button" class="mm-btn-cancel" onclick="clearLogsViewer()" title="Clear view"
+            style="padding: 4px 9px; font-size: 0.73rem;">
             🧹 Clear
           </button>
         </div>
       </div>
 
       <!-- Cloudflare Tunnel URL Banner (visible on tunnel tab when active) -->
-      <div id="tunnelUrlBanner" style="display: none; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 6px 12px; margin-bottom: 8px; font-size: 0.75rem; color: #38bdf8; flex-shrink: 0;">
-        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+      <div id="tunnelUrlBanner"
+        style="display: none; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 6px 12px; margin-bottom: 8px; font-size: 0.75rem; color: #38bdf8; flex-shrink: 0;">
+        <div
+          style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
           <span style="font-weight: 700;">📡 Public URL:</span>
-          <a id="linkTunnelUrl" href="#" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-family: monospace; font-weight: 600;">--</a>
+          <a id="linkTunnelUrl" href="#" target="_blank" rel="noopener noreferrer"
+            style="color: #38bdf8; text-decoration: underline; font-family: monospace; font-weight: 600;">--</a>
         </div>
         <div style="display: flex; gap: 6px; flex-shrink: 0;">
-          <button type="button" class="mm-btn-autopeg" onclick="copyTunnelUrl()" style="padding: 2px 7px; font-size: 0.7rem;">Copy URL</button>
-          <a id="btnOpenTunnelUrl" href="#" target="_blank" rel="noopener noreferrer" class="mm-btn-upload" style="padding: 2px 7px; font-size: 0.7rem; text-decoration: none; display: inline-block;">Open ↗</a>
+          <button type="button" class="mm-btn-autopeg" onclick="copyTunnelUrl()"
+            style="padding: 2px 7px; font-size: 0.7rem;">Copy URL</button>
+          <a id="btnOpenTunnelUrl" href="#" target="_blank" rel="noopener noreferrer" class="mm-btn-upload"
+            style="padding: 2px 7px; font-size: 0.7rem; text-decoration: none; display: inline-block;">Open ↗</a>
         </div>
       </div>
 
       <!-- Logs Console Window -->
-      <div id="logsConsoleContainer" class="logs-console" style="flex: 1 1 auto; background: #06080e; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px 14px; overflow-y: auto; font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.78rem; line-height: 1.5; color: #cbd5e1; user-select: text;">
+      <div id="logsConsoleContainer" class="logs-console"
+        style="flex: 1 1 auto; background: #06080e; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px 14px; overflow-y: auto; font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.78rem; line-height: 1.5; color: #cbd5e1; user-select: text;">
         <div style="color: #64748b; font-style: italic;">Loading live execution logs...</div>
       </div>
 
       <!-- Logs Footer Info -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.71rem; color: #64748b; flex-shrink: 0;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.71rem; color: #64748b; flex-shrink: 0;">
         <span id="lblLogsCount">0 log entries</span>
         <span id="lblLogsTimestamp">Updated: --:--:--</span>
       </div>

@@ -7,11 +7,13 @@
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
-  padding: 20px 24px;
+  padding: clamp(14px, 1.6vw, 24px);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: clamp(12px, 1.4vw, 18px);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Option Chain Header & Toolbar */
@@ -154,8 +156,12 @@
   border: 1px solid var(--border-card);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  max-height: 720px;
+  max-height: clamp(500px, 72vh, 880px);
+  width: 100%;
+  box-sizing: border-box;
   position: relative;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .oc-table {
@@ -590,5 +596,24 @@
     padding: 2px 4px;
     min-width: 18px;
     font-size: 0.62rem;
+  }
+}
+
+/* Large Displays (>= 1600px, 1440p, 4K) scaling for Option Chain */
+@media (min-width: 1600px) {
+  .oc-table th, .oc-table td {
+    padding: 8px 8px;
+    font-size: 0.80rem;
+  }
+  .oc-super-header th {
+    font-size: 0.86rem;
+    padding: 10px 12px;
+  }
+  .oc-sub-header th {
+    font-size: 0.72rem;
+    padding: 9px 8px;
+  }
+  .oc-strike-cell {
+    font-size: 0.90rem;
   }
 }

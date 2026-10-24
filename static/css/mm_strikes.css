@@ -7,11 +7,13 @@
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
-  padding: 20px 24px;
+  padding: clamp(14px, 1.6vw, 24px);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: clamp(12px, 1.4vw, 18px);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Header & Title Toolbar */
@@ -89,12 +91,14 @@
 .mm-controls-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: clamp(8px, 1vw, 12px);
   flex-wrap: wrap;
   background: rgba(0, 0, 0, 0.2);
-  padding: 12px 16px;
+  padding: clamp(10px, 1.2vw, 14px) clamp(12px, 1.4vw, 16px);
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--border-subtle);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .mm-filter-group {
@@ -183,8 +187,9 @@
 /* Summary Metrics Bar */
 .mm-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(170px, 14vw, 240px), 1fr));
+  gap: clamp(8px, 1vw, 12px);
+  width: 100%;
 }
 
 .mm-stat-card {
@@ -232,6 +237,9 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
   background: rgba(0, 0, 0, 0.15);
+  max-height: clamp(500px, 72vh, 880px);
+  width: 100%;
+  box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
@@ -255,7 +263,7 @@
 }
 
 /* Explicit fixed column widths guaranteeing zero shifting when toggling qualified filter */
-.mm-table .col-symbol  { width: 175px; min-width: 175px; max-width: 175px; }
+.mm-table .col-symbol  { width: 175px; min-width: 160px; }
 .mm-table .col-type    { width: 68px;  min-width: 68px;  max-width: 68px;  }
 .mm-table .col-strike  { width: 78px;  min-width: 78px;  max-width: 78px;  }
 .mm-table .col-bid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
@@ -1173,4 +1181,55 @@ tr.row-max-oi:hover {
   color: #fff;
   box-shadow: 0 0 8px rgba(168, 85, 247, 0.35);
 }
+
+/* MM Strikes Responsive Breakpoints */
+@media (max-width: 991px) {
+  .mm-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .mm-controls-bar {
+    gap: 8px;
+    padding: 10px;
+  }
+  .mm-table {
+    min-width: 960px;
+  }
+}
+
+@media (max-width: 767px) {
+  .mm-formula-banner {
+    font-size: 0.72rem;
+    padding: 6px 10px;
+  }
+  .mm-formula-chip {
+    font-size: 0.68rem;
+    padding: 2px 6px;
+  }
+  .mm-filter-input {
+    width: 65px;
+    font-size: 0.76rem;
+    padding: 4px 6px;
+  }
+  .mm-filter-label {
+    font-size: 0.72rem;
+  }
+  .mm-asset-btn {
+    padding: 4px 8px;
+    font-size: 0.74rem;
+  }
+}
+
+/* Large Displays (>= 1600px, 1440p, 4K) scaling for Market Making */
+@media (min-width: 1600px) {
+  .mm-table th, .mm-table td {
+    padding: 9px 10px;
+    font-size: 0.84rem;
+  }
+  .mm-stat-val {
+    font-size: 1.55rem;
+  }
+}
+
 
