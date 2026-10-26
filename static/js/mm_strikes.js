@@ -1341,6 +1341,19 @@ function open1LotMmModalBySymbol(symbol) {
   if (inpBuy) inpBuy.value = recBuy.toFixed(2);
   if (inpSell) inpSell.value = recSell.toFixed(2);
 
+  const elPreviewMaxCeiling = document.getElementById('mmModalPreviewMaxCeiling');
+  if (elPreviewMaxCeiling) {
+    if (askVal > 0 && recBuy > 0 && askVal > recBuy) {
+      const spread = askVal - recBuy;
+      let calcCeiling = askVal - (spread * 0.60);
+      calcCeiling = Math.round(calcCeiling / tick) * tick;
+      calcCeiling = Math.max(recBuy, calcCeiling);
+      elPreviewMaxCeiling.textContent = `$${calcCeiling.toFixed(2)}`;
+    } else {
+      elPreviewMaxCeiling.textContent = 'Auto (60% Spread)';
+    }
+  }
+
   const isBtc = (item.symbol || '').includes('BTC');
   const defaultSize = isBtc ? (window.profileLotSizeBtc || 1) : (window.profileLotSizeEth || 1);
   const inpSize = document.getElementById('mmModalInpSize');
@@ -1423,6 +1436,7 @@ async function confirmAndLaunch1LotTrade() {
       size: tradeSize,
       entry_price: buyPrice,
       target_exit_price: sellPrice,
+      min_spread_pct: 0.60,
       account: activeAcct
     };
 
@@ -1544,7 +1558,15 @@ function renderActiveMmTrades(trades) {
       const filled = t.buy_filled_qty || 0;
       stateBadge = `<span class="mm-trade-badge buying">⚡ PARTIAL BUY: ${filled}/${tot} Lots Filled @ $${t.buy_fill_price || t.buy_limit_price || '--'}</span>`;
     } else if (t.state === 'BUY_OPEN' || t.state === 'PLACING_BUY') {
-      stateBadge = `<span class="mm-trade-badge buying">🎯 BUY PEG: #1 Bid @ $${t.buy_limit_price || '--'}</span>`;
+      if (t.buy_peg_status === 'GUARD_SPREAD_COLLAPSED') {
+        stateBadge = `<span class="mm-trade-badge" style="background: rgba(245, 158, 11, 0.25); color: #f59e0b; border: 1px solid #f59e0b;" title="Minimum Spread Guard: Remaining spread is too narrow. Chasing blocked to protect capital.">🛡️ SPREAD GUARD: HOLDING @ $${t.buy_limit_price || '--'}</span>`;
+      } else if (t.buy_peg_status === 'GUARD_MAX_ENTRY_REACHED') {
+        stateBadge = `<span class="mm-trade-badge" style="background: rgba(56, 189, 248, 0.25); color: #38bdf8; border: 1px solid #38bdf8;" title="Max Entry Ceiling Guard: Capped at safe entry limit.">🛡️ CHASE CAP: $${t.buy_limit_price || '--'}</span>`;
+      } else {
+        stateBadge = `<span class="mm-trade-badge buying">🎯 BUY PEG: #1 Bid @ $${t.buy_limit_price || '--'}</span>`;
+      }
+    } else if (t.state === 'REJECTED_TIGHT_SPREAD') {
+      stateBadge = `<span class="mm-trade-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">🛡️ REJECTED: TIGHT SPREAD</span>`;
     } else if (t.state === 'BUY_FILLED') {
       stateBadge = `<span class="mm-trade-badge selling">BUY FILLED (${t.size} Lots) @ $${t.buy_fill_price || '--'}</span>`;
     } else if (t.state === 'SELL_PARTIAL') {

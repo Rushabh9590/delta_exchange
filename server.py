@@ -1415,7 +1415,10 @@ def start_market_making_trade():
         entry_price = float(data.get("entry_price")) if data.get("entry_price") else None
         target_exit_price = float(data.get("target_exit_price")) if data.get("target_exit_price") else None
         two_way_peg = data.get("two_way_peg", True)
-        max_entry_price = float(data.get("max_entry_price")) if data.get("max_entry_price") else None
+        min_spread_pct = float(data.get("min_spread_pct", 0.60)) if data.get("min_spread_pct") else 0.60
+        min_spread_ticks = float(data.get("min_spread_ticks")) if data.get("min_spread_ticks") is not None and float(data.get("min_spread_ticks")) > 0 else None
+        min_spread = float(data.get("min_spread")) if data.get("min_spread") is not None and float(data.get("min_spread")) > 0 else None
+        max_chase_ticks = int(data.get("max_chase_ticks")) if data.get("max_chase_ticks") is not None and int(data.get("max_chase_ticks")) >= 0 else None
         account = data.get("account")
 
         cycle = mm_engine.start_trade(
@@ -1425,6 +1428,10 @@ def start_market_making_trade():
             target_exit_price=target_exit_price,
             two_way_peg=two_way_peg,
             max_entry_price=max_entry_price,
+            min_spread_pct=min_spread_pct,
+            min_spread_ticks=min_spread_ticks,
+            min_spread=min_spread,
+            max_chase_ticks=max_chase_ticks,
             account=account
         )
         return jsonify({"success": True, "trade": cycle.to_dict()})

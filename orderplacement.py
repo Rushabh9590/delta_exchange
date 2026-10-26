@@ -283,8 +283,20 @@ def cancel_order(symbol_or_id, order_id: int):
 # MM Execution Engine Integration
 from mm_execution import mm_engine, DeltaMMEngine, MMTradeCycle
 
-def start_mm_trade(symbol, size=1, entry_price=None, target_exit_price=None, two_way_peg=True, max_entry_price=None, account=None):
-    """Starts a 1-lot MM trade cycle with Two-Way Floating Peg and Cost-to-Cost or Wait exit rules."""
+def start_mm_trade(
+    symbol,
+    size=1,
+    entry_price=None,
+    target_exit_price=None,
+    two_way_peg=True,
+    max_entry_price=None,
+    min_spread_pct=0.60,
+    min_spread_ticks=None,
+    min_spread=None,
+    max_chase_ticks=None,
+    account=None
+):
+    """Starts a 1-lot MM trade cycle with Two-Way Floating Peg, Minimum 60% Spread Guard, and Cost-to-Cost or Wait exit rules."""
     return mm_engine.start_trade(
         symbol=symbol,
         size=size,
@@ -292,6 +304,10 @@ def start_mm_trade(symbol, size=1, entry_price=None, target_exit_price=None, two
         target_exit_price=target_exit_price,
         two_way_peg=two_way_peg,
         max_entry_price=max_entry_price,
+        min_spread_pct=min_spread_pct,
+        min_spread_ticks=min_spread_ticks,
+        min_spread=min_spread,
+        max_chase_ticks=max_chase_ticks,
         account=account
     )
 

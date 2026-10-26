@@ -1075,6 +1075,31 @@
             the Maker-Maker spread</div>
         </div>
 
+        <!-- Minimum Spread Guard (Backend Live 60% Spread Retention) -->
+        <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.78rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 5px;">
+              🛡️ Minimum Spread Guard (60% Retention)
+            </span>
+            <span style="font-size: 0.68rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 7px; border-radius: 4px;">
+              LIVE BACKEND
+            </span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+            <div>
+              <div style="font-size: 0.68rem; color: #94a3b8; font-weight: 600;">Spread Reserved:</div>
+              <div style="font-size: 0.95rem; font-weight: 700; color: #10b981; font-family: monospace;">60% Margin</div>
+            </div>
+            <div>
+              <div style="font-size: 0.68rem; color: #94a3b8; font-weight: 600;">Live Max Entry Ceiling:</div>
+              <div id="mmModalPreviewMaxCeiling" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8; font-family: monospace;">--</div>
+            </div>
+          </div>
+          <div style="font-size: 0.67rem; color: #64748b; margin-top: 5px; line-height: 1.3;">
+            Calculated live on backend. Preserves at least 60% of the live spread. If competitors push the bid too close to the ask, chasing is automatically blocked to prevent traps.
+          </div>
+        </div>
+
         <!-- Strategy Rules Box -->
         <div
           style="background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 8px 11px; font-size: 0.73rem; color: #fbbf24; line-height: 1.4;">

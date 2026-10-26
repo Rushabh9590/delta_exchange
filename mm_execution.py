@@ -193,6 +193,10 @@ class MMTradeCycle:
         auto_reprice_buy: bool = True,
         two_way_peg: bool = True,
         max_entry_price: float = None,
+        min_spread_pct: float = None,
+        min_spread_ticks: float = None,
+        min_spread: float = None,
+        max_chase_ticks: int = None,
         account: str = None,
         client: DeltaRestClient = None,
         trade_id: str = None
@@ -210,6 +214,29 @@ class MMTradeCycle:
         self.custom_entry_price = float(entry_price) if entry_price is not None and float(entry_price) > 0 else None
         self.custom_target_price = float(target_exit_price) if target_exit_price is not None and float(target_exit_price) > 0 else None
         self.max_entry_price = float(max_entry_price) if max_entry_price is not None and float(max_entry_price) > 0 else None
+
+        # Minimum Spread Guard configuration (Live 60% Spread Retention)
+        try:
+            env_spread_pct = float(os.getenv("MM_MIN_SPREAD_PCT", "0.60"))
+        except Exception:
+            env_spread_pct = 0.60
+        self.min_spread_pct = float(min_spread_pct) if min_spread_pct is not None and float(min_spread_pct) > 0 else env_spread_pct
+
+        try:
+            env_min_ticks = float(os.getenv("MM_MIN_SPREAD_TICKS", "5.0"))
+        except Exception:
+            env_min_ticks = 5.0
+        self.min_spread_ticks = float(min_spread_ticks) if min_spread_ticks is not None and float(min_spread_ticks) > 0 else env_min_ticks
+        self.min_spread = float(min_spread) if min_spread is not None and float(min_spread) > 0 else None
+        try:
+            env_max_chase = int(os.getenv("MM_MAX_CHASE_TICKS", "4"))
+        except Exception:
+            env_max_chase = 4
+        self.max_chase_ticks = int(max_chase_ticks) if max_chase_ticks is not None and int(max_chase_ticks) >= 0 else env_max_chase
+        self.initial_entry_price = float(entry_price) if entry_price is not None and float(entry_price) > 0 else None
+        self.initial_spread = 0.0
+        self.spread_guard_active = True
+
         self.cost_to_cost_ticks = cost_to_cost_ticks  # profit buffer ticks added on top of Delta 0.06% roundtrip fees (default: 1 tick)
         self.auto_reprice_buy = auto_reprice_buy
         self.two_way_peg_enabled = two_way_peg
@@ -613,6 +640,12 @@ class MMTradeCycle:
             "competitor_bid": self.competitor_bid,
             "competitor_ask": self.competitor_ask,
             "max_entry_price": self.max_entry_price,
+            "min_spread_pct": self.min_spread_pct,
+            "min_spread_ticks": self.min_spread_ticks,
+            "min_spread": self.min_spread,
+            "max_chase_ticks": self.max_chase_ticks,
+            "initial_entry_price": self.initial_entry_price,
+            "initial_spread": getattr(self, "initial_spread", 0.0),
             "logs": self.logs[-20:]  # Last 20 log messages
         }
 
@@ -648,6 +681,12 @@ class MMTradeCycle:
             "custom_entry_price": self.custom_entry_price,
             "custom_target_price": self.custom_target_price,
             "max_entry_price": self.max_entry_price,
+            "min_spread_pct": self.min_spread_pct,
+            "min_spread_ticks": self.min_spread_ticks,
+            "min_spread": self.min_spread,
+            "max_chase_ticks": self.max_chase_ticks,
+            "initial_entry_price": self.initial_entry_price,
+            "initial_spread": getattr(self, "initial_spread", 0.0),
             "auto_reprice_buy": self.auto_reprice_buy,
             "two_way_peg_enabled": self.two_way_peg_enabled,
             "manual_buy_override": getattr(self, "manual_buy_override", False),
@@ -676,10 +715,16 @@ class MMTradeCycle:
             auto_reprice_buy=bool(data.get("auto_reprice_buy", True)),
             two_way_peg=bool(data.get("two_way_peg_enabled", True)),
             max_entry_price=data.get("max_entry_price"),
+            min_spread_pct=data.get("min_spread_pct"),
+            min_spread_ticks=data.get("min_spread_ticks"),
+            min_spread=data.get("min_spread"),
+            max_chase_ticks=data.get("max_chase_ticks"),
             account=data.get("account", "main"),
             client=client,
             trade_id=data.get("trade_id")
         )
+        cycle.initial_entry_price = data.get("initial_entry_price")
+        cycle.initial_spread = float(data.get("initial_spread", 0.0) or 0.0)
         cycle.size = int(data.get("size", cycle.total_size))
         cycle.buy_filled_qty = int(data.get("buy_filled_qty", 0))
         cycle.buy_unfilled_qty = int(data.get("buy_unfilled_qty", max(0, cycle.total_size - cycle.buy_filled_qty)))
@@ -1197,7 +1242,7 @@ class MMTradeCycle:
                         self.manual_buy_override = True
                         self.manual_buy_price = valid_price
                         self.buy_peg_status = f"MANUAL_PRICE_{valid_price}"
-                    if self.max_entry_price and valid_price > self.max_entry_price:
+                    if is_manual and self.max_entry_price and valid_price > self.max_entry_price:
                         self.max_entry_price = valid_price
                     self.log(f"Successfully uploaded new BUY limit price: {valid_price}{' (MANUAL LOCK)' if is_manual else ''}")
                     return {"success": True, "new_price": valid_price, "order_id": self.buy_order_id, "side": "buy", "manual": is_manual}
@@ -1667,6 +1712,32 @@ class MMTradeCycle:
             self.state = "ERROR"
             return False
 
+        # Determine initial reference spread
+        if ask and bid:
+            cur_market_spread = max(0.0, ask - bid)
+        else:
+            cur_market_spread = 0.0
+        self.initial_spread = cur_market_spread
+
+        # Minimum Spread Guard: Compute minimum required spread margin (60% live spread retention)
+        spread_retention = cur_market_spread * self.min_spread_pct
+        required_min_spread = max(
+            spread_retention,
+            float(self.min_spread_ticks) * self.tick_size if self.min_spread_ticks else 0.0,
+            float(self.min_spread) if self.min_spread is not None else 0.0,
+            self.tick_size * 2
+        )
+
+        # Pre-flight check: Verify if market spread is wide enough to trade safely
+        if ask and bid:
+            if cur_market_spread < (self.tick_size * 3):
+                self.state = "REJECTED_TIGHT_SPREAD"
+                self.log(
+                    f"[MIN SPREAD GUARD] Cannot place BUY order: Market spread ({cur_market_spread:.2f}) "
+                    f"is too tight (< 3 ticks). Placement aborted to protect against adverse zero-margin trap!"
+                )
+                return False
+
         # Determine limit price
         if self.custom_entry_price:
             target_price = self.custom_entry_price
@@ -1677,14 +1748,16 @@ class MMTradeCycle:
             else:
                 target_price = bid
 
-        # Establish Max Entry Ceiling Guard
-        if not self.max_entry_price:
-            if ask:
-                self.max_entry_price = align_price(max(target_price, ask - (2 * self.tick_size)), self.tick_size)
-            else:
-                self.max_entry_price = align_price(target_price + (5 * self.tick_size), self.tick_size)
-
         valid_price = align_price(target_price, self.tick_size)
+        self.initial_entry_price = valid_price
+
+        # Establish Max Entry Ceiling Guard with Live 60% Spread Retention
+        if not self.max_entry_price:
+            # Ceiling preserves at least 60% of the spread below the ask!
+            spread_ceiling = (ask - required_min_spread) if ask else (valid_price + (self.tick_size * 5))
+            safe_ceiling = max(valid_price, spread_ceiling)
+            self.max_entry_price = align_price(safe_ceiling, self.tick_size)
+
         self.buy_limit_price = valid_price
 
         # Verify if an open BUY order ALREADY exists on Delta Exchange before placing
@@ -1720,7 +1793,7 @@ class MMTradeCycle:
         except Exception as le:
             self.log(f"Notice checking live buy orders: {le}")
 
-        self.log(f"Placing LIMIT BUY order: Size={self.size}, Price={valid_price} (Competitor Bid={bid}, Ask={ask}, Max Ceiling={self.max_entry_price}, Post-Only=True)")
+        self.log(f"Placing LIMIT BUY order: Size={self.size}, Price={valid_price} (Competitor Bid={bid}, Ask={ask}, Max Ceiling={self.max_entry_price}, Min Spread Guard={required_min_spread:.2f} [{self.min_spread_ticks} ticks], Post-Only=True)")
 
         try:
             order_res = self.client.place_order(
@@ -2331,7 +2404,7 @@ class MMTradeCycle:
                 self._is_replacing_order = False
 
     def _peg_buy_order(self, now: float):
-        """Dynamically floats BUY order with market bids while preventing adverse selection."""
+        """Dynamically floats BUY order with market bids while preventing adverse selection via Minimum Spread Guard."""
         if not self.buy_order_id or self.buy_unfilled_qty <= 0:
             return
         self.fetch_live_quote()
@@ -2345,17 +2418,61 @@ class MMTradeCycle:
             self.buy_peg_status = f"MANUAL_PRICE_{self.manual_buy_price}"
             return
 
+        # Live 60% Spread Retention Calculation:
+        # Reference spread is the live spread between live ask and our entry anchor (or initial market spread)
+        if comp_ask and self.initial_entry_price:
+            live_ref_spread = max(comp_ask - self.initial_entry_price, getattr(self, "initial_spread", 0.0) or 0.0)
+        else:
+            live_ref_spread = getattr(self, "initial_spread", 0.0) or ((comp_ask - comp_bid) if (comp_ask and comp_bid) else 0.0)
+
+        # 60% of the live spread must be preserved at all times!
+        required_min_spread = max(
+            live_ref_spread * self.min_spread_pct,
+            float(self.min_spread_ticks) * self.tick_size if self.min_spread_ticks else 0.0,
+            float(self.min_spread) if self.min_spread is not None else 0.0,
+            self.tick_size * 2
+        )
+
+        # Dynamic live ceiling based on 60% spread
+        live_max_ceiling = align_price(comp_ask - required_min_spread, self.tick_size) if comp_ask else None
+
         if comp_bid is not None and comp_bid > 0:
+            # -----------------------------------------------------------------
+            # SPREAD GUARD CHECK 1: Competitor Bid too close to Ask (Bait / Trap)
+            # -----------------------------------------------------------------
+            if comp_ask and (comp_ask - comp_bid) < required_min_spread:
+                if self.buy_peg_status != "GUARD_SPREAD_COLLAPSED":
+                    self.buy_peg_status = "GUARD_SPREAD_COLLAPSED"
+                    self.log(
+                        f"[60% SPREAD GUARD TRAP DETECTED] Competitor bid {comp_bid} jumped too close to ask {comp_ask} "
+                        f"(Remaining Spread: {comp_ask - comp_bid:.2f} < 60% Required: {required_min_spread:.2f}). "
+                        f"Adverse fill trap detected! Chasing BLOCKED. Holding safe buy limit @ {self.buy_limit_price}."
+                    )
+                return
+
             if comp_ask and (comp_bid + self.tick_size) < comp_ask:
                 ideal_buy = align_price(comp_bid + self.tick_size, self.tick_size)
             else:
                 ideal_buy = align_price(comp_bid, self.tick_size)
 
-            if comp_ask and ideal_buy >= comp_ask:
-                ideal_buy = align_price(comp_ask - self.tick_size, self.tick_size)
+            # -----------------------------------------------------------------
+            # SPREAD GUARD CHECK 2: Ideal Buy must leave at least 60% spread from Ask
+            # -----------------------------------------------------------------
+            if live_max_ceiling is not None and ideal_buy > live_max_ceiling:
+                ideal_buy = live_max_ceiling
 
-            if self.max_entry_price:
-                ideal_buy = min(self.max_entry_price, ideal_buy)
+            # -----------------------------------------------------------------
+            # SPREAD GUARD CHECK 3: Max Entry Ceiling & Chase Cap Guard
+            # -----------------------------------------------------------------
+            effective_ceiling = min(self.max_entry_price, live_max_ceiling) if (self.max_entry_price and live_max_ceiling) else (self.max_entry_price or live_max_ceiling)
+            if effective_ceiling and ideal_buy > effective_ceiling:
+                if self.buy_peg_status != "GUARD_MAX_ENTRY_REACHED":
+                    self.buy_peg_status = "GUARD_MAX_ENTRY_REACHED"
+                    self.log(
+                        f"[60% SPREAD GUARD] Competitor bid {comp_bid} requires outbid to {ideal_buy}, "
+                        f"which exceeds 60% Spread Ceiling ({effective_ceiling}). Chasing capped at {effective_ceiling}."
+                    )
+                ideal_buy = effective_ceiling
 
             if ideal_buy > 0 and abs(ideal_buy - self.buy_limit_price) >= (self.tick_size * 0.99):
                 if now - self.last_edit_time >= self.edit_debounce_sec:
@@ -2925,9 +3042,13 @@ class DeltaMMEngine:
         auto_reprice_buy: bool = True,
         two_way_peg: bool = True,
         max_entry_price: float = None,
+        min_spread_pct: float = None,
+        min_spread_ticks: float = None,
+        min_spread: float = None,
+        max_chase_ticks: int = None,
         account: str = None
     ) -> MMTradeCycle:
-        """Creates and launches a new 1-lot MM trade cycle with Two-Way Floating Peg."""
+        """Creates and launches a new 1-lot MM trade cycle with Two-Way Floating Peg and Live 60% Spread Guard."""
         norm_sym = symbol.strip().upper()
 
         # Fast pre-flight check: delta exchange reduce-only mode (max OI breached)
@@ -2960,6 +3081,10 @@ class DeltaMMEngine:
                 auto_reprice_buy=auto_reprice_buy,
                 two_way_peg=two_way_peg,
                 max_entry_price=max_entry_price,
+                min_spread_pct=min_spread_pct,
+                min_spread_ticks=min_spread_ticks,
+                min_spread=min_spread,
+                max_chase_ticks=max_chase_ticks,
                 account=account
             )
             cycle.on_state_change = self.on_cycle_state_changed
