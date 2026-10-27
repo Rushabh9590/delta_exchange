@@ -1415,6 +1415,7 @@ def start_market_making_trade():
         entry_price = float(data.get("entry_price")) if data.get("entry_price") else None
         target_exit_price = float(data.get("target_exit_price")) if data.get("target_exit_price") else None
         two_way_peg = data.get("two_way_peg", True)
+        max_entry_price = float(data.get("max_entry_price")) if data.get("max_entry_price") is not None and float(data.get("max_entry_price")) > 0 else None
         min_spread_pct = float(data.get("min_spread_pct", 0.60)) if data.get("min_spread_pct") else 0.60
         min_spread_ticks = float(data.get("min_spread_ticks")) if data.get("min_spread_ticks") is not None and float(data.get("min_spread_ticks")) > 0 else None
         min_spread = float(data.get("min_spread")) if data.get("min_spread") is not None and float(data.get("min_spread")) > 0 else None
