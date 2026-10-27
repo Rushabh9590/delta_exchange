@@ -3023,12 +3023,18 @@ class DeltaMMEngine:
         # Auto-recover persisted trades on startup
         self.recover_persisted_cycles()
 
+    def _add_history(self, trade_data: dict, max_items: int = 50):
+        """Appends a trade to in-memory history while capping the total to prevent memory accumulation."""
+        self.history_cycles.append(trade_data)
+        if len(self.history_cycles) > max_items:
+            self.history_cycles = self.history_cycles[-max_items:]
+
     def on_cycle_state_changed(self, cycle: MMTradeCycle):
         """Called whenever a trade cycle updates its state."""
         with self._lock:
             if cycle.state in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI"):
                 if cycle.trade_id in self.active_cycles:
-                    self.history_cycles.append(cycle.to_dict())
+                    self._add_history(cycle.to_dict(), max_items=50)
                     self.active_cycles.pop(cycle.trade_id, None)
             save_all_trades_state(self.active_cycles, self.history_cycles)
 
@@ -3114,7 +3120,7 @@ class DeltaMMEngine:
                     c.log(f"[DUAL-SIDE MM] COMPLETE! All {c.buy_filled_qty} executed lots bought and sold. Moving to history.")
 
                 if not c.is_running or c.state in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI"):
-                    self.history_cycles.append(c.to_dict())
+                    self._add_history(c.to_dict(), max_items=50)
                     to_remove.append(tid)
                 else:
                     active_list.append(c.to_dict())
@@ -3178,7 +3184,8 @@ class DeltaMMEngine:
         """Reads persisted trades from disk and restores uncompleted trade cycles without duplicates."""
         persisted = load_all_trades_state()
         active_trades = persisted.get("active_trades", {})
-        self.history_cycles = persisted.get("history", [])
+        raw_history = persisted.get("history", [])
+        self.history_cycles = raw_history[-50:] if len(raw_history) > 50 else raw_history
 
         if not active_trades and not self.history_cycles:
             return
@@ -3205,14 +3212,14 @@ class DeltaMMEngine:
             ckey = (pid, acct) if pid else None
 
             if state in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI"):
-                self.history_cycles.append(tdata)
+                self._add_history(tdata, max_items=50)
                 continue
 
             if ckey and ckey in active_contract_keys:
                 print(f"[MM-RECOVERY] Duplicate active cycle detected for {tdata.get('symbol')} ({ckey}). Archiving older duplicate {tid} to history.", flush=True)
                 tdata["state"] = "CANCELLED"
                 tdata["status_message"] = "Superseded by newer active cycle upon server restart."
-                self.history_cycles.append(tdata)
+                self._add_history(tdata, max_items=50)
                 continue
 
             try:
@@ -3230,7 +3237,7 @@ class DeltaMMEngine:
                     cycle.start_recovered()
                     print(f"[MM-RECOVERY] Successfully resumed MM Trade Cycle {cycle.trade_id} ({cycle.symbol}) in state [{cycle.state}]!", flush=True)
                 else:
-                    self.history_cycles.append(cycle.to_dict())
+                    self._add_history(cycle.to_dict(), max_items=50)
                     print(f"[MM-RECOVERY] Trade {cycle.trade_id} already concluded on exchange ({cycle.state}). Saved to history.", flush=True)
             except Exception as rec_err:
                 print(f"[MM-RECOVERY] Failed to restore trade {tid}: {rec_err}", flush=True)
@@ -3267,11 +3274,13 @@ class DeltaMMEngine:
                         cycle.start_recovered()
                         print(f"[MM-RECOVERY] Successfully resurrected {cycle.trade_id} ({cycle.symbol}) in state [{cycle.state}]!", flush=True)
                     else:
-                        self.history_cycles.append(cycle.to_dict())
+                        self._add_history(cycle.to_dict(), max_items=50)
             except Exception as e:
                 pass
 
-        # Update disk file with reconciled state
+        # Update disk file with reconciled state (capped to last 50 items)
+        if len(self.history_cycles) > 50:
+            self.history_cycles = self.history_cycles[-50:]
         save_all_trades_state(self.active_cycles, self.history_cycles)
 
 

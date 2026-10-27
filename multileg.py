@@ -63,8 +63,13 @@ def load_master_from_disk():
         try:
             with open(_MASTER_CACHE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                products = data.get("products", [])
-                if products:
+                raw_products = data.get("products", [])
+                if raw_products:
+                    # Filter to BTC & ETH only to reduce memory footprint by ~70%
+                    products = [
+                        p for p in raw_products
+                        if any(k in (p.get("symbol") or "").upper() for k in ["BTC", "ETH"])
+                    ]
                     _ALL_PRODUCTS_CACHE = products
                     _LAST_PRODUCTS_FETCH = data.get("timestamp", time.time())
                     _MASTER_STATUS["last_sync_timestamp"] = _LAST_PRODUCTS_FETCH
@@ -174,6 +179,11 @@ def sync_master_scrips(client: DeltaRestClient = None, force=False) -> dict:
 
         try:
             if isinstance(products, list) and len(products) > 0:
+                # Filter to BTC & ETH only to reduce memory utilization
+                products = [
+                    p for p in products
+                    if any(k in (p.get("symbol") or "").upper() for k in ["BTC", "ETH"])
+                ]
                 _ALL_PRODUCTS_CACHE = products
                 _LAST_PRODUCTS_FETCH = now
                 _PRODUCT_CACHE.clear()
