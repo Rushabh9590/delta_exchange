@@ -369,7 +369,8 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
                 limit_price=str(valid_price),
                 order_type=OrderType.LIMIT,
                 time_in_force=tif,
-                post_only="true" if leg.get("post_only") else "false"
+                post_only="true" if leg.get("post_only") else "false",
+                reduce_only="true" if leg.get("reduce_only") else "false"
             )
         else:
             # Market order

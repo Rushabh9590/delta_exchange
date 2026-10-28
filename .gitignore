@@ -7,6 +7,7 @@ command
 .alert_history.json
 .tg_sender.lock
 .mm_trades_state.json*
+.armed_targets_state.json*
 start_delta.sh
 logs/
 master_products.json

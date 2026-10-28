@@ -161,6 +161,7 @@ from multileg import (
 from mm_strikes import evaluate_mm_strikes, get_mm_config, start_mm_background_scanner
 from mm_execution import mm_engine, rotate_log_file, set_log_broadcast_callback
 from websocket import DeltaWebSocketManager
+from armed_targets import armed_target_manager
 from telegram_notify import (
     get_telegram_config,
     save_telegram_config,
@@ -1990,6 +1991,69 @@ def place_single_order():
         client = get_client()
         result = execute_single_leg_order(data, client=client)
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/ladder-entry", methods=["POST"])
+def place_ladder_entry_order():
+    """
+    Places an initial Entry Order (Limit/Market) with optional Armed Multi-Target Ladder.
+    """
+    try:
+        data = request.get_json() or {}
+        symbol = data.get("symbol")
+        if not symbol:
+            return jsonify({"success": False, "error": "'symbol' is required."}), 400
+
+        side = data.get("side", "buy")
+        size = int(data.get("size") or 1)
+        order_type = data.get("order_type", "limit")
+        limit_price = float(data.get("limit_price")) if data.get("limit_price") else None
+        time_in_force = data.get("time_in_force", "gtc")
+        post_only = bool(data.get("post_only", False))
+        account = data.get("account")
+        targets = data.get("targets", [])
+
+        res = armed_target_manager.create_order_with_ladder(
+            symbol=symbol,
+            side=side,
+            size=size,
+            order_type=order_type,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            post_only=post_only,
+            account=account,
+            targets=targets
+        )
+        return jsonify(res)
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/armed", methods=["GET"])
+def get_armed_orders():
+    """Returns active and recent armed multi-target ladders."""
+    try:
+        active = armed_target_manager.list_active()
+        history = armed_target_manager.list_history()
+        return jsonify({"success": True, "active": active, "history": history})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/armed/cancel", methods=["POST"])
+def cancel_armed_ladder_order():
+    """Cancels an armed ladder cycle and cancels its entry order if unfilled."""
+    try:
+        data = request.get_json() or {}
+        cycle_id = data.get("cycle_id")
+        if not cycle_id:
+            return jsonify({"success": False, "error": "'cycle_id' is required."}), 400
+        res = armed_target_manager.cancel_armed_cycle(cycle_id)
+        return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

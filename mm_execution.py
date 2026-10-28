@@ -298,7 +298,7 @@ class MMTradeCycle:
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = datetime.now(timezone.utc).isoformat()
 
-        # Real-time WebSocket fill detection & L2 market stream
+        # Real-time WebSocket fill detection & L1 top-of-book market stream
         self.buy_fill_event = threading.Event()
         self.sell_fill_event = threading.Event()
         self.private_ws = None
@@ -1013,10 +1013,10 @@ class MMTradeCycle:
                 self.log(f"Warning: Could not connect to private WebSocket on recovery ({ws_err}).")
                 self.private_ws = None
 
-            # 2. Connect to Public WebSocket Market Stream
+            # 2. Connect to Public WebSocket Market Stream (L1 Top-of-Book)
             try:
                 self.public_ws = get_public_ws_manager(symbols=[self.symbol])
-                self.log(f"Recovered cycle subscribed {self.symbol} to real-time L2 orderbook stream.")
+                self.log(f"Recovered cycle subscribed {self.symbol} to real-time L1 top-of-book stream.")
             except Exception:
                 self.public_ws = None
 
@@ -1660,10 +1660,10 @@ class MMTradeCycle:
                 self.log(f"Warning: Could not connect to private WebSocket ({ws_err}). Falling back to REST polling.")
                 self.private_ws = None
 
-            # 2. Connect to Public WebSocket Market Stream (L2 real-time orderbook for sub-100ms pegging)
+            # 2. Connect to Public WebSocket Market Stream (L1 real-time top-of-book for sub-10ms pegging)
             try:
                 self.public_ws = get_public_ws_manager(symbols=[self.symbol])
-                self.log(f"Subscribed {self.symbol} to real-time L2 orderbook WebSocket stream.")
+                self.log(f"Subscribed {self.symbol} to real-time L1 top-of-book (ob_l1) WebSocket stream.")
             except Exception as ws_err:
                 self.log(f"Notice: Using REST orderbook for pegging ({ws_err}).")
                 self.public_ws = None
@@ -2716,14 +2716,14 @@ class MMTradeCycle:
 
     def get_external_best_ask(self) -> float | None:
         """
-        Inspects L2 orderbook (first checking real-time in-memory WebSocket L2 cache,
+        Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
         falling back to REST API), filtering out our own resting limit sell order.
         Returns the lowest competitor ask price.
         """
         asks = []
-        # Try real-time in-memory WebSocket L2 cache first (<10ms latency)
+        # Try real-time in-memory WebSocket L1 cache first (<0.1ms latency)
         if self.public_ws:
-            ob = self.public_ws.get_l2_orderbook(self.symbol)
+            ob = self.public_ws.get_top_of_book(self.symbol)
             asks = ob.get("asks") or []
 
         # Fallback to REST orderbook if WS cache is empty
@@ -2764,14 +2764,14 @@ class MMTradeCycle:
 
     def get_external_best_bid(self) -> float | None:
         """
-        Inspects L2 orderbook (first checking real-time in-memory WebSocket L2 cache,
+        Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
         falling back to REST API), filtering out our own resting limit buy order.
         Returns the highest competitor bid price.
         """
         bids = []
-        # Try real-time in-memory WebSocket L2 cache first (<10ms latency)
+        # Try real-time in-memory WebSocket L1 cache first (<0.1ms latency)
         if self.public_ws:
-            ob = self.public_ws.get_l2_orderbook(self.symbol)
+            ob = self.public_ws.get_top_of_book(self.symbol)
             bids = ob.get("bids") or []
 
         # Fallback to REST orderbook if WS cache is empty

@@ -14,11 +14,12 @@
     rel="stylesheet" />
 
   <!-- Modular Stylesheets -->
-  <link rel="stylesheet" href="/static/css/style.css?v=2.7.0" />
-  <link rel="stylesheet" href="/static/css/positions.css?v=2.7.0" />
-  <link rel="stylesheet" href="/static/css/multileg.css?v=2.7.0" />
-  <link rel="stylesheet" href="/static/css/optionchain.css?v=2.7.0" />
-  <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.7.0" />
+  <link rel="stylesheet" href="/static/css/style.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/positions.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/multileg.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/optionchain.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/option_order_modal.css?v=2.9.0" />
 </head>
 
 <body>
@@ -201,6 +202,10 @@
           <div style="font-size: 0.72rem; color: var(--text-muted);">Automation & Trading Suite</div>
         </div>
         <span class="badge-env" id="envBadge">India Production</span>
+        <div class="badge-latency" id="navLatencyBadge" title="Delta Exchange Real-Time WebSocket Latency (RTT Ping)">
+          <span class="latency-dot"></span>
+          <span id="navLatencyVal">⚡ --ms</span>
+        </div>
       </div>
 
       <!-- Top Nav Controls -->
@@ -212,7 +217,6 @@
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          <span class="clock-label">Exchange Time (IST):</span>
           <span class="clock-time mono-num" id="exchangeClockTime">--/--/---- --:--:-- IST</span>
         </div>
 
@@ -852,8 +856,8 @@
         <div class="mm-controls-bar">
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Bid Price ($):</span>
-            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3" value="0.3"
-              oninput="onMmCriteriaChange()" />
+            <input type="number" step="0.05" min="0" id="mmInpMinBid" class="mm-filter-input" placeholder="0.3"
+              value="0.3" oninput="onMmCriteriaChange()" />
           </div>
 
           <div class="mm-filter-group">
@@ -864,8 +868,8 @@
 
           <div class="mm-filter-group">
             <span class="mm-filter-label">Min Net Edge (%):</span>
-            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0" value="50.0"
-              oninput="onMmCriteriaChange()" />
+            <input type="number" step="5" min="0" id="mmInpMinEdge" class="mm-filter-input" placeholder="50.0"
+              value="50.0" oninput="onMmCriteriaChange()" />
           </div>
 
           <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
@@ -943,12 +947,12 @@
                 <th class="col-bid text-right">Bid ($)</th>
                 <th class="col-ask text-right">Ask ($)</th>
                 <th class="col-spread text-right">Spread</th>
-                <th class="col-tick text-right">Tick</th>
                 <th class="col-ticks text-right">Ticks</th>
                 <th class="col-mid text-right">Mid ($)</th>
                 <th class="col-edge text-right">Edge ($)</th>
                 <th class="col-oi text-right" title="Open Interest">Open Interest</th>
                 <th class="col-edgepct text-right">Edge %</th>
+                <th class="col-age text-center" title="Time elapsed since last live quote update">Age</th>
                 <th class="col-status text-center">Status</th>
                 <th class="col-action text-center">Action</th>
               </tr>
@@ -1076,27 +1080,34 @@
         </div>
 
         <!-- Minimum Spread Guard (Backend Live 60% Spread Retention) -->
-        <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px;">
+        <div
+          style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 0.78rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 5px;">
+            <span
+              style="font-size: 0.78rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 5px;">
               🛡️ Minimum Spread Guard (60% Retention)
             </span>
-            <span style="font-size: 0.68rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 7px; border-radius: 4px;">
+            <span
+              style="font-size: 0.68rem; font-weight: 700; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 7px; border-radius: 4px;">
               LIVE BACKEND
             </span>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+          <div
+            style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: rgba(0,0,0,0.25); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
             <div>
               <div style="font-size: 0.68rem; color: #94a3b8; font-weight: 600;">Spread Reserved:</div>
-              <div style="font-size: 0.95rem; font-weight: 700; color: #10b981; font-family: monospace;">60% Margin</div>
+              <div style="font-size: 0.95rem; font-weight: 700; color: #10b981; font-family: monospace;">60% Margin
+              </div>
             </div>
             <div>
               <div style="font-size: 0.68rem; color: #94a3b8; font-weight: 600;">Live Max Entry Ceiling:</div>
-              <div id="mmModalPreviewMaxCeiling" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8; font-family: monospace;">--</div>
+              <div id="mmModalPreviewMaxCeiling"
+                style="font-size: 0.95rem; font-weight: 700; color: #38bdf8; font-family: monospace;">--</div>
             </div>
           </div>
           <div style="font-size: 0.67rem; color: #64748b; margin-top: 5px; line-height: 1.3;">
-            Calculated live on backend. Preserves at least 60% of the live spread. If competitors push the bid too close to the ask, chasing is automatically blocked to prevent traps.
+            Calculated live on backend. Preserves at least 60% of the live spread. If competitors push the bid too close
+            to the ask, chasing is automatically blocked to prevent traps.
           </div>
         </div>
 
@@ -1524,16 +1535,209 @@
     </div>
   </div>
 
+  <!-- ======================================================================== -->
+  <!-- MODAL: OPTION BUYING & ARMED TARGET LADDER WINDOW                        -->
+  <!-- ======================================================================== -->
+  <div class="oom-modal-overlay" id="optionOrderModal" onclick="if(event.target === this) closeOptionOrderModal()">
+    <div class="oom-modal-card">
+      <!-- Modal Header -->
+      <div class="oom-header">
+        <div class="oom-title" id="oomModalTitle">Buy P-BTC-76800-271026</div>
+        <div class="oom-badge-container">
+          <span class="oom-contract-badge put" id="oomContractBadge">PUT · 76,800 · 27 Oct 26</span>
+          <button type="button" class="oom-close-btn" onclick="closeOptionOrderModal()" title="Close">&times;</button>
+        </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="oom-body">
+        <!-- Live Market KPI Banner -->
+        <div class="oom-market-banner">
+          <div class="oom-kpi-block">
+            <span class="oom-kpi-label">BID</span>
+            <span class="oom-kpi-val bid" id="oomKpiBid">--</span>
+            <span class="oom-kpi-sub" id="oomKpiBidSub">-- qty</span>
+          </div>
+          <div class="oom-kpi-block center">
+            <span class="oom-kpi-label">MID</span>
+            <span class="oom-kpi-val mid" id="oomKpiMid">--</span>
+          </div>
+          <div class="oom-kpi-block">
+            <span class="oom-kpi-label">ASK</span>
+            <span class="oom-kpi-val ask" id="oomKpiAsk">--</span>
+            <span class="oom-kpi-sub" id="oomKpiAskSub">-- qty</span>
+          </div>
+          <div class="oom-kpi-block center">
+            <span class="oom-kpi-label">TICK</span>
+            <span class="oom-kpi-val tick" id="oomKpiTick">--</span>
+            <span class="oom-kpi-sub" id="oomKpiTickSub">lot --</span>
+          </div>
+        </div>
+
+        <!-- ENTRY SECTION -->
+        <div>
+          <div class="oom-section-subhead">ENTRY</div>
+          <div class="oom-grid-3">
+            <!-- SIDE -->
+            <div class="oom-field">
+              <label class="oom-field-label">SIDE</label>
+              <div class="oom-side-toggle">
+                <button type="button" class="oom-side-btn active buy" id="oomBtnSideBuy"
+                  onclick="setEntrySide('buy')">BUY</button>
+                <button type="button" class="oom-side-btn" id="oomBtnSideSell"
+                  onclick="setEntrySide('sell')">SELL</button>
+              </div>
+            </div>
+
+            <!-- QUANTITY -->
+            <div class="oom-field">
+              <label class="oom-field-label">QUANTITY (CONTRACTS)</label>
+              <input type="number" min="1" step="1" id="oomInpQty" class="oom-input" value="10"
+                oninput="recalculateLadder()" />
+            </div>
+
+            <!-- ORDER TYPE -->
+            <div class="oom-field">
+              <label class="oom-field-label">ORDER TYPE</label>
+              <select id="oomOrderType" class="oom-select" onchange="onOrderTypeChange()">
+                <option value="limit" selected>Limit</option>
+                <option value="market">Market</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- LIMIT PRICE & TIME IN FORCE -->
+          <div class="oom-grid-2" style="margin-top: 12px;">
+            <div class="oom-field">
+              <label class="oom-field-label">LIMIT PRICE</label>
+              <input type="number" step="0.1" id="oomInpPrice" class="oom-input" value="9.0"
+                oninput="recalculateLadder()" />
+              <div class="oom-quick-prices">
+                <button type="button" class="oom-quick-btn" onclick="fillQuickPrice('bid')">Bid</button>
+                <button type="button" class="oom-quick-btn" onclick="fillQuickPrice('mid')">Mid</button>
+                <button type="button" class="oom-quick-btn" onclick="fillQuickPrice('ask')">Ask</button>
+              </div>
+            </div>
+
+            <div class="oom-field">
+              <label class="oom-field-label">TIME IN FORCE</label>
+              <select id="oomTimeInForce" class="oom-select">
+                <option value="gtc" selected>GTC</option>
+                <option value="ioc">IOC</option>
+                <option value="fok">FOK</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- POST ONLY -->
+          <div style="margin-top: 10px;">
+            <label class="oom-check-row">
+              <input type="checkbox" id="oomChkPostOnly" class="oom-checkbox" />
+              <span class="oom-check-label">
+                <span class="oom-check-title">Post-only</span>
+                <span class="oom-check-sub">Reject the entry if it would take liquidity immediately.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- TARGETS SECTION -->
+        <div class="oom-targets-section">
+          <div>
+            <div class="oom-section-subhead">TARGETS</div>
+            <label class="oom-check-row">
+              <input type="checkbox" id="oomChkMultipleTargets" class="oom-checkbox" checked
+                onchange="toggleMultipleTargets()" />
+              <span class="oom-check-label">
+                <span class="oom-check-title">Multiple targets</span>
+                <span class="oom-check-sub">Split the position into several take-profit limit orders on the opposite
+                  side. They are held back until the entry fills, then sent reduce-only.</span>
+              </span>
+            </label>
+          </div>
+
+          <!-- TARGET LADDER PANEL -->
+          <div class="oom-ladder-panel" id="oomLadderPanel">
+            <div class="oom-grid-3">
+              <div class="oom-field">
+                <label class="oom-field-label">NUMBER OF TARGETS</label>
+                <input type="number" min="1" max="20" step="1" id="oomNumTargets" class="oom-input" value="10"
+                  oninput="recalculateLadder()" />
+              </div>
+              <div class="oom-field">
+                <label class="oom-field-label">GAP BETWEEN TARGETS (%)</label>
+                <input type="number" min="1" step="5" id="oomGapPct" class="oom-input" value="100"
+                  oninput="recalculateLadder()" />
+              </div>
+              <div class="oom-field">
+                <label class="oom-field-label">LADDER</label>
+                <select id="oomLadderType" class="oom-select" onchange="recalculateLadder()">
+                  <option value="compounding" selected>Compounding (1→2→4→8)</option>
+                  <option value="linear">Linear (+Gap% per target)</option>
+                  <option value="equal">Equal Quantity Split</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- QTY SPLIT SUBBAR -->
+            <div class="oom-ladder-subbar">
+              <span class="oom-qty-split-badge ok" id="oomQtySplitBadge">Qty split 10 / 10</span>
+              <button type="button" class="oom-recalc-btn" onclick="recalculateLadder()">
+                <span>⟳</span> Recalculate ladder
+              </button>
+            </div>
+
+            <!-- LADDER TABLE -->
+            <div class="oom-table-container">
+              <table class="oom-ladder-table">
+                <thead>
+                  <tr>
+                    <th style="width: 36px;">#</th>
+                    <th style="width: 58px;">SIDE</th>
+                    <th style="width: 78px;">QTY</th>
+                    <th style="width: 100px;">PRICE</th>
+                    <th>GAIN VS ENTRY</th>
+                    <th>PROCEEDS</th>
+                  </tr>
+                </thead>
+                <tbody id="oomLadderTbody">
+                  <!-- Populated dynamically by option_order_modal.js -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- ARMED NOTICE BANNER -->
+            <div class="oom-armed-notice">
+              <span>Targets are armed, not sent. Only the entry goes to Delta now. The moment it fills, the ladder is
+                submitted reduce-only.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="oom-footer">
+        <span class="oom-legs-counter" id="oomLegsCounter">Legs 11</span>
+        <div class="oom-actions-group">
+          <button type="button" class="oom-btn-cancel" onclick="closeOptionOrderModal()">Cancel</button>
+          <button type="button" class="oom-btn-execute" id="oomBtnExecute"
+            onclick="executeOptionOrder()">Execute</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notifications container -->
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Modular Scripts Execution in Dependency Order -->
-  <script src="/static/js/api.js?v=2.8.2"></script>
-  <script src="/static/js/positions.js?v=2.8.2"></script>
-  <script src="/static/js/multileg.js?v=2.8.2"></script>
-  <script src="/static/js/optionchain.js?v=2.8.2"></script>
-  <script src="/static/js/mm_strikes.js?v=2.8.2"></script>
-  <script src="/static/js/app.js?v=2.8.2"></script>
+  <script src="/static/js/api.js?v=3.4.0"></script>
+  <script src="/static/js/positions.js?v=3.4.0"></script>
+  <script src="/static/js/multileg.js?v=3.4.0"></script>
+  <script src="/static/js/option_order_modal.js?v=3.4.0"></script>
+  <script src="/static/js/optionchain.js?v=3.4.0"></script>
+  <script src="/static/js/mm_strikes.js?v=3.4.0"></script>
+  <script src="/static/js/app.js?v=3.4.0"></script>
 </body>
 
 </html>

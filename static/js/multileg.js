@@ -1079,54 +1079,24 @@ function applyLtpToLimit(idx) {
   }
 }
 
-// High-performance Orderbook tracking for Multi-Leg Studio contracts
-const legOrderBooks = new Map();
+// High-performance Top-of-Book (L1) parser for Multi-Leg Studio contracts
+function processLegL1Update(sym, data) {
+  if (!sym || !data) return null;
+  const rawBp = data.best_bid !== undefined ? data.best_bid : (data.bp !== undefined ? data.bp : data.bid);
+  const rawAp = data.best_ask !== undefined ? data.best_ask : (data.ap !== undefined ? data.ap : data.ask);
 
-function processLegL2Update(sym, data) {
-  if (!sym) return null;
-  const symUpper = sym.toUpperCase();
-  let book = legOrderBooks.get(symUpper);
-  if (!book) {
-    book = { bids: new Map(), asks: new Map() };
-    legOrderBooks.set(symUpper, book);
+  let bestBid = (rawBp !== undefined && rawBp !== null && rawBp !== '' && rawBp !== '-') ? parseFloat(rawBp) : null;
+  let bestAsk = (rawAp !== undefined && rawAp !== null && rawAp !== '' && rawAp !== '-') ? parseFloat(rawAp) : null;
+
+  if (bestBid === null && Array.isArray(data.bids) && data.bids.length > 0) {
+    bestBid = parseFloat(data.bids[0][0]);
+  }
+  if (bestAsk === null && Array.isArray(data.asks) && data.asks.length > 0) {
+    bestAsk = parseFloat(data.asks[0][0]);
   }
 
-  if (data.action === 'snapshot') {
-    book.bids.clear();
-    book.asks.clear();
-  }
-
-  if (Array.isArray(data.bids)) {
-    for (let i = 0; i < data.bids.length; i++) {
-      const p = parseFloat(data.bids[i][0]);
-      const s = parseFloat(data.bids[i][1]);
-      if (!isNaN(p)) {
-        if (s <= 0) book.bids.delete(p);
-        else book.bids.set(p, s);
-      }
-    }
-  }
-
-  if (Array.isArray(data.asks)) {
-    for (let i = 0; i < data.asks.length; i++) {
-      const p = parseFloat(data.asks[i][0]);
-      const s = parseFloat(data.asks[i][1]);
-      if (!isNaN(p)) {
-        if (s <= 0) book.asks.delete(p);
-        else book.asks.set(p, s);
-      }
-    }
-  }
-
-  let bestBid = null;
-  let bestAsk = null;
-
-  for (const p of book.bids.keys()) {
-    if (bestBid === null || p > bestBid) bestBid = p;
-  }
-  for (const p of book.asks.keys()) {
-    if (bestAsk === null || p < bestAsk) bestAsk = p;
-  }
+  if (bestBid !== null && isNaN(bestBid)) bestBid = null;
+  if (bestAsk !== null && isNaN(bestAsk)) bestAsk = null;
 
   if (bestBid !== null && bestAsk !== null && bestAsk < bestBid) return null;
   return { bestBid, bestAsk };
@@ -1223,13 +1193,13 @@ function handleLegTickUpdate(data) {
 
   const msgType = data.type || data.channel || data.name || '';
 
-  // 1. Handle L2 Order Book updates (real-time Bid & Ask)
-  if (msgType === 'l2_updates' || data.bids !== undefined || data.asks !== undefined) {
-    const l2 = processLegL2Update(incomingSym, data);
-    if (l2 && (l2.bestBid !== null || l2.bestAsk !== null)) {
+  // 1. Handle L1 Top of Book (ob_l1) updates (real-time Bid & Ask)
+  if (msgType === 'ob_l1' || msgType === 'l1_orderbook' || msgType === 'l2_updates' || data.bids !== undefined || data.asks !== undefined || data.bp !== undefined) {
+    const l1 = processLegL1Update(incomingSym, data);
+    if (l1 && (l1.bestBid !== null || l1.bestAsk !== null)) {
       legRows.forEach((leg, idx) => {
         if (leg.symbol && leg.symbol.toUpperCase() === incomingSym) {
-          updateLegQuoteDisplay(idx, undefined, undefined, l2.bestBid, l2.bestAsk);
+          updateLegQuoteDisplay(idx, undefined, undefined, l1.bestBid, l1.bestAsk);
         }
       });
     }

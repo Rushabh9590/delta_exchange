@@ -1,0 +1,557 @@
+/* ==============================================================================
+   DELTA EXCHANGE - OPTION BUYING & ARMED TARGET LADDER MODAL STYLESHEET
+   Pixel-perfect reproduction matching Delta dark trading theme
+   ============================================================================== */
+
+.oom-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 15, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+  animation: oomFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.oom-modal-overlay.active {
+  display: flex !important;
+}
+
+@keyframes oomFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes oomSlideUp {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.oom-modal-card {
+  background: #0d131d;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 680px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: oomSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 90vh;
+}
+
+/* Modal Header */
+.oom-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #1a2333;
+  background: #0f1724;
+}
+
+.oom-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.oom-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.oom-badge-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oom-contract-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.oom-contract-badge.put {
+  background: rgba(244, 63, 94, 0.16);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.35);
+}
+
+.oom-contract-badge.call {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.oom-close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.oom-close-btn:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+/* Modal Body */
+.oom-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Live Market KPI Banner */
+.oom-market-banner {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: #121927;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 12px 14px;
+  gap: 8px;
+}
+
+.oom-kpi-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oom-kpi-block.center {
+  text-align: center;
+}
+
+.oom-kpi-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.oom-kpi-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.oom-kpi-val.bid {
+  color: #10b981;
+}
+
+.oom-kpi-val.mid {
+  color: #ffffff;
+}
+
+.oom-kpi-val.ask {
+  color: #ef4444;
+}
+
+.oom-kpi-val.tick {
+  color: #cbd5e1;
+}
+
+.oom-kpi-sub {
+  font-size: 0.7rem;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Section Subhead */
+.oom-section-subhead {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* Form Row Layouts */
+.oom-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.oom-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.oom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oom-field-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Inputs & Selects */
+.oom-input, .oom-select {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #ffffff;
+  padding: 8px 12px;
+  font-size: 0.92rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.oom-input:focus, .oom-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.oom-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  padding-right: 32px;
+}
+
+/* Side Toggle Buttons */
+.oom-side-toggle {
+  display: flex;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.oom-side-btn {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 0.84rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oom-side-btn.active.buy {
+  background: #10b981;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+}
+
+.oom-side-btn.active.sell {
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+}
+
+/* Quick Fill Buttons */
+.oom-quick-prices {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.oom-quick-btn {
+  flex: 1;
+  background: #162032;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  color: #94a3b8;
+  padding: 4px 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.oom-quick-btn:hover {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+
+/* Checkboxes */
+.oom-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.oom-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #10b981;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.oom-check-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oom-check-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.oom-check-sub {
+  font-size: 0.74rem;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+/* Targets Section */
+.oom-targets-section {
+  border-top: 1px solid #1a2333;
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.oom-ladder-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: oomFadeIn 0.2s ease;
+}
+
+.oom-ladder-subbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.oom-qty-split-badge {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.oom-qty-split-badge.ok {
+  color: #10b981;
+}
+
+.oom-qty-split-badge.err {
+  color: #f59e0b;
+}
+
+.oom-recalc-btn {
+  background: transparent;
+  border: none;
+  color: #38bdf8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.oom-recalc-btn:hover {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+}
+
+/* Target Ladder Table */
+.oom-table-container {
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  background: #090e17;
+}
+
+.oom-ladder-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.oom-ladder-table th {
+  background: #0f1724;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid #1e293b;
+  z-index: 1;
+}
+
+.oom-ladder-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #141c2b;
+  color: #cbd5e1;
+}
+
+.oom-ladder-table tr:last-child td {
+  border-bottom: none;
+}
+
+.oom-table-input {
+  background: #0b111b;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  color: #ffffff;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  width: 70px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.oom-table-input:focus {
+  border-color: #38bdf8;
+}
+
+.oom-gain-badge {
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #10b981;
+}
+
+.oom-gain-badge.negative {
+  color: #ef4444;
+}
+
+.oom-proceeds-val {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #94a3b8;
+}
+
+/* Blue Armed Notice Banner */
+.oom-armed-notice {
+  background: rgba(30, 58, 138, 0.22);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  color: #93c5fd;
+  line-height: 1.45;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Modal Footer */
+.oom-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #1a2333;
+  background: #0f1724;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.oom-legs-counter {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.oom-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.oom-btn-cancel {
+  background: #162032;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.oom-btn-cancel:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.oom-btn-execute {
+  background: #10b981;
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 8px 24px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oom-btn-execute:hover {
+  background: #059669;
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+.oom-btn-execute:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}

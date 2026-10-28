@@ -263,20 +263,91 @@
 }
 
 /* Explicit fixed column widths guaranteeing zero shifting when toggling qualified filter */
-.mm-table .col-symbol  { width: 175px; min-width: 160px; }
-.mm-table .col-type    { width: 68px;  min-width: 68px;  max-width: 68px;  }
-.mm-table .col-strike  { width: 78px;  min-width: 78px;  max-width: 78px;  }
-.mm-table .col-bid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
-.mm-table .col-ask     { width: 84px;  min-width: 84px;  max-width: 84px;  }
-.mm-table .col-spread  { width: 74px;  min-width: 74px;  max-width: 74px;  }
-.mm-table .col-tick    { width: 56px;  min-width: 56px;  max-width: 56px;  }
-.mm-table .col-ticks   { width: 68px;  min-width: 68px;  max-width: 68px;  }
-.mm-table .col-mid     { width: 84px;  min-width: 84px;  max-width: 84px;  }
-.mm-table .col-edge    { width: 78px;  min-width: 78px;  max-width: 78px;  }
-.mm-table .col-oi      { width: 100px; min-width: 100px; max-width: 100px; }
-.mm-table .col-edgepct { width: 84px;  min-width: 84px;  max-width: 84px;  }
-.mm-table .col-status  { width: 116px; min-width: 116px; max-width: 116px; }
-.mm-table .col-action  { width: 116px; min-width: 116px; max-width: 116px; }
+.mm-table .col-symbol {
+  width: 175px;
+  min-width: 160px;
+}
+
+.mm-table .col-type {
+  width: 68px;
+  min-width: 68px;
+  max-width: 68px;
+}
+
+.mm-table .col-strike {
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+}
+
+.mm-table .col-bid {
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
+}
+
+.mm-table .col-ask {
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
+}
+
+.mm-table .col-spread {
+  width: 74px;
+  min-width: 74px;
+  max-width: 74px;
+}
+
+.mm-table .col-age {
+  width: 70px;
+  min-width: 70px;
+  max-width: 70px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  letter-spacing: -0.2px;
+}
+
+.mm-table .col-ticks {
+  width: 68px;
+  min-width: 68px;
+  max-width: 68px;
+}
+
+.mm-table .col-mid {
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
+}
+
+.mm-table .col-edge {
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+}
+
+.mm-table .col-oi {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+.mm-table .col-edgepct {
+  width: 84px;
+  min-width: 84px;
+  max-width: 84px;
+}
+
+.mm-table .col-status {
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
+}
+
+.mm-table .col-action {
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
+}
 
 .mm-table th {
   position: sticky;
@@ -720,9 +791,12 @@
 }
 
 @keyframes pulse-trade-badge {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 4px rgba(6, 182, 212, 0.25);
   }
+
   50% {
     box-shadow: 0 0 10px rgba(6, 182, 212, 0.55);
   }
@@ -759,9 +833,11 @@ tr.row-max-oi:hover {
     box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8);
     transform: scale(1.01);
   }
+
   70% {
     box-shadow: 0 0 20px 4px rgba(6, 182, 212, 0.3);
   }
+
   100% {
     box-shadow: none;
     transform: scale(1);
@@ -1191,10 +1267,12 @@ tr.row-max-oi:hover {
     align-items: stretch;
     gap: 10px;
   }
+
   .mm-controls-bar {
     gap: 8px;
     padding: 10px;
   }
+
   .mm-table {
     min-width: 960px;
   }
@@ -1205,18 +1283,22 @@ tr.row-max-oi:hover {
     font-size: 0.72rem;
     padding: 6px 10px;
   }
+
   .mm-formula-chip {
     font-size: 0.68rem;
     padding: 2px 6px;
   }
+
   .mm-filter-input {
     width: 65px;
     font-size: 0.76rem;
     padding: 4px 6px;
   }
+
   .mm-filter-label {
     font-size: 0.72rem;
   }
+
   .mm-asset-btn {
     padding: 4px 8px;
     font-size: 0.74rem;
@@ -1225,13 +1307,14 @@ tr.row-max-oi:hover {
 
 /* Large Displays (>= 1600px, 1440p, 4K) scaling for Market Making */
 @media (min-width: 1600px) {
-  .mm-table th, .mm-table td {
+
+  .mm-table th,
+  .mm-table td {
     padding: 9px 10px;
     font-size: 0.84rem;
   }
+
   .mm-stat-val {
     font-size: 1.55rem;
   }
 }
-
-

@@ -13,9 +13,6 @@ let mmSearchTerm = '';
 let mmIsLoading = false;
 let mmQualifiedSymbolsOrder = [];
 
-// High-speed In-Memory L2 Order Book Map for live streaming (sym -> { bids: Map, asks: Map, lastBid: num, lastAsk: num })
-const mmOrderBooks = new Map();
-
 window.profileLotSizeBtc = 1;
 window.profileLotSizeEth = 1;
 
@@ -57,7 +54,7 @@ async function initMarketMakingModule() {
       const inp = document.getElementById('mmInpMinEdge');
       if (inp) inp.value = savedEdge;
     }
-  } catch (e) {}
+  } catch (e) { }
 
   try {
     const res = await ApiService.getMarketMakingConfig();
@@ -150,30 +147,11 @@ async function loadMarketMakingStrikes(underlying = null, expiry = null, isBackg
     });
 
     if (data && data.success) {
-      if (!isBackground) {
-        mmOrderBooks.clear();
-      }
       mmLastData = data;
-      // Pre-seed mmOrderBooks from initial quotes
-      if (Array.isArray(data.all_strikes)) {
-        data.all_strikes.forEach(item => {
-          if (item && item.symbol) {
-            const symUpper = item.symbol.toUpperCase();
-            const b = item.bid > 0 ? item.bid : 0;
-            const a = item.ask > 0 ? item.ask : 0;
-            const bidsMap = new Map();
-            const asksMap = new Map();
-            if (b > 0) bidsMap.set(b, 1);
-            if (a > 0) asksMap.set(a, 1);
-            mmOrderBooks.set(symUpper, {
-              bids: bidsMap,
-              asks: asksMap,
-              lastBid: b,
-              lastAsk: a
-            });
-          }
-        });
-      }
+      const initNow = Date.now();
+      (data.all_strikes || []).forEach(item => {
+        if (!item.last_tick_time) item.last_tick_time = initNow;
+      });
       const validExpiries = (data.expiries || []).map(e => e.expiry);
       if (validExpiries.length > 0 && (!mmSelectedExpiry || !validExpiries.includes(mmSelectedExpiry))) {
         mmSelectedExpiry = data.selected_expiry || validExpiries[0];
@@ -344,7 +322,7 @@ function toggleMmOnlyQualified(isChecked) {
   mmOnlyQualified = !!isChecked;
   try {
     localStorage.setItem('mm_filter_only_qual', mmOnlyQualified ? 'true' : 'false');
-  } catch (e) {}
+  } catch (e) { }
   renderMmTableRows();
 }
 
@@ -504,7 +482,7 @@ function getActiveTradeOrPositionForSymbol(symbol) {
 
   // 1. Check active 1-Lot MM Trade Cycles
   if (Array.isArray(mmActiveTradesCache)) {
-    const activeMm = mmActiveTradesCache.find(t => 
+    const activeMm = mmActiveTradesCache.find(t =>
       t && t.symbol && t.symbol.toUpperCase().trim() === sym &&
       t.is_running && !['COMPLETED_PROFIT', 'COMPLETED_COST', 'CANCELLED', 'ERROR'].includes(t.state)
     );
@@ -621,6 +599,62 @@ function formatCoinAmount(val, decimals = 3) {
 }
 
 /**
+ * Formats quote age cleanly: e.g. 0.2s, 2.3s, 14.5s (strictly NO 'ago' text)
+ */
+function formatMmAge(ts) {
+  if (!ts) return '--';
+  const now = Date.now();
+  let timeMs = Number(ts);
+  if (isNaN(timeMs) || timeMs <= 0) return '--';
+  // Support microsecond timestamps (16-digits from Delta Exchange)
+  if (timeMs > 1e14) timeMs = Math.round(timeMs / 1000);
+  // Support second timestamps (10-digits)
+  else if (timeMs < 1e11) timeMs = timeMs * 1000;
+
+  const diffMs = Math.max(0, now - timeMs);
+  const diffSec = diffMs / 1000;
+
+  if (diffSec < 60) {
+    return `${diffSec.toFixed(1)}s`;
+  } else if (diffSec < 3600) {
+    const mins = Math.floor(diffSec / 60);
+    const remSec = (diffSec % 60).toFixed(0);
+    return `${mins}m ${remSec}s`;
+  } else {
+    const hrs = Math.floor(diffSec / 3600);
+    const remMin = Math.round((diffSec % 3600) / 60);
+    return `${hrs}h ${remMin}m`;
+  }
+}
+
+function getMmAgeColor(diffSec) {
+  if (diffSec < 4) return '#10b981'; // fresh green
+  if (diffSec < 15) return '#facc15'; // active yellow
+  return '#94a3b8'; // muted gray
+}
+
+let mmAgeTimer = null;
+function startMmAgingTimer() {
+  if (mmAgeTimer) return;
+  mmAgeTimer = setInterval(() => {
+    if (activeNavTab !== 'mm' || !mmLastData || !Array.isArray(mmLastData.all_strikes)) return;
+    const now = Date.now();
+    mmLastData.all_strikes.forEach(item => {
+      if (!item || !item.symbol || !item.last_tick_time) return;
+      const elAge = document.getElementById(`mmAge_${item.symbol}`);
+      if (!elAge) return;
+      const diffSec = Math.max(0, (now - item.last_tick_time) / 1000);
+      const ageText = formatMmAge(item.last_tick_time);
+      elAge.textContent = ageText;
+      elAge.style.color = getMmAgeColor(diffSec);
+      const latVal = item.last_latency_ms || window.wsLastDataLatencyMs;
+      const latStr = latVal ? ` • WS Data Latency: ${latVal}ms` : '';
+      elAge.title = `Quote Age: ${ageText}${latStr} • Stream: l1_orderbook`;
+    });
+  }, 500);
+}
+
+/**
  * Updates a single strike row in-place with latest metrics and button states.
  */
 function updateMmRowInPlace(item, sym, elRow) {
@@ -668,6 +702,17 @@ function updateMmRowInPlace(item, sym, elRow) {
     elEdgePct.className = `col-edgepct text-right ${pct >= 50 ? 'edge-highlight-high' : (pct >= 25 ? 'edge-highlight-med' : '')}`;
   }
 
+  const elAge = document.getElementById(`mmAge_${sym}`);
+  if (elAge) {
+    const diffSec = Math.max(0, (Date.now() - (item.last_tick_time || Date.now())) / 1000);
+    const ageText = formatMmAge(item.last_tick_time || Date.now());
+    elAge.textContent = ageText;
+    elAge.style.color = getMmAgeColor(diffSec);
+    const latVal = item.last_latency_ms || window.wsLastDataLatencyMs;
+    const latStr = latVal ? ` • WS Data Latency: ${latVal}ms` : '';
+    elAge.title = `Quote Age: ${ageText}${latStr} • Stream: l1_orderbook`;
+  }
+
   const isMaxOi = !!item.oi_reduce_only_mode;
   const activeInfo = getActiveTradeOrPositionForSymbol(sym);
   const isInTrade = !!activeInfo;
@@ -681,8 +726,8 @@ function updateMmRowInPlace(item, sym, elRow) {
       const statusBadge = isMaxOi
         ? `<span class="mm-status-badge mm-status-fail" style="background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4);" title="Delta Exchange Max Open Interest Breached. Only reduce-only orders allowed. Fresh positions blocked.">⛔ MAX OI</span>`
         : item.qualified
-        ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
-        : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
+          ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
+          : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
       elStatus.innerHTML = statusBadge;
     }
   }
@@ -699,10 +744,10 @@ function updateMmRowInPlace(item, sym, elRow) {
              <span>⛔ MAX OI</span>
            </button>`
         : isInTrade
-        ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${sym}" onclick="handleActiveTradeBtnClick('${sym}')" title="${activeInfo.desc} • Duplicate trade blocked">
+          ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${sym}" onclick="handleActiveTradeBtnClick('${sym}')" title="${activeInfo.desc} • Duplicate trade blocked">
              <span>⚡ IN TRADE</span>
            </button>`
-        : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${sym}" onclick="open1LotMmModalBySymbol('${sym}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
+          : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${sym}" onclick="open1LotMmModalBySymbol('${sym}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
              <span>${btnLabel}</span>
            </button>`;
     }
@@ -773,8 +818,8 @@ function buildMmRowHtml(item) {
   const statusBadge = isMaxOi
     ? `<span class="mm-status-badge mm-status-fail" style="background:rgba(239,68,68,0.2); color:#fca5a5; border:1px solid rgba(239,68,68,0.4);" title="Delta Exchange Max Open Interest Breached. Only reduce-only orders allowed. Fresh positions blocked.">⛔ MAX OI</span>`
     : isQual
-    ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
-    : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
+      ? `<span class="mm-status-badge mm-status-qual" title="Meets all selection criteria">✔ QUALIFIED</span>`
+      : `<span class="mm-status-badge mm-status-fail" title="${(item.reasons_failed || []).join('; ') || 'Criteria not met'}">NOT MET</span>`;
 
   const asset = item.underlying || (item.symbol && item.symbol.includes('BTC') ? 'BTC' : 'ETH');
   const assetTag = `<span class="mm-asset-tag ${asset === 'ETH' ? 'tag-eth' : 'tag-btc'}" style="font-size:0.65rem; font-weight:700; padding:1px 5px; border-radius:3px; margin-right:5px; letter-spacing:0.3px; ${asset === 'ETH' ? 'background:rgba(99,102,241,0.18); color:#a5b4fc; border:1px solid rgba(99,102,241,0.35);' : 'background:rgba(245,158,11,0.18); color:#fcd34d; border:1px solid rgba(245,158,11,0.35);'}">${asset}</span>`;
@@ -788,10 +833,10 @@ function buildMmRowHtml(item) {
          <span>⛔ MAX OI</span>
        </button>`
     : isInTrade
-    ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${item.symbol}" onclick="handleActiveTradeBtnClick('${item.symbol}')" title="${activeInfo.desc} • Duplicate trade blocked">
+      ? `<button type="button" class="mm-btn-1lot mm-btn-in-trade" data-action="in-trade" data-symbol="${item.symbol}" onclick="handleActiveTradeBtnClick('${item.symbol}')" title="${activeInfo.desc} • Duplicate trade blocked">
          <span>⚡ IN TRADE</span>
        </button>`
-    : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${item.symbol}" onclick="open1LotMmModalBySymbol('${item.symbol}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
+      : `<button type="button" class="mm-btn-1lot" data-action="open-modal" data-symbol="${item.symbol}" onclick="open1LotMmModalBySymbol('${item.symbol}')" title="${btnLabel} (No Stop-Loss, No Timeout • Cost-to-Cost or Wait)">
          <span>${btnLabel}</span>
        </button>`;
 
@@ -803,12 +848,12 @@ function buildMmRowHtml(item) {
       <td class="col-bid text-right text-green" id="mmBid_${item.symbol}">${bid}</td>
       <td class="col-ask text-right text-red" id="mmAsk_${item.symbol}">${ask}</td>
       <td class="col-spread text-right" id="mmSpread_${item.symbol}" style="font-weight: 600;">${spread}</td>
-      <td class="col-tick text-right text-muted">${tick}</td>
       <td class="col-ticks text-right ticks-highlight" id="mmTicks_${item.symbol}">${ticks}</td>
       <td class="col-mid text-right" id="mmMid_${item.symbol}">${mid}</td>
       <td class="col-edge text-right" id="mmEdge_${item.symbol}" style="font-weight: 600;">${netEdge}</td>
       <td class="col-oi text-right" id="mmOi_${item.symbol}" title="Open Interest: ${oiDisplay}${coinStr ? ` (${coinStr})` : ''}" style="font-size: 0.82rem; color: var(--text-secondary);">${oiDisplay}</td>
       <td class="col-edgepct text-right ${edgeClass}" id="mmEdgePct_${item.symbol}" style="font-size: 0.88rem;">${edgePct}</td>
+      <td class="col-age text-center mono-num" id="mmAge_${item.symbol}" title="Quote Age: ${formatMmAge(item.last_tick_time || Date.now())} • Stream: l1_orderbook" style="font-size: 0.78rem; font-weight: 600; color: #10b981;">${formatMmAge(item.last_tick_time || Date.now())}</td>
       <td class="col-status text-center" id="mmStatus_${item.symbol}">${statusBadge}</td>
       <td class="col-action text-center" id="mmAction_${item.symbol}" style="white-space: nowrap;">
         ${actionButton}
@@ -818,102 +863,72 @@ function buildMmRowHtml(item) {
 }
 
 /**
- * Real-time Order Book maintainer for Market Making strikes
- * Processes both L2 snapshots and incremental level updates from Delta Exchange
- */
-function processMmStrikesL2Update(sym, data) {
-  if (!sym) return null;
-  const symUpper = sym.toUpperCase();
-  let book = mmOrderBooks.get(symUpper);
-  if (!book) {
-    book = { bids: new Map(), asks: new Map(), lastBid: 0, lastAsk: 0 };
-    mmOrderBooks.set(symUpper, book);
-  }
-
-  // 1. Snapshot: reset book
-  if (data.action === 'snapshot') {
-    book.bids.clear();
-    book.asks.clear();
-  }
-
-  // 2. Incremental Bids
-  if (Array.isArray(data.bids)) {
-    for (let i = 0; i < data.bids.length; i++) {
-      const p = parseFloat(data.bids[i][0]);
-      const s = parseFloat(data.bids[i][1]);
-      if (!isNaN(p)) {
-        if (s <= 0) {
-          book.bids.delete(p);
-        } else {
-          book.bids.set(p, s);
-        }
-      }
-    }
-  }
-
-  // 3. Incremental Asks
-  if (Array.isArray(data.asks)) {
-    for (let i = 0; i < data.asks.length; i++) {
-      const p = parseFloat(data.asks[i][0]);
-      const s = parseFloat(data.asks[i][1]);
-      if (!isNaN(p)) {
-        if (s <= 0) {
-          book.asks.delete(p);
-        } else {
-          book.asks.set(p, s);
-        }
-      }
-    }
-  }
-
-  let bestBid = null;
-  let bestAsk = null;
-  if (book.bids.size > 0) {
-    bestBid = Math.max(...book.bids.keys());
-    book.lastBid = bestBid;
-  }
-  if (book.asks.size > 0) {
-    bestAsk = Math.min(...book.asks.keys());
-    book.lastAsk = bestAsk;
-  }
-
-  return { bestBid, bestAsk };
-}
-
-/**
  * REAL-TIME WEBSOCKET TICK DISPATCHER (Tick-by-Tick)
- * Handles incoming WebSocket ticks from Delta Exchange and recalculates MM criteria instantaneously
+ * Handles incoming WebSocket ticks from Delta Exchange and recalculates MM criteria instantaneously.
+ * Uses L1 Top of Book (ob_l1) for lowest possible latency (<10ms) and zero CPU sorting overhead.
  */
 function handleMmStrikesTickUpdate(data) {
   if (!data || !mmLastData || !mmLastData.all_strikes) return;
 
-  const sym = (data.symbol || '').toUpperCase();
+  const sym = (data.symbol || data.sy || '').toUpperCase();
   if (!sym) return;
 
   // Check if tick belongs to our current active underlying/expiry
   const item = mmLastData.all_strikes.find(x => x && x.symbol && x.symbol.toUpperCase() === sym);
   if (!item) return;
 
+  item.last_tick_time = Date.now();
+  if (typeof window.wsLastDataLatencyMs === 'number') {
+    item.last_latency_ms = window.wsLastDataLatencyMs;
+  }
+
   const msgType = data.type || data.channel || data.name || '';
   let rawBid = undefined;
   let rawAsk = undefined;
+  let rawBidSize = undefined;
+  let rawAskSize = undefined;
 
-  // 1. Prioritize official Delta Exchange matching engine top-of-book quotes (from v2/ticker)
-  const quotes = data.quotes || {};
-  if (quotes.best_bid !== undefined || quotes.best_ask !== undefined) {
+  // 1. Level 1 Top of Book (l1_orderbook) ultra-low-latency real-time stream
+  if (msgType === 'l1_orderbook' || msgType === 'ob_l1' || data.best_bid !== undefined) {
+    if (data.best_bid !== undefined && data.best_bid !== null && data.best_bid !== '' && data.best_bid !== '-') rawBid = data.best_bid;
+    else if (data.bp !== undefined && data.bp !== null && data.bp !== '' && data.bp !== '-') rawBid = data.bp;
+
+    if (data.best_ask !== undefined && data.best_ask !== null && data.best_ask !== '' && data.best_ask !== '-') rawAsk = data.best_ask;
+    else if (data.ap !== undefined && data.ap !== null && data.ap !== '' && data.ap !== '-') rawAsk = data.ap;
+
+    if (data.bid_qty !== undefined && data.bid_qty !== null) rawBidSize = data.bid_qty;
+    else if (data.bs !== undefined && data.bs !== null) rawBidSize = data.bs;
+
+    if (data.ask_qty !== undefined && data.ask_qty !== null) rawAskSize = data.ask_qty;
+    else if (data.as !== undefined && data.as !== null) rawAskSize = data.as;
+  } else {
+    // 2. Matching engine top quotes from v2/ticker
+    const quotes = data.quotes || {};
     if (quotes.best_bid !== undefined && quotes.best_bid !== null) rawBid = quotes.best_bid;
     if (quotes.best_ask !== undefined && quotes.best_ask !== null) rawAsk = quotes.best_ask;
-  } else if (msgType === 'l2_updates' || Array.isArray(data.bids) || Array.isArray(data.asks)) {
-    // 2. Fallback to L2 Orderbook updates
-    const l2Res = processMmStrikesL2Update(sym, data);
-    if (l2Res) {
-      if (l2Res.bestBid !== null) rawBid = l2Res.bestBid;
-      if (l2Res.bestAsk !== null) rawAsk = l2Res.bestAsk;
+    if (quotes.best_bid_size !== undefined) rawBidSize = quotes.best_bid_size;
+    if (quotes.best_ask_size !== undefined) rawAskSize = quotes.best_ask_size;
+
+    // 3. Fallback to direct ticker fields or legacy format
+    if (rawBid === undefined && data.bid !== undefined && data.bid !== null) rawBid = data.bid;
+    if (rawAsk === undefined && data.ask !== undefined && data.ask !== null) rawAsk = data.ask;
+    if (rawBid === undefined && Array.isArray(data.bids) && data.bids.length > 0) {
+      rawBid = data.bids[0][0];
+      rawBidSize = data.bids[0][1];
     }
-  } else {
-    // 3. Fallback to direct ticker fields
-    if (data.bid !== undefined && data.bid !== null) rawBid = data.bid;
-    if (data.ask !== undefined && data.ask !== null) rawAsk = data.ask;
+    if (rawAsk === undefined && Array.isArray(data.asks) && data.asks.length > 0) {
+      rawAsk = data.asks[0][0];
+      rawAskSize = data.asks[0][1];
+    }
+  }
+
+  if (rawBidSize !== undefined && rawBidSize !== null) {
+    const newBidSz = parseFloat(rawBidSize);
+    if (!isNaN(newBidSz)) item.bid_size = newBidSz;
+  }
+  if (rawAskSize !== undefined && rawAskSize !== null) {
+    const newAskSz = parseFloat(rawAskSize);
+    if (!isNaN(newAskSz)) item.ask_size = newAskSz;
   }
 
   const rawLtp = data.close !== undefined ? data.close : data.ltp;
@@ -1116,7 +1131,7 @@ function onMmUnderlyingChange(asset) {
   mmCurrentUnderlying = ['ALL', 'BTC', 'ETH'].includes(cleanAsset) ? cleanAsset : 'ALL';
   try {
     localStorage.setItem('mm_filter_underlying', mmCurrentUnderlying);
-  } catch (e) {}
+  } catch (e) { }
   mmSelectedExpiry = '';
   loadMarketMakingStrikes(mmCurrentUnderlying, '');
 }
@@ -1143,7 +1158,7 @@ function onMmCriteriaChange() {
       if (b !== undefined && b !== '') localStorage.setItem('mm_filter_min_bid', b);
       if (t !== undefined && t !== '') localStorage.setItem('mm_filter_min_ticks', t);
       if (e !== undefined && e !== '') localStorage.setItem('mm_filter_min_edge', e);
-    } catch (err) {}
+    } catch (err) { }
 
     if (!mmLastData || !mmLastData.all_strikes) {
       loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry);
@@ -1517,7 +1532,7 @@ function renderActiveMmTrades(trades) {
   if (!panel || !listEl) return;
 
   // Filter ONLY active running trades (exclude completed, cancelled, closed)
-  const activeTrades = (trades || []).filter(t => 
+  const activeTrades = (trades || []).filter(t =>
     t && t.is_running && !['COMPLETED_PROFIT', 'COMPLETED_COST', 'CANCELLED', 'ERROR'].includes(t.state)
   );
 
@@ -2123,6 +2138,7 @@ async function sendTelegramTestAlert() {
 document.addEventListener('DOMContentLoaded', () => {
   initMarketMakingModule();
   pollActiveMmTrades();
+  startMmAgingTimer();
   if (!mmTradePollTimer) {
     mmTradePollTimer = setInterval(pollActiveMmTrades, 2500);
   }
@@ -2250,7 +2266,7 @@ function closeLogsSSE() {
   if (logsEventSource) {
     try {
       logsEventSource.close();
-    } catch (e) {}
+    } catch (e) { }
     logsEventSource = null;
   }
   if (logsAutoRefreshTimer) {

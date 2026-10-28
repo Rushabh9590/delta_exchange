@@ -1303,13 +1303,13 @@ def stream_terminal_websocket(
                     reset_strike_alert(c_sym)
 
         # Low-latency non-blocking network socket manager:
-        # 1. subscribe_l2=False avoids CPU-heavy 20-level orderbook dictionary sorting across 100+ option contracts
+        # 1. subscribe_l1=True streams ultra-fast sub-10ms top-of-book (ob_l1) without CPU-heavy dictionary sorting
         # 2. on_tick_received processes in-memory state updates only (<0.05ms) so socket thread never pauses
         ws_manager = DeltaWebSocketManager(
             symbols=symbols_to_sub,
             verbose=False,
             on_tick=on_tick_received,
-            subscribe_l2=False
+            subscribe_l1=True
         )
         ws_manager.start()
 

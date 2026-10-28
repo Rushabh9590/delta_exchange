@@ -76,14 +76,17 @@ class DeltaWebSocketManager:
     Thread-safe WebSocket Manager that streams live market data for Delta Exchange symbols.
     Maintains real-time price quotes, mark prices, and orderbooks.
     """
-    def __init__(self, symbols=None, ws_url=None, verbose=False, on_tick=None, subscribe_l2=True):
+    def __init__(self, symbols=None, ws_url=None, verbose=False, on_tick=None, subscribe_l1=True, subscribe_l2=None):
         self.symbols = symbols or ["BTCUSD"]
         self.ws_url = ws_url or get_ws_url()
         self.verbose = verbose
         self.on_tick = on_tick
-        self.subscribe_l2 = subscribe_l2
-        self.market_data = {}  # {symbol: {'ltp': float, 'mark_price': float, 'bid': float, 'ask': float, 'bids': [], 'asks': []}}
-        self.orderbooks = {}   # {symbol: {'bids': {float_price: float_size}, 'asks': {float_price: float_size}}}
+        if subscribe_l2 is not None:
+            self.subscribe_l1 = bool(subscribe_l2)
+        else:
+            self.subscribe_l1 = subscribe_l1
+        self.subscribe_l2 = self.subscribe_l1  # Backwards compatibility alias
+        self.market_data = {}  # {symbol: {'ltp': float, 'mark_price': float, 'bid': float, 'ask': float, 'bid_size': float, 'ask_size': float, 'bids': [], 'asks': []}}
         self._lock = threading.Lock()
         self.ws_app = None
         self._thread = None
@@ -110,8 +113,8 @@ class DeltaWebSocketManager:
             {"name": "v2/ticker", "symbols": self.symbols},
             {"name": "mark_price", "symbols": self.symbols}
         ]
-        if self.subscribe_l2:
-            channels.append({"name": "l2_updates", "symbols": self.symbols})
+        if self.subscribe_l1:
+            channels.append({"name": "l1_orderbook", "symbols": self.symbols})
         if spot_symbols:
             channels.append({"name": "spot_price", "symbols": spot_symbols})
 
@@ -123,7 +126,7 @@ class DeltaWebSocketManager:
         }
         ws.send(fast_json_dumps(sub_payload))
         if self.verbose:
-            print(f"[WS SUB] Subscribed to {self.symbols} & Spot: {spot_symbols}", flush=True)
+            print(f"[WS SUB] Subscribed to {self.symbols} (l1_orderbook L1 Top-of-Book) & Spot: {spot_symbols}", flush=True)
 
     def _on_message(self, ws, message):
         try:
@@ -223,72 +226,82 @@ class DeltaWebSocketManager:
                     spot_disp = self.market_data[symbol].get("spot_price") or self.market_data[symbol].get("mark_price") or self.market_data[symbol].get("ltp")
                     print(f"[TICK] {symbol} | Spot/Index: {spot_disp} | LTP: {self.market_data[symbol].get('ltp')} | Mark: {self.market_data[symbol].get('mark_price')} | Bid: {self.market_data[symbol].get('bid')} | Ask: {self.market_data[symbol].get('ask')}", flush=True)
 
-            elif msg_type == "l2_updates" and symbol:
-                action = data.get("action")
-                with self._lock:
-                    if symbol not in self.orderbooks:
-                        self.orderbooks[symbol] = {"bids": {}, "asks": {}}
-                    if symbol not in self.market_data:
-                        self.market_data[symbol] = {}
+            elif msg_type in ("ob_l1", "l1_orderbook") or (msg_type == "l2_updates" and symbol):
+                # High-speed Top-of-Book (L1) parser: zero dictionary sorting, zero CPU spikes
+                target_sym = symbol or data.get("symbol") or data.get("sy")
+                if target_sym:
+                    raw_bp = data.get("best_bid") if data.get("best_bid") is not None else (data.get("bp") if data.get("bp") is not None else data.get("bid"))
+                    raw_bs = data.get("bid_qty") if data.get("bid_qty") is not None else (data.get("bs") if data.get("bs") is not None else data.get("bid_size"))
+                    raw_ap = data.get("best_ask") if data.get("best_ask") is not None else (data.get("ap") if data.get("ap") is not None else data.get("ask"))
+                    raw_as = data.get("ask_qty") if data.get("ask_qty") is not None else (data.get("as") if data.get("as") is not None else data.get("ask_size"))
 
-                    if action == "snapshot":
-                        # Full snapshot: rebuild book
-                        self.orderbooks[symbol]["bids"] = {}
-                        self.orderbooks[symbol]["asks"] = {}
-                        for item in data.get("bids", []):
-                            try:
-                                p, s = float(item[0]), float(item[1])
-                                if s > 0:
-                                    self.orderbooks[symbol]["bids"][p] = s
-                            except (ValueError, TypeError, IndexError):
-                                pass
-                        for item in data.get("asks", []):
-                            try:
-                                p, s = float(item[0]), float(item[1])
-                                if s > 0:
-                                    self.orderbooks[symbol]["asks"][p] = s
-                            except (ValueError, TypeError, IndexError):
-                                pass
-                    else:
-                        # Incremental update: update or delete modified price levels
-                        for item in data.get("bids", []):
-                            try:
-                                p, s = float(item[0]), float(item[1])
-                                if s <= 0:
-                                    self.orderbooks[symbol]["bids"].pop(p, None)
-                                else:
-                                    self.orderbooks[symbol]["bids"][p] = s
-                            except (ValueError, TypeError, IndexError):
-                                pass
-                        for item in data.get("asks", []):
-                            try:
-                                p, s = float(item[0]), float(item[1])
-                                if s <= 0:
-                                    self.orderbooks[symbol]["asks"].pop(p, None)
-                                else:
-                                    self.orderbooks[symbol]["asks"][p] = s
-                            except (ValueError, TypeError, IndexError):
-                                pass
+                    # Handle legacy/fallback l2_updates array format if received
+                    if raw_bp is None and isinstance(data.get("bids"), list) and len(data["bids"]) > 0:
+                        try:
+                            raw_bp = data["bids"][0][0]
+                            raw_bs = data["bids"][0][1]
+                        except Exception:
+                            pass
+                    if raw_ap is None and isinstance(data.get("asks"), list) and len(data["asks"]) > 0:
+                        try:
+                            raw_ap = data["asks"][0][0]
+                            raw_as = data["asks"][0][1]
+                        except Exception:
+                            pass
 
-                    sorted_bids = sorted([[p, s] for p, s in self.orderbooks[symbol]["bids"].items()], key=lambda x: x[0], reverse=True)
-                    sorted_asks = sorted([[p, s] for p, s in self.orderbooks[symbol]["asks"].items()], key=lambda x: x[0])
+                    bid = None
+                    ask = None
+                    bid_sz = 0.0
+                    ask_sz = 0.0
 
-                    self.market_data[symbol]["bids"] = sorted_bids
-                    self.market_data[symbol]["asks"] = sorted_asks
-                    self.market_data[symbol]["bid"] = sorted_bids[0][0] if sorted_bids else None
-                    self.market_data[symbol]["ask"] = sorted_asks[0][0] if sorted_asks else None
-                    self.market_data[symbol]["timestamp"] = time.time()
-
-                if self.on_tick:
                     try:
-                        self.on_tick(symbol, self.market_data[symbol], data)
-                    except Exception:
+                        if raw_bp not in (None, "", "-"):
+                            bid = float(raw_bp)
+                    except (ValueError, TypeError):
                         pass
 
-                if self.verbose:
-                    top_b = sorted_bids[0] if sorted_bids else ["-", "-"]
-                    top_a = sorted_asks[0] if sorted_asks else ["-", "-"]
-                    print(f"[L2] {symbol} | Best Bid: {top_b} | Best Ask: {top_a}", flush=True)
+                    try:
+                        if raw_bs not in (None, "", "-"):
+                            bid_sz = float(raw_bs)
+                    except (ValueError, TypeError):
+                        pass
+
+                    try:
+                        if raw_ap not in (None, "", "-"):
+                            ask = float(raw_ap)
+                    except (ValueError, TypeError):
+                        pass
+
+                    try:
+                        if raw_as not in (None, "", "-"):
+                            ask_sz = float(raw_as)
+                    except (ValueError, TypeError):
+                        pass
+
+                    with self._lock:
+                        if target_sym not in self.market_data:
+                            self.market_data[target_sym] = {}
+
+                        if bid is not None:
+                            self.market_data[target_sym]["bid"] = bid
+                            self.market_data[target_sym]["bid_size"] = bid_sz
+                            self.market_data[target_sym]["bids"] = [[bid, bid_sz]]
+
+                        if ask is not None:
+                            self.market_data[target_sym]["ask"] = ask
+                            self.market_data[target_sym]["ask_size"] = ask_sz
+                            self.market_data[target_sym]["asks"] = [[ask, ask_sz]]
+
+                        self.market_data[target_sym]["timestamp"] = time.time()
+
+                    if self.on_tick:
+                        try:
+                            self.on_tick(target_sym, self.market_data[target_sym], data)
+                        except Exception:
+                            pass
+
+                    if self.verbose:
+                        print(f"[L1] {target_sym} | Best Bid: {bid} ({bid_sz}) | Best Ask: {ask} ({ask_sz})", flush=True)
 
         except Exception as e:
             if self.verbose:
@@ -356,8 +369,8 @@ class DeltaWebSocketManager:
                     {"name": "v2/ticker", "symbols": to_add},
                     {"name": "mark_price", "symbols": to_add}
                 ]
-                if self.subscribe_l2:
-                    channels.append({"name": "l2_updates", "symbols": to_add})
+                if self.subscribe_l1:
+                    channels.append({"name": "l1_orderbook", "symbols": to_add})
                 sub_payload = {
                     "type": "subscribe",
                     "payload": {
@@ -366,7 +379,7 @@ class DeltaWebSocketManager:
                 }
                 self.ws_app.send(fast_json_dumps(sub_payload))
                 if self.verbose:
-                    print(f"[WS DYNAMIC SUB] Subscribed to {to_add} (ticker, mark{', l2' if self.subscribe_l2 else ''})", flush=True)
+                    print(f"[WS DYNAMIC SUB] Subscribed to {to_add} (ticker, mark{', l1_orderbook' if self.subscribe_l1 else ''})", flush=True)
             except Exception as e:
                 if self.verbose:
                     print(f"[WS SUB ERROR] {e}", flush=True)
@@ -376,15 +389,23 @@ class DeltaWebSocketManager:
         with self._lock:
             return self.market_data.get(symbol, {}).copy()
 
-    def get_l2_orderbook(self, symbol):
-        """Returns the latest in-memory bids and asks list from WebSocket."""
+    def get_top_of_book(self, symbol):
+        """Returns the latest top-of-book (L1) bid, ask, and sizes (<0.01ms latency)."""
         with self._lock:
             data = self.market_data.get(symbol, {})
             return {
+                "bid": data.get("bid"),
+                "ask": data.get("ask"),
+                "bid_size": data.get("bid_size", 0.0),
+                "ask_size": data.get("ask_size", 0.0),
                 "bids": list(data.get("bids", [])),
                 "asks": list(data.get("asks", [])),
                 "timestamp": data.get("timestamp", 0)
             }
+
+    def get_l2_orderbook(self, symbol):
+        """Backwards compatibility: Returns the top of book formatted as bids/asks arrays."""
+        return self.get_top_of_book(symbol)
 
     def wait_for_quote(self, symbol="BTCUSD", timeout=5.0):
         """Blocks until initial quote data is received or timeout is reached."""

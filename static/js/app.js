@@ -429,6 +429,69 @@ function renderDashboardValues() {
 // Direct WebSocket Live Stream Instance
 let deltaWs = null;
 let subscribedSymbols = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+let wsPingSentTime = 0;
+let wsPingTimer = null;
+let wsEstimatedRtt = 20;
+let wsMinRawDiff = null;
+let wsClockOffset = null;
+window.wsLastDataLatencyMs = null;
+let navLatencyThrottle = null;
+
+function startWsLatencyPing() {
+  stopWsLatencyPing();
+  sendWsPing();
+  wsPingTimer = setInterval(sendWsPing, 3000);
+}
+
+function stopWsLatencyPing() {
+  if (wsPingTimer) {
+    clearInterval(wsPingTimer);
+    wsPingTimer = null;
+  }
+}
+
+function sendWsPing() {
+  if (!deltaWs || deltaWs.readyState !== WebSocket.OPEN) return;
+  try {
+    wsPingSentTime = performance.now();
+    deltaWs.send(JSON.stringify({ type: 'ping' }));
+  } catch (e) { }
+}
+
+function scheduleNavLatencyUpdate(latencyMs) {
+  if (navLatencyThrottle) return;
+  navLatencyThrottle = setTimeout(() => {
+    navLatencyThrottle = null;
+    updateNavLatencyDisplay(latencyMs);
+  }, 250);
+}
+
+function updateNavLatencyDisplay(latencyMs) {
+  const badge = document.getElementById('navLatencyBadge');
+  const valEl = document.getElementById('navLatencyVal');
+  if (!badge || !valEl) return;
+
+  if (latencyMs === null || isNaN(latencyMs)) {
+    valEl.textContent = '⚡ --ms';
+    badge.className = 'badge-latency latency-high';
+    badge.title = 'Delta WebSocket Disconnected (Offline)';
+    return;
+  }
+
+  window.wsLastDataLatencyMs = latencyMs;
+  valEl.textContent = `⚡ ${latencyMs}ms WS Data`;
+
+  badge.classList.remove('latency-med', 'latency-high');
+  if (latencyMs > 100) {
+    badge.classList.add('latency-high');
+    badge.title = `WebSocket Market Data Arrival Latency: ${latencyMs}ms (High Latency)\nStream: l1_orderbook (Live Top-of-Book)\nEndpoint: wss://socket.india.delta.exchange`;
+  } else if (latencyMs > 40) {
+    badge.classList.add('latency-med');
+    badge.title = `WebSocket Market Data Arrival Latency: ${latencyMs}ms (Moderate Latency)\nStream: l1_orderbook (Live Top-of-Book)\nEndpoint: wss://socket.india.delta.exchange`;
+  } else {
+    badge.title = `WebSocket Market Data Arrival Latency: ${latencyMs}ms (Ultra-Low Latency)\nStream: l1_orderbook (Live Top-of-Book)\nEndpoint: wss://socket.india.delta.exchange`;
+  }
+}
 
 /**
  * Connects directly to Delta Exchange WebSocket for millisecond-level live price streaming
@@ -441,12 +504,42 @@ function initDeltaWebSocket() {
     deltaWs.onopen = () => {
       console.log('[Delta WS] Connected to live tick WebSocket stream.');
       subscribeActiveSymbols();
+      startWsLatencyPing();
     };
 
     deltaWs.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data);
         const msgType = data.type || data.channel || data.name || '';
+
+        // Delta WebSocket Heartbeat Ping/Pong response
+        if (msgType === 'pong' && wsPingSentTime > 0) {
+          const rtt = Math.round(performance.now() - wsPingSentTime);
+          wsEstimatedRtt = Math.max(2, rtt);
+          if (wsMinRawDiff !== null) {
+            wsClockOffset = wsMinRawDiff - (wsEstimatedRtt / 2);
+          }
+          if (window.wsLastDataLatencyMs === null) {
+            updateNavLatencyDisplay(Math.round(wsEstimatedRtt / 2));
+          }
+          return;
+        }
+
+        // Calculate true WebSocket market data arrival latency on every tick
+        if (data.timestamp) {
+          const nowMs = Date.now();
+          const tsRaw = Number(data.timestamp);
+          const tsMs = tsRaw > 1e14 ? (tsRaw / 1000) : (tsRaw > 1e11 ? tsRaw : tsRaw * 1000);
+          const rawDiff = nowMs - tsMs;
+          if (wsMinRawDiff === null || rawDiff < wsMinRawDiff) {
+            wsMinRawDiff = rawDiff;
+            wsClockOffset = wsMinRawDiff - (wsEstimatedRtt / 2);
+          }
+          const dataLatency = Math.max(1, Math.round(rawDiff - (wsClockOffset !== null ? wsClockOffset : 0)));
+          window.wsLastDataLatencyMs = dataLatency;
+          scheduleNavLatencyUpdate(dataLatency);
+        }
+
         const sym = (data.symbol || (data.underlying_asset_symbol ? `${data.underlying_asset_symbol}USD` : '')).toUpperCase();
         const currentUnderlying = (document.getElementById('selUnderlying')?.value || 'BTC').toUpperCase();
         const expectedSymbol = `${currentUnderlying}USD`;
@@ -477,6 +570,8 @@ function initDeltaWebSocket() {
 
     deltaWs.onclose = () => {
       console.log('[Delta WS] WebSocket disconnected. Reconnecting in 2s...');
+      stopWsLatencyPing();
+      updateNavLatencyDisplay(null);
       setTimeout(initDeltaWebSocket, 2000);
     };
 
@@ -518,7 +613,7 @@ function subscribeActiveSymbols() {
         channels: [
           { name: 'v2/ticker', symbols: chunk },
           { name: 'mark_price', symbols: chunk },
-          { name: 'l2_updates', symbols: chunk }
+          { name: 'l1_orderbook', symbols: chunk }
         ]
       }
     };
@@ -594,53 +689,31 @@ async function fetchLiveTickerTick() {
  * Starts continuous live polling and tick streaming
  */
 function startLiveStreaming() {
-  // Ultra-Fast stream dashboard positions & metrics every 1000ms (1 second)
+  // Sync account equity & positions every 5 seconds (non-price metric)
   setInterval(() => {
     fetchDashboardData(false);
-  }, 1000);
-
-  // Fallback tick poller if WebSocket reconnects (every 500ms)
-  setInterval(() => {
-    fetchLiveTickerTick();
-  }, 500);
-
-  // Poll active strategy leg tickers every 1000ms
-  setInterval(() => {
-    if (activeNavTab === 'studio' && typeof fetchLegTickers === 'function') {
-      fetchLegTickers();
-    }
-  }, 1000);
-
-  // Poll live Option Chain fallback: only poll REST if WebSocket is disconnected; otherwise sync greeks every 15s
-  setInterval(() => {
-    if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
-      const isWsLive = (deltaWs && deltaWs.readyState === WebSocket.OPEN);
-      if (!isWsLive) {
-        loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
-      }
-    }
-  }, 3000);
-
-  setInterval(() => {
-    if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
-      const isWsLive = (deltaWs && deltaWs.readyState === WebSocket.OPEN);
-      if (isWsLive) {
-        loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
-      }
-    }
-  }, 15000);
-
-  // Poll live Market Making strikes if active (every 3s background sync; real-time ticks handled by WebSocket)
-  setInterval(() => {
-    if (activeNavTab === 'mm' && typeof loadMarketMakingStrikes === 'function' && typeof mmIsLoading !== 'undefined' && !mmIsLoading) {
-      loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry, true);
-    }
-  }, 3000);
+  }, 5000);
 
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {
     updateExchangeClock();
   }, 1000);
+
+  // Fallback Poller: ONLY executes if the WebSocket connection drops or is reconnecting.
+  // When WebSocket is active (live), ALL screen data updates exclusively via real-time L1 events with zero interval delay.
+  setInterval(() => {
+    const isWsLive = (deltaWs && deltaWs.readyState === WebSocket.OPEN);
+    if (!isWsLive) {
+      if (activeNavTab === 'chain' && typeof loadOptionChain === 'function') {
+        loadOptionChain(ocCurrentUnderlying, ocSelectedExpiry, true);
+      } else if (activeNavTab === 'mm' && typeof loadMarketMakingStrikes === 'function' && typeof mmIsLoading !== 'undefined' && !mmIsLoading) {
+        loadMarketMakingStrikes(mmCurrentUnderlying, mmSelectedExpiry, true);
+      } else if (activeNavTab === 'studio' && typeof fetchLegTickers === 'function') {
+        fetchLegTickers();
+      }
+      fetchLiveTickerTick();
+    }
+  }, 3000);
 }
 
 // Initial Boot & Event Binding
