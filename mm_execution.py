@@ -2485,7 +2485,18 @@ class MMTradeCycle:
                         self.log(f"[TWO-WAY BID PEG] Market bids retreated to {comp_bid}. Dropping BUY limit DOWN from {self.buy_limit_price} to {ideal_buy} to protect against adverse drop!")
                     self.upload_limit_price(ideal_buy, side="buy", is_manual=False)
         else:
-            self.buy_peg_status = f"TRACKING_BID_{self.buy_limit_price}"
+            # If all competitor bids disappeared from the book, and our price had floated UP above initial entry,
+            # retreat back down to our initial entry price so we are not stranded at an inflated price!
+            if self.initial_entry_price and self.buy_limit_price > self.initial_entry_price:
+                ideal_buy = self.initial_entry_price
+                if abs(ideal_buy - self.buy_limit_price) >= (self.tick_size * 0.99):
+                    if now - self.last_edit_time >= self.edit_debounce_sec:
+                        self.last_edit_time = now
+                        self.buy_peg_status = f"RETREATING_DOWN_{ideal_buy}"
+                        self.log(f"[TWO-WAY BID PEG] All competitor bids disappeared. Dropping BUY limit DOWN from {self.buy_limit_price} back to initial entry {ideal_buy}!")
+                        self.upload_limit_price(ideal_buy, side="buy", is_manual=False)
+            else:
+                self.buy_peg_status = f"TRACKING_BID_{self.buy_limit_price}"
 
     def _peg_sell_order(self, now: float):
         """Dynamically floats SELL exit order to maximize profit or anchors strictly at cost floor."""
@@ -2717,47 +2728,60 @@ class MMTradeCycle:
     def get_external_best_ask(self) -> float | None:
         """
         Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
-        falling back to REST API), filtering out our own resting limit sell order.
+        falling back to REST L2 API), filtering out our own resting limit sell order.
         Returns the lowest competitor ask price.
         """
         asks = []
-        # Try real-time in-memory WebSocket L1 cache first (<0.1ms latency)
         if self.public_ws:
             ob = self.public_ws.get_top_of_book(self.symbol)
             asks = ob.get("asks") or []
 
-        # Fallback to REST orderbook if WS cache is empty
-        if not asks:
+        def _scan_asks(ask_list):
+            for ask_level in ask_list:
+                if isinstance(ask_level, (list, tuple)):
+                    try:
+                        price = float(ask_level[0])
+                        size = float(ask_level[1])
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                elif isinstance(ask_level, dict):
+                    price = float(ask_level.get("price", 0))
+                    size = float(ask_level.get("size", 0))
+                else:
+                    continue
+
+                if self.sell_limit_price and abs(price - self.sell_limit_price) < (self.tick_size * 0.5):
+                    active_sell_sz = self.sell_unfilled_qty if self.sell_unfilled_qty > 0 else self.size
+                    if size > active_sell_sz:
+                        return price
+                    continue
+                if price > 0:
+                    return price
+            return None
+
+        # 1. Check real-time WebSocket cache first
+        found = _scan_asks(asks) if asks else None
+        if found is not None:
+            return found
+
+        # 2. If WS cache yielded no external competitor (e.g. L1 feed only holds our own order at top),
+        # query the L2 orderbook via REST to discover the next competitor ask (throttled at 0.5s).
+        now = time.time()
+        if now - getattr(self, "_last_l2_ask_fetch", 0.0) >= 0.5:
+            self._last_l2_ask_fetch = now
             try:
                 ob = self.client.get_l2_orderbook(self.symbol)
-                asks = ob.get("sell", []) or ob.get("asks", []) or []
+                self._cached_l2_asks = ob.get("sell", []) or ob.get("asks", []) or []
             except Exception:
                 pass
 
-        for ask_level in asks:
-            if isinstance(ask_level, (list, tuple)):
-                try:
-                    price = float(ask_level[0])
-                    size = float(ask_level[1])
-                except (ValueError, TypeError, IndexError):
-                    continue
-            elif isinstance(ask_level, dict):
-                price = float(ask_level.get("price", 0))
-                size = float(ask_level.get("size", 0))
-            else:
-                continue
+        cached = getattr(self, "_cached_l2_asks", None)
+        if cached:
+            found = _scan_asks(cached)
+            if found is not None:
+                return found
 
-            # If this level matches our exact sell limit price, check if there's external volume
-            if self.sell_limit_price and abs(price - self.sell_limit_price) < (self.tick_size * 0.5):
-                active_sell_sz = self.sell_unfilled_qty if self.sell_unfilled_qty > 0 else self.size
-                if size > active_sell_sz:
-                    return price
-                # This entire level is just our own order, skip to find next external competitor
-                continue
-            if price > 0:
-                return price
-
-        # If no external competitor asks found in orderbook:
+        # 3. Fallback to current_ask if it doesn't match our own order
         if self.current_ask and self.sell_limit_price and abs(self.current_ask - self.sell_limit_price) >= (self.tick_size * 0.5):
             return self.current_ask
         return None
@@ -2765,47 +2789,60 @@ class MMTradeCycle:
     def get_external_best_bid(self) -> float | None:
         """
         Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
-        falling back to REST API), filtering out our own resting limit buy order.
+        falling back to REST L2 API), filtering out our own resting limit buy order.
         Returns the highest competitor bid price.
         """
         bids = []
-        # Try real-time in-memory WebSocket L1 cache first (<0.1ms latency)
         if self.public_ws:
             ob = self.public_ws.get_top_of_book(self.symbol)
             bids = ob.get("bids") or []
 
-        # Fallback to REST orderbook if WS cache is empty
-        if not bids:
+        def _scan_bids(bid_list):
+            for bid_level in bid_list:
+                if isinstance(bid_level, (list, tuple)):
+                    try:
+                        price = float(bid_level[0])
+                        size = float(bid_level[1])
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                elif isinstance(bid_level, dict):
+                    price = float(bid_level.get("price", 0))
+                    size = float(bid_level.get("size", 0))
+                else:
+                    continue
+
+                if self.buy_limit_price and abs(price - self.buy_limit_price) < (self.tick_size * 0.5):
+                    active_buy_sz = self.buy_unfilled_qty if self.buy_unfilled_qty > 0 else (self.total_size - self.buy_filled_qty)
+                    if size > active_buy_sz:
+                        return price
+                    continue
+                if price > 0:
+                    return price
+            return None
+
+        # 1. Check real-time WebSocket cache first
+        found = _scan_bids(bids) if bids else None
+        if found is not None:
+            return found
+
+        # 2. If WS cache yielded no external competitor (e.g. L1 feed only holds our own order at top),
+        # query the L2 orderbook via REST to discover the 2nd best competitor bid (throttled at 0.5s).
+        now = time.time()
+        if now - getattr(self, "_last_l2_bid_fetch", 0.0) >= 0.5:
+            self._last_l2_bid_fetch = now
             try:
                 ob = self.client.get_l2_orderbook(self.symbol)
-                bids = ob.get("buy", []) or ob.get("bids", []) or []
+                self._cached_l2_bids = ob.get("buy", []) or ob.get("bids", []) or []
             except Exception:
                 pass
 
-        for bid_level in bids:
-            if isinstance(bid_level, (list, tuple)):
-                try:
-                    price = float(bid_level[0])
-                    size = float(bid_level[1])
-                except (ValueError, TypeError, IndexError):
-                    continue
-            elif isinstance(bid_level, dict):
-                price = float(bid_level.get("price", 0))
-                size = float(bid_level.get("size", 0))
-            else:
-                continue
+        cached = getattr(self, "_cached_l2_bids", None)
+        if cached:
+            found = _scan_bids(cached)
+            if found is not None:
+                return found
 
-            # If this level matches our exact buy limit price, check if there's external volume
-            if self.buy_limit_price and abs(price - self.buy_limit_price) < (self.tick_size * 0.5):
-                active_buy_sz = self.buy_unfilled_qty if self.buy_unfilled_qty > 0 else (self.total_size - self.buy_filled_qty)
-                if size > active_buy_sz:
-                    return price
-                # This entire level is just our own order, skip to find next external competitor
-                continue
-            if price > 0:
-                return price
-
-        # If no external competitor bids found in orderbook:
+        # 3. Fallback to current_bid if it doesn't match our own order
         if self.current_bid and self.buy_limit_price and abs(self.current_bid - self.buy_limit_price) >= (self.tick_size * 0.5):
             return self.current_bid
         return None

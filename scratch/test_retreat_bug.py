@@ -1,0 +1,124 @@
+import sys
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+import unittest
+from unittest.mock import MagicMock, patch
+import time
+from mm_execution import MMTradeCycle
+
+class TestMMRetreatBug(unittest.TestCase):
+    def setUp(self):
+        self.mock_client = MagicMock()
+        self.mock_client.get_ticker.return_value = {"oi_reduce_only_mode": False}
+        self.mock_client.get_live_orders.return_value = []
+        self.mock_client.get_order_by_id.return_value = {
+            "id": 1001,
+            "product_id": 12345,
+            "state": "open",
+            "limit_price": "0.41",
+            "size": 1,
+            "unfilled_size": 1
+        }
+        self.mock_client.place_order.return_value = {"id": 1001, "state": "open"}
+        self.mock_client.edit_order.return_value = {"id": 1001, "state": "open"}
+
+    def test_retreat_down_when_competitor_drops_to_30(self):
+        """
+        User scenario MM-ad4007:
+        Our buy is at 0.41 (top of book).
+        Competitor bid retreats down to 0.30.
+        Public WS only has our order at 0.41.
+        L2 REST orderbook has 0.41 (our order) and 0.30 (competitor).
+        The bot must find 0.30 and retreat our buy limit down to 0.31!
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=0.30,
+                client=self.mock_client
+            )
+            cycle.buy_order_id = 1001
+            cycle.buy_limit_price = 0.41
+            cycle.buy_unfilled_qty = 1
+            cycle.total_size = 1
+            cycle.buy_filled_qty = 0
+            cycle.tick_size = 0.01
+            cycle.current_bid = 0.41
+            cycle.max_entry_price = 0.50
+
+            # WebSocket only has our order at top of book
+            cycle.public_ws = MagicMock()
+            cycle.public_ws.get_top_of_book.return_value = {
+                "bids": [[0.41, 1.0]],
+                "asks": [[0.60, 1.0]]
+            }
+
+            # REST L2 orderbook has our order at 0.41 and competitor at 0.30
+            self.mock_client.get_l2_orderbook.return_value = {
+                "buy": [{"price": "0.41", "size": 1}, {"price": "0.30", "size": 5}],
+                "sell": [{"price": "0.60", "size": 1}]
+            }
+
+            cycle.fetch_live_quote = MagicMock(return_value={"bid": 0.41, "ask": 0.60})
+
+            # Check that get_external_best_bid discovers 0.30!
+            ext_bid = cycle.get_external_best_bid()
+            self.assertEqual(ext_bid, 0.30)
+
+            # Run dynamic pegging
+            cycle.last_edit_time = 0.0
+            cycle.upload_limit_price = MagicMock()
+            cycle._peg_buy_order(now=100.0)
+
+            # Verify that bot retreated down to 0.31!
+            self.assertEqual(cycle.buy_peg_status, "RETREATING_DOWN_0.31")
+            cycle.upload_limit_price.assert_called_once_with(0.31, side="buy", is_manual=False)
+            print("-> test_retreat_down_when_competitor_drops_to_30 passed!")
+
+    def test_retreat_to_initial_entry_when_all_competitor_bids_vanish(self):
+        """
+        When all competitors vanish completely, bot retreats to initial entry price.
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=0.30,
+                client=self.mock_client
+            )
+            cycle.buy_order_id = 1001
+            cycle.buy_limit_price = 0.41
+            cycle.buy_unfilled_qty = 1
+            cycle.total_size = 1
+            cycle.buy_filled_qty = 0
+            cycle.tick_size = 0.01
+            cycle.current_bid = 0.41
+
+            # Both WS and REST orderbook only contain our own order
+            cycle.public_ws = MagicMock()
+            cycle.public_ws.get_top_of_book.return_value = {
+                "bids": [[0.41, 1.0]],
+                "asks": [[0.60, 1.0]]
+            }
+            self.mock_client.get_l2_orderbook.return_value = {
+                "buy": [{"price": "0.41", "size": 1}],
+                "sell": [{"price": "0.60", "size": 1}]
+            }
+
+            cycle.fetch_live_quote = MagicMock(return_value={"bid": 0.41, "ask": 0.60})
+
+            cycle.last_edit_time = 0.0
+            cycle.upload_limit_price = MagicMock()
+            cycle._peg_buy_order(now=100.0)
+
+            # Must drop back down to initial_entry_price (0.30)
+            self.assertEqual(cycle.buy_peg_status, "RETREATING_DOWN_0.3")
+            cycle.upload_limit_price.assert_called_once_with(0.30, side="buy", is_manual=False)
+            print("-> test_retreat_to_initial_entry_when_all_competitor_bids_vanish passed!")
+
+if __name__ == "__main__":
+    unittest.main()
