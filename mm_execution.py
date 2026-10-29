@@ -2506,14 +2506,16 @@ class MMTradeCycle:
                 self._place_sell_exit_order(target_qty=open_inv)
             return
         ext_ask = self.get_external_best_ask()
-        quote = self.fetch_live_quote()
-        cur_ask = ext_ask if ext_ask is not None else quote.get("ask")
+        self.fetch_live_quote()
+        cur_ask = ext_ask
         self.competitor_ask = cur_ask
 
         # If user manually set sell price, DO NOT auto-peg to competitor asks!
         if getattr(self, "manual_sell_override", False) and getattr(self, "manual_sell_price", None) is not None:
             self.sell_peg_status = f"MANUAL_PRICE_{self.manual_sell_price}"
             return
+
+        sell_floor = max(self.cost_to_cost_price, getattr(self, "custom_target_price", 0.0) or 0.0) if self.cost_to_cost_price else (getattr(self, "custom_target_price", 0.0) or 0.0)
 
         if cur_ask is not None and self.cost_to_cost_price:
             if cur_ask <= self.cost_to_cost_price:
@@ -2536,7 +2538,7 @@ class MMTradeCycle:
                 else:
                     self.state = "SELL_OPEN"
                 ideal_sell = align_price(cur_ask - self.tick_size, self.tick_size)
-                ideal_sell = max(self.cost_to_cost_price, ideal_sell)
+                ideal_sell = max(sell_floor, ideal_sell)
 
                 if abs(ideal_sell - self.sell_limit_price) >= (self.tick_size * 0.99):
                     if now - self.last_edit_time >= self.edit_debounce_sec:
@@ -2548,6 +2550,8 @@ class MMTradeCycle:
                             self.sell_peg_status = f"TIGHTENING_DOWN_{ideal_sell}"
                             self.log(f"[TWO-WAY ASK PEG] Competitor Ask tightened to {cur_ask}. Tightening SELL limit DOWN from {self.sell_limit_price} to {ideal_sell} to hold #1 seller priority.")
                         self.upload_limit_price(ideal_sell, side="sell", is_manual=False)
+        else:
+            self.sell_peg_status = f"TRACKING_ASK_{self.sell_limit_price}"
 
     def calculate_cost_to_cost_price(self, buy_price: float) -> tuple[float, float, float, float]:
         """

@@ -120,5 +120,56 @@ class TestMMRetreatBug(unittest.TestCase):
             cycle.upload_limit_price.assert_called_once_with(0.30, side="buy", is_manual=False)
             print("-> test_retreat_to_initial_entry_when_all_competitor_bids_vanish passed!")
 
+    def test_sell_floats_up_when_competitor_moves_to_60(self):
+        """
+        User scenario on SELL side:
+        Our sell is at 0.50 (top of ask book).
+        Competitor ask is at 0.60.
+        Public WS only sees our order at 0.50.
+        L2 REST orderbook discovers competitor at 0.60.
+        The bot must float SELL order UP to 0.59 to capture extra profit!
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=0.30,
+                client=self.mock_client
+            )
+            cycle.buy_filled_qty = 1
+            cycle.sell_order_id = 2001
+            cycle.sell_placed_qty = 1
+            cycle.sell_unfilled_qty = 1
+            cycle.sell_limit_price = 0.50
+            cycle.cost_to_cost_price = 0.32
+            cycle.tick_size = 0.01
+            cycle.current_ask = 0.50
+
+            # Public WS only shows our order at 0.50
+            cycle.public_ws = MagicMock()
+            cycle.public_ws.get_top_of_book.return_value = {
+                "bids": [[0.30, 1.0]],
+                "asks": [[0.50, 1.0]]
+            }
+
+            # L2 REST orderbook has our order at 0.50 and competitor at 0.60
+            self.mock_client.get_l2_orderbook.return_value = {
+                "sell": [{"price": "0.50", "size": 1}, {"price": "0.60", "size": 5}],
+                "buy": [{"price": "0.30", "size": 1}]
+            }
+
+            cycle.upload_limit_price = MagicMock()
+            cycle.last_edit_time = 0.0
+
+            # Verify discovery
+            ext_ask = cycle.get_external_best_ask()
+            self.assertEqual(ext_ask, 0.60)
+
+            # Run sell peg
+            cycle._peg_sell_order(now=100.0)
+            self.assertEqual(cycle.sell_peg_status, "FLOATING_UP_0.59")
+            cycle.upload_limit_price.assert_called_once_with(0.59, side="sell", is_manual=False)
+            print("-> test_sell_floats_up_when_competitor_moves_to_60 passed!")
+
 if __name__ == "__main__":
     unittest.main()
