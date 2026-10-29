@@ -171,5 +171,74 @@ class TestMMRetreatBug(unittest.TestCase):
             cycle.upload_limit_price.assert_called_once_with(0.59, side="sell", is_manual=False)
             print("-> test_sell_floats_up_when_competitor_moves_to_60 passed!")
 
+    def test_cost_to_cost_ticks_default_and_calculation(self):
+        """
+        Verify that cost_to_cost_ticks defaults to 2 ticks, and calculates:
+        buy_price + Delta 0.06% fees + 2 ticks profit buffer.
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=0.30,
+                client=self.mock_client
+            )
+            self.assertEqual(cycle.cost_to_cost_ticks, 2)
+            floor, fee_usd, fee_ticks, profit_buffer = cycle.calculate_cost_to_cost_price(0.30)
+            # 0.30 buy + 2 ticks buffer (0.02) + fee ceiling tick (0.01) = 0.33
+            self.assertEqual(profit_buffer, 0.02)
+            self.assertGreaterEqual(floor, 0.32)
+            print("-> test_cost_to_cost_ticks_default_and_calculation passed!")
+
+    def test_manual_sell_price_floats_up_on_market_bounce(self):
+        """
+        Scenario requested by user:
+        - Cost-to-cost floor is 0.36.
+        - User puts manual sell price 0.29 (below floor).
+        - Market ask is 0.30 -> manual price stays held at 0.29.
+        - Market ask moves up to 0.38 -> bot floats sell up to 0.37 (0.38 - 1 tick),
+          clears manual_sell_override, and resumes two-way dynamic pegging.
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=0.33,
+                client=self.mock_client
+            )
+            cycle.buy_filled_qty = 1
+            cycle.sell_order_id = 2001
+            cycle.sell_placed_qty = 1
+            cycle.sell_unfilled_qty = 1
+            cycle.cost_to_cost_price = 0.36
+            cycle.tick_size = 0.01
+
+            # User sets manual sell price = 0.29
+            cycle.manual_sell_override = True
+            cycle.manual_sell_price = 0.29
+            cycle.sell_limit_price = 0.29
+            cycle.upload_limit_price = MagicMock()
+            cycle.last_edit_time = 0.0
+
+            # 1. Market ask is at 0.30 (competitor). Ideal sell = 0.29, which is <= manual price.
+            cycle.get_external_best_ask = MagicMock(return_value=0.30)
+            cycle._peg_sell_order(now=100.0)
+            # Must stay at manual price 0.29 without editing
+            self.assertEqual(cycle.sell_peg_status, "MANUAL_PRICE_0.29")
+            cycle.upload_limit_price.assert_not_called()
+            self.assertTrue(cycle.manual_sell_override)
+
+            # 2. Market ask bounces up to 0.38!
+            cycle.get_external_best_ask = MagicMock(return_value=0.38)
+            cycle.last_edit_time = 0.0
+            cycle._peg_sell_order(now=200.0)
+
+            # Must float up to 0.37 and unlock manual override
+            self.assertEqual(cycle.sell_peg_status, "FLOATING_UP_0.37")
+            cycle.upload_limit_price.assert_called_once_with(0.37, side="sell", is_manual=False)
+            self.assertFalse(cycle.manual_sell_override)
+            self.assertIsNone(cycle.manual_sell_price)
+            print("-> test_manual_sell_price_floats_up_on_market_bounce passed!")
+
 if __name__ == "__main__":
     unittest.main()

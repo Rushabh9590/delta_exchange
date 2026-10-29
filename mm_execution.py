@@ -189,7 +189,7 @@ class MMTradeCycle:
         size: int = 1,
         entry_price: float = None,
         target_exit_price: float = None,
-        cost_to_cost_ticks: int = 1,
+        cost_to_cost_ticks: int = None,
         auto_reprice_buy: bool = True,
         two_way_peg: bool = True,
         max_entry_price: float = None,
@@ -237,7 +237,11 @@ class MMTradeCycle:
         self.initial_spread = 0.0
         self.spread_guard_active = True
 
-        self.cost_to_cost_ticks = cost_to_cost_ticks  # profit buffer ticks added on top of Delta 0.06% roundtrip fees (default: 1 tick)
+        try:
+            env_c2c_ticks = int(os.getenv("MM_COST_TO_COST_TICKS", "2"))
+        except Exception:
+            env_c2c_ticks = 2
+        self.cost_to_cost_ticks = int(cost_to_cost_ticks) if cost_to_cost_ticks is not None and int(cost_to_cost_ticks) >= 0 else env_c2c_ticks
         self.auto_reprice_buy = auto_reprice_buy
         self.two_way_peg_enabled = two_way_peg
         self.account_name = (account or os.getenv("ACTIVE_ACCOUNT") or "main").lower()
@@ -711,7 +715,7 @@ class MMTradeCycle:
             size=int(data.get("total_size", data.get("size", 1))),
             entry_price=data.get("custom_entry_price"),
             target_exit_price=data.get("custom_target_price"),
-            cost_to_cost_ticks=int(data.get("cost_to_cost_ticks", 1)),
+            cost_to_cost_ticks=int(data.get("cost_to_cost_ticks")) if data.get("cost_to_cost_ticks") is not None else None,
             auto_reprice_buy=bool(data.get("auto_reprice_buy", True)),
             two_way_peg=bool(data.get("two_way_peg_enabled", True)),
             max_entry_price=data.get("max_entry_price"),
@@ -2510,27 +2514,27 @@ class MMTradeCycle:
         cur_ask = ext_ask
         self.competitor_ask = cur_ask
 
-        # If user manually set sell price, DO NOT auto-peg to competitor asks!
-        if getattr(self, "manual_sell_override", False) and getattr(self, "manual_sell_price", None) is not None:
-            self.sell_peg_status = f"MANUAL_PRICE_{self.manual_sell_price}"
-            return
+        base_floor = self.cost_to_cost_price or 0.0
+        # If user manually set sell price, check if market ask has recovered/risen above it
+        is_manual = getattr(self, "manual_sell_override", False) and getattr(self, "manual_sell_price", None) is not None
+        manual_p = getattr(self, "manual_sell_price", None)
 
-        sell_floor = max(self.cost_to_cost_price, getattr(self, "custom_target_price", 0.0) or 0.0) if self.cost_to_cost_price else (getattr(self, "custom_target_price", 0.0) or 0.0)
+        effective_floor = min(base_floor, manual_p) if (is_manual and manual_p and base_floor > 0) else (manual_p if is_manual and manual_p else base_floor)
 
-        if cur_ask is not None and self.cost_to_cost_price:
-            if cur_ask <= self.cost_to_cost_price:
+        if cur_ask is not None and effective_floor > 0:
+            if cur_ask <= effective_floor:
                 if self.buy_unfilled_qty == 0:
                     self.state = "WAITING_COST_TO_COST"
                 else:
                     self.state = "DUAL_ACTIVE"
-                self.sell_peg_status = f"WAITING_COST_FLOOR_{self.cost_to_cost_price}"
-                if self.sell_limit_price > self.cost_to_cost_price:
+                self.sell_peg_status = f"WAITING_COST_FLOOR_{effective_floor}"
+                if self.sell_limit_price > effective_floor:
                     if now - self.last_edit_time >= self.edit_debounce_sec:
                         self.last_edit_time = now
-                        self.log(f"[TWO-WAY ASK PEG] Market Ask dropped to {cur_ask}. Adjusting SELL limit down to Cost-to-Cost floor: {self.cost_to_cost_price}")
-                        self.upload_limit_price(self.cost_to_cost_price, side="sell", is_manual=False)
+                        self.log(f"[TWO-WAY ASK PEG] Market Ask dropped to {cur_ask}. Adjusting SELL limit down to Cost-to-Cost floor: {effective_floor}")
+                        self.upload_limit_price(effective_floor, side="sell", is_manual=False)
 
-            elif cur_ask > self.cost_to_cost_price:
+            elif cur_ask > effective_floor:
                 if self.buy_unfilled_qty > 0:
                     self.state = "DUAL_ACTIVE"
                 elif self.sell_filled_qty > 0:
@@ -2538,18 +2542,27 @@ class MMTradeCycle:
                 else:
                     self.state = "SELL_OPEN"
                 ideal_sell = align_price(cur_ask - self.tick_size, self.tick_size)
-                ideal_sell = max(sell_floor, ideal_sell)
+                ideal_sell = max(effective_floor, ideal_sell)
 
-                if abs(ideal_sell - self.sell_limit_price) >= (self.tick_size * 0.99):
-                    if now - self.last_edit_time >= self.edit_debounce_sec:
-                        self.last_edit_time = now
-                        if ideal_sell > self.sell_limit_price:
-                            self.sell_peg_status = f"FLOATING_UP_{ideal_sell}"
-                            self.log(f"[TWO-WAY ASK PEG] Competitor Ask is higher at {cur_ask}. Floating SELL limit UP from {self.sell_limit_price} to {ideal_sell} to capture extra profit!")
-                        else:
-                            self.sell_peg_status = f"TIGHTENING_DOWN_{ideal_sell}"
-                            self.log(f"[TWO-WAY ASK PEG] Competitor Ask tightened to {cur_ask}. Tightening SELL limit DOWN from {self.sell_limit_price} to {ideal_sell} to hold #1 seller priority.")
-                        self.upload_limit_price(ideal_sell, side="sell", is_manual=False)
+                # If manual price was set, only float UP when market ask rises above our current sell limit
+                if is_manual and ideal_sell <= self.sell_limit_price:
+                    self.sell_peg_status = f"MANUAL_PRICE_{self.sell_limit_price}"
+                else:
+                    if abs(ideal_sell - self.sell_limit_price) >= (self.tick_size * 0.99):
+                        if now - self.last_edit_time >= self.edit_debounce_sec:
+                            self.last_edit_time = now
+                            if ideal_sell > self.sell_limit_price:
+                                self.sell_peg_status = f"FLOATING_UP_{ideal_sell}"
+                                if is_manual:
+                                    self.log(f"[TWO-WAY ASK PEG] Competitor Ask moved UP to {cur_ask}. Market recovered above manual price! Floating SELL limit UP from {self.sell_limit_price} to {ideal_sell} to capture extra profit!")
+                                    self.manual_sell_override = False
+                                    self.manual_sell_price = None
+                                else:
+                                    self.log(f"[TWO-WAY ASK PEG] Competitor Ask is higher at {cur_ask}. Floating SELL limit UP from {self.sell_limit_price} to {ideal_sell} to capture extra profit!")
+                            else:
+                                self.sell_peg_status = f"TIGHTENING_DOWN_{ideal_sell}"
+                                self.log(f"[TWO-WAY ASK PEG] Competitor Ask tightened to {cur_ask}. Tightening SELL limit DOWN from {self.sell_limit_price} to {ideal_sell} to hold #1 seller priority.")
+                            self.upload_limit_price(ideal_sell, side="sell", is_manual=False)
         else:
             self.sell_peg_status = f"TRACKING_ASK_{self.sell_limit_price}"
 
@@ -2559,7 +2572,7 @@ class MMTradeCycle:
         Includes:
           1. Round-trip Delta Exchange Maker fee: 0.03% on Buy + 0.03% on Sell = 0.06%
           2. Converted to ticks (rounded up to tick ceiling) so exchange fees are 100% covered.
-          3. Plus cost_to_cost_ticks (default 1 tick) as pure profit/cushion buffer.
+          3. Plus cost_to_cost_ticks (default 2 ticks) as pure profit/cushion buffer.
 
         Returns:
           (cost_floor_price, roundtrip_fee_usd, fee_ticks_usd, profit_buffer_usd)
@@ -3085,7 +3098,7 @@ class DeltaMMEngine:
         size: int = 1,
         entry_price: float = None,
         target_exit_price: float = None,
-        cost_to_cost_ticks: int = 1,
+        cost_to_cost_ticks: int = None,
         auto_reprice_buy: bool = True,
         two_way_peg: bool = True,
         max_entry_price: float = None,
