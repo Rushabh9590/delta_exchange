@@ -240,5 +240,86 @@ class TestMMRetreatBug(unittest.TestCase):
             self.assertIsNone(cycle.manual_sell_price)
             print("-> test_manual_sell_price_floats_up_on_market_bounce passed!")
 
+    def test_edit_post_only_does_not_cancel_working_order(self):
+        """
+        User scenario MM-e3cdbb:
+        BUY order is active @ 1.3 on exchange.
+        Competitor moves to 2.0. Bot attempts to edit buy limit UP to 2.1.
+        Delta rejects edit_order with {'code': 'immediate_execution_post_only'}.
+        CRITICAL: Bot must NOT cancel the working order @ 1.3!
+        The trade must stay alive in BUY_OPEN, keeping working order 1001 intact.
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.1, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="C-BTC-90000-261026",
+                size=1,
+                entry_price=1.3,
+                client=self.mock_client
+            )
+            cycle.buy_order_id = 1001
+            cycle.buy_limit_price = 1.3
+            cycle.buy_unfilled_qty = 1
+            cycle.state = "BUY_OPEN"
+
+            # Delta edit_order raises Exception with immediate_execution_post_only
+            self.mock_client.edit_order.side_effect = Exception("{'code': 'immediate_execution_post_only'}")
+            self.mock_client.cancel_order.reset_mock()
+
+            res = cycle._edit_or_replace_order(order_id=1001, new_price=2.1, side="buy")
+
+            # Verify cancel_order was NEVER called!
+            self.mock_client.cancel_order.assert_not_called()
+            # Order id is preserved
+            self.assertEqual(cycle.buy_order_id, 1001)
+            # Cycle did not stop or cancel
+            self.assertFalse(cycle.stop_requested)
+            self.assertEqual(cycle.state, "BUY_OPEN")
+            self.assertFalse(res.get("success"))
+            print("-> test_edit_post_only_does_not_cancel_working_order passed!")
+
+    def test_ghost_order_filtered_after_price_move(self):
+        """
+        User scenario MM-cbaed5:
+        When sell order is at 0.34, and floats up to 0.67,
+        the exchange orderbook feed may still hold the old 0.34 level for 0.5s.
+        The bot must NOT mistake its own old 0.34 order as a competitor!
+        It must filter out recent ghost orders (<3s) and keep looking for real competitors.
+        """
+        with patch("mm_execution.get_product_details", return_value={"id": 12345, "tick_size": 0.01, "contract_value": 0.001}):
+            cycle = MMTradeCycle(
+                symbol="P-ETH-2300-291026",
+                size=4,
+                entry_price=0.31,
+                client=self.mock_client
+            )
+            cycle.buy_filled_qty = 4
+            cycle.sell_order_id = 2001
+            cycle.sell_placed_qty = 4
+            cycle.sell_unfilled_qty = 4
+            cycle.cost_to_cost_price = 0.34
+            cycle.tick_size = 0.01
+            cycle.sell_limit_price = 0.34
+
+            # REST orderbook has our order at 0.34 and competitor at 0.68
+            self.mock_client.get_l2_orderbook.return_value = {
+                "sell": [{"price": "0.34", "size": 4}, {"price": "0.68", "size": 10}],
+                "buy": [{"price": "0.20", "size": 10}]
+            }
+
+            # 1. First fetch finds 0.68 as external competitor
+            ext_ask = cycle.get_external_best_ask()
+            self.assertEqual(ext_ask, 0.68)
+
+            # 2. Upload new price 0.67
+            cycle.upload_limit_price(0.67, side="sell", is_manual=False)
+            self.assertEqual(cycle.sell_limit_price, 0.67)
+
+            # 3. Simulate next tick 0.1s later:
+            # Exchange public feed still contains ghost 0.34!
+            # With ghost filter, it must NOT return 0.34!
+            ext_ask_after = cycle.get_external_best_ask()
+            self.assertEqual(ext_ask_after, 0.68)
+            print("-> test_ghost_order_filtered_after_price_move passed!")
+
 if __name__ == "__main__":
     unittest.main()

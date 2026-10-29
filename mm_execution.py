@@ -276,6 +276,10 @@ class MMTradeCycle:
         self.sell_placed_qty = 0
         self.cost_to_cost_price = None
 
+        # Ghost Order Tracking: recent order prices to filter out lingering exchange feed updates (<3s)
+        self.recent_sell_prices = []
+        self.recent_buy_prices = []
+
         # Manual price overrides (when user edits price in dashboard UI)
         self.manual_buy_override = False
         self.manual_buy_price = None
@@ -1236,10 +1240,17 @@ class MMTradeCycle:
                 target_side = "buy"
 
         if target_side == "buy" and self.buy_order_id:
+            old_buy_p = self.buy_limit_price
             try:
                 # Delta API edit_order or cancel + re-place
                 res = self._edit_or_replace_order(self.buy_order_id, valid_price, side="buy")
                 if res.get("success"):
+                    if old_buy_p is not None and abs(old_buy_p - valid_price) >= (self.tick_size * 0.5):
+                        if not hasattr(self, "recent_buy_prices"):
+                            self.recent_buy_prices = []
+                        self.recent_buy_prices.append((old_buy_p, time.time()))
+                    self._cached_l2_bids = None
+                    self._last_l2_bid_fetch = 0.0
                     self.buy_limit_price = valid_price
                     self.custom_entry_price = valid_price
                     if is_manual:
@@ -1256,6 +1267,7 @@ class MMTradeCycle:
                 return {"success": False, "error": str(e)}
 
         elif target_side == "sell" and self.sell_order_id:
+            old_sell_p = self.sell_limit_price
             # Check user constraint: cannot lower sell price below cost-to-cost unless forced
             if self.cost_to_cost_price and valid_price < self.cost_to_cost_price:
                 self.log(f"Notice: Upload price {valid_price} is below Cost-to-Cost ({self.cost_to_cost_price}). Applying per user request.")
@@ -1263,6 +1275,12 @@ class MMTradeCycle:
             try:
                 res = self._edit_or_replace_order(self.sell_order_id, valid_price, side="sell", reduce_only=True)
                 if res.get("success"):
+                    if old_sell_p is not None and abs(old_sell_p - valid_price) >= (self.tick_size * 0.5):
+                        if not hasattr(self, "recent_sell_prices"):
+                            self.recent_sell_prices = []
+                        self.recent_sell_prices.append((old_sell_p, time.time()))
+                    self._cached_l2_asks = None
+                    self._last_l2_ask_fetch = 0.0
                     self.sell_limit_price = valid_price
                     if is_manual:
                         self.manual_sell_override = True
@@ -1420,6 +1438,17 @@ class MMTradeCycle:
                 except Exception as edit_err:
                     err_text = str(edit_err)
                     self.log(f"Edit API call failed ({err_text}), checking order status...")
+
+                    # CRITICAL FIX: If edit was rejected by Delta because new_price crosses the book (post_only),
+                    # the existing working order is STILL OPEN and completely valid on Delta Exchange!
+                    # NEVER cancel the working order and destroy the trade!
+                    if "immediate_execution_post_only" in err_text.lower() or "post_only" in err_text.lower() or "cross" in err_text.lower():
+                        current_p = self.buy_limit_price if side == "buy" else self.sell_limit_price
+                        self.log(
+                            f"[POST-ONLY GUARD] Proposed price {new_price} crosses the book (rejected by Delta). "
+                            f"Preserving active working {side.upper()} order {order_id} @ {current_p} on exchange."
+                        )
+                        return {"success": False, "error": "immediate_execution_post_only"}
 
                     # If user stopped the trade or trade was cancelled, do not attempt to re-place
                     if self.stop_requested or self.state in ("CANCELLED", "ERROR"):
@@ -1829,10 +1858,33 @@ class MMTradeCycle:
                 )
                 return False
 
-            # If rejected because post_only would cross spread, fallback to bid
+            # If rejected because post_only would cross spread, re-fetch fresh live book directly from Delta
             if "post_only" in err_msg.lower() or "post only" in err_msg.lower() or "cross" in err_msg.lower():
-                self.log(f"Post-only crossed book at {valid_price}. Falling back directly to Best Bid: {bid}")
-                fallback_price = align_price(bid, self.tick_size)
+                self.log(f"Post-only crossed book at {valid_price} (fast market movement). Re-syncing depth from Delta...")
+                # Clear cached orderbooks so fresh data is guaranteed
+                self._cached_l2_bids = None
+                self._cached_l2_asks = None
+                self._last_l2_bid_fetch = 0.0
+                self._last_l2_ask_fetch = 0.0
+                time.sleep(0.2)
+                fresh_bid = self.get_external_best_bid()
+                fresh_ask = self.get_external_best_ask()
+
+                # Determine safe maker price below ask
+                if fresh_bid and fresh_ask and (fresh_bid + self.tick_size) < fresh_ask:
+                    fallback_price = align_price(fresh_bid + self.tick_size, self.tick_size)
+                elif fresh_bid:
+                    fallback_price = align_price(fresh_bid, self.tick_size)
+                elif fresh_ask:
+                    fallback_price = align_price(fresh_ask - self.tick_size, self.tick_size)
+                else:
+                    fallback_price = align_price(bid, self.tick_size)
+
+                # Absolute safety clamp: BUY limit must be strictly below ask
+                if fresh_ask and fallback_price >= fresh_ask:
+                    fallback_price = align_price(fresh_ask - self.tick_size, self.tick_size)
+
+                self.log(f"Falling back to refreshed safe Maker Bid: {fallback_price} (Fresh Bid={fresh_bid}, Ask={fresh_ask})")
                 try:
                     order_res = self.client.place_order(
                         product_id=self.product_id,
@@ -2745,9 +2797,13 @@ class MMTradeCycle:
     def get_external_best_ask(self) -> float | None:
         """
         Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
-        falling back to REST L2 API), filtering out our own resting limit sell order.
+        falling back to REST L2 API), filtering out our own resting limit sell order
+        and recent ghost order prices still in transit in exchange feeds.
         Returns the lowest competitor ask price.
         """
+        now = time.time()
+        self.recent_sell_prices = [(p, t) for p, t in getattr(self, "recent_sell_prices", []) if now - t < 3.0]
+
         asks = []
         if self.public_ws:
             ob = self.public_ws.get_top_of_book(self.symbol)
@@ -2767,7 +2823,10 @@ class MMTradeCycle:
                 else:
                     continue
 
-                if self.sell_limit_price and abs(price - self.sell_limit_price) < (self.tick_size * 0.5):
+                is_our_current = self.sell_limit_price and abs(price - self.sell_limit_price) < (self.tick_size * 0.5)
+                is_our_recent = any(abs(price - p) < (self.tick_size * 0.5) for p, t in getattr(self, "recent_sell_prices", []))
+
+                if is_our_current or is_our_recent:
                     active_sell_sz = self.sell_unfilled_qty if self.sell_unfilled_qty > 0 else self.size
                     if size > active_sell_sz:
                         return price
@@ -2806,9 +2865,13 @@ class MMTradeCycle:
     def get_external_best_bid(self) -> float | None:
         """
         Inspects L1 top-of-book (first checking real-time in-memory WebSocket L1 cache,
-        falling back to REST L2 API), filtering out our own resting limit buy order.
+        falling back to REST L2 API), filtering out our own resting limit buy order
+        and recent ghost order prices still in transit in exchange feeds.
         Returns the highest competitor bid price.
         """
+        now = time.time()
+        self.recent_buy_prices = [(p, t) for p, t in getattr(self, "recent_buy_prices", []) if now - t < 3.0]
+
         bids = []
         if self.public_ws:
             ob = self.public_ws.get_top_of_book(self.symbol)
@@ -2828,7 +2891,10 @@ class MMTradeCycle:
                 else:
                     continue
 
-                if self.buy_limit_price and abs(price - self.buy_limit_price) < (self.tick_size * 0.5):
+                is_our_current = self.buy_limit_price and abs(price - self.buy_limit_price) < (self.tick_size * 0.5)
+                is_our_recent = any(abs(price - p) < (self.tick_size * 0.5) for p, t in getattr(self, "recent_buy_prices", []))
+
+                if is_our_current or is_our_recent:
                     active_buy_sz = self.buy_unfilled_qty if self.buy_unfilled_qty > 0 else (self.total_size - self.buy_filled_qty)
                     if size > active_buy_sz:
                         return price
