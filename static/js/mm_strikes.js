@@ -657,6 +657,14 @@ function startMmAgingTimer() {
 /**
  * Updates a single strike row in-place with latest metrics and button states.
  */
+function getMmItemSpotPrice(item) {
+  const isEth = (item?.underlying === 'ETH') || (item?.symbol && item.symbol.includes('ETH'));
+  if (isEth) {
+    return (mmLastData && mmLastData.eth_spot) ? Number(mmLastData.eth_spot) : (item?.spot_price ? Number(item.spot_price) : 2300);
+  }
+  return (mmLastData && (mmLastData.btc_spot || mmLastData.spot_price)) ? Number(mmLastData.btc_spot || mmLastData.spot_price) : (item?.spot_price ? Number(item.spot_price) : 75000);
+}
+
 function updateMmRowInPlace(item, sym, elRow) {
   if (!item) return;
   sym = (sym || item.symbol || '').toUpperCase();
@@ -685,10 +693,10 @@ function updateMmRowInPlace(item, sym, elRow) {
 
   const elOi = document.getElementById(`mmOi_${sym}`);
   if (elOi) {
-    const spotPrice = (mmLastData && mmLastData.spot_price) ? Number(mmLastData.spot_price) : 0;
+    const spotPrice = getMmItemSpotPrice(item);
     const oiUsd = (item.open_interest_usd !== undefined && item.open_interest_usd !== null && Number(item.open_interest_usd) > 0)
       ? Number(item.open_interest_usd)
-      : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : (item.open_interest ? Number(item.open_interest) * 80000 : null));
+      : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : null);
     const oiDisplay = formatCompactUsd(oiUsd);
     elOi.textContent = oiDisplay;
     const coinStr = item.open_interest ? `${formatCoinAmount(item.open_interest, 3)} ${item.underlying || 'BTC'}` : '';
@@ -803,10 +811,10 @@ function buildMmRowHtml(item) {
   const ticks = item.spread_ticks !== null ? item.spread_ticks.toFixed(1) : '0.0';
   const mid = item.mid_price !== null && item.mid_price > 0 ? item.mid_price.toFixed(2) : '--';
   const netEdge = item.net_edge !== null ? item.net_edge.toFixed(2) : '--';
-  const spotPrice = (mmLastData && mmLastData.spot_price) ? Number(mmLastData.spot_price) : 0;
+  const spotPrice = getMmItemSpotPrice(item);
   const oiUsd = (item.open_interest_usd !== undefined && item.open_interest_usd !== null && Number(item.open_interest_usd) > 0)
     ? Number(item.open_interest_usd)
-    : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : (item.open_interest ? Number(item.open_interest) * 80000 : null));
+    : (item.open_interest && spotPrice ? Number(item.open_interest) * spotPrice : null);
   const oiDisplay = formatCompactUsd(oiUsd);
   const coinStr = item.open_interest ? `${formatCoinAmount(item.open_interest, 3)} ${item.underlying || 'BTC'}` : '';
   const edgePct = item.net_edge_pct !== null ? `${item.net_edge_pct.toFixed(1)}%` : '0.0%';
@@ -984,8 +992,12 @@ function handleMmStrikesTickUpdate(data) {
       item.open_interest_usd = newOiUsd;
       changed = true;
     }
-  } else if (item.open_interest && mmLastData && mmLastData.spot_price) {
-    item.open_interest_usd = item.open_interest * mmLastData.spot_price;
+  } else if (!item.open_interest_usd && item.open_interest) {
+    const assetSpot = getMmItemSpotPrice(item);
+    if (assetSpot > 0) {
+      item.open_interest_usd = item.open_interest * assetSpot;
+      changed = true;
+    }
   }
 
   if (!changed) return;
