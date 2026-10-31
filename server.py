@@ -1534,6 +1534,7 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
     """
     logs_map = {}
     trades_metadata = {}
+    canonical_map = {}
 
     def _ingest(line, default_tid="", default_sym="", status=None):
         if not line:
@@ -1560,8 +1561,12 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
             if mm_any:
                 tid = mm_any.group(1)
 
+        # Canonicalize tid to full trade_id if known
+        if tid:
+            tid = canonical_map.get(tid, tid)
+
         sym = default_sym
-        sym_m = re.search(r"\b([CP]-[A-Z]+-[\d\.]+-[\d]+)\b", raw)
+        sym_m = re.search(r"\b([CP]-[A-Z]+-[\d\.]+-+[\d]+)\b", raw)
         if sym_m:
             sym = sym_m.group(1)
             raw = re.sub(r"\[" + re.escape(sym) + r"\]\s*", "", raw).strip()
@@ -1601,16 +1606,65 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
     try:
         with mm_engine._lock:
             for tid, cycle in mm_engine.active_cycles.items():
-                trades_metadata[tid] = {"trade_id": tid, "symbol": cycle.symbol, "status": "active"}
-                for l in cycle.logs:
+                short = tid.split("_")[-1] if "_" in tid else tid[-6:]
+                canonical_map[short] = tid
+                canonical_map[tid] = tid
+
+                created_at = getattr(cycle, "created_at", None)
+                ts = 0.0
+                if created_at:
+                    try:
+                        ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).timestamp()
+                    except Exception:
+                        pass
+                if ts == 0.0:
+                    m = re.match(r"mm_(\d{10})_", tid)
+                    if m:
+                        ts = float(m.group(1))
+
+                trades_metadata[tid] = {
+                    "trade_id": tid,
+                    "symbol": cycle.symbol,
+                    "status": "active",
+                    "state": getattr(cycle, "state", "ACTIVE"),
+                    "realized_pnl": float(getattr(cycle, "realized_pnl", 0.0) or 0.0),
+                    "created_at": str(created_at) if created_at else None,
+                    "sort_timestamp": ts
+                }
+                for l in getattr(cycle, "logs", []):
                     _ingest(l, default_tid=tid, default_sym=cycle.symbol, status="active")
+
             for h in mm_engine.history_cycles:
                 tid = h.get("trade_id", "")
                 sym = h.get("symbol", "")
                 if tid:
-                    trades_metadata[tid] = {"trade_id": tid, "symbol": sym, "status": "history"}
-                for l in h.get("logs", []):
-                    _ingest(l, default_tid=tid, default_sym=sym, status="history")
+                    short = tid.split("_")[-1] if "_" in tid else tid[-6:]
+                    canonical_map[short] = tid
+                    canonical_map[tid] = tid
+                    created_at = h.get("created_at")
+                    ts = 0.0
+                    if created_at:
+                        try:
+                            ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).timestamp()
+                        except Exception:
+                            pass
+                    if ts == 0.0:
+                        m = re.match(r"mm_(\d{10})_", tid)
+                        if m:
+                            ts = float(m.group(1))
+
+                    if tid not in trades_metadata or trades_metadata[tid]["status"] != "active":
+                        trades_metadata[tid] = {
+                            "trade_id": tid,
+                            "symbol": sym,
+                            "status": "history",
+                            "state": h.get("state", "HISTORICAL"),
+                            "realized_pnl": float(h.get("realized_pnl") or 0.0),
+                            "created_at": str(created_at) if created_at else None,
+                            "sort_timestamp": ts
+                        }
+                    for l in h.get("logs", []):
+                        _ingest(l, default_tid=tid, default_sym=sym, status="history")
     except Exception:
         pass
 
@@ -1622,10 +1676,34 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
             for h in sdata.get("history", []):
                 tid = h.get("trade_id", "")
                 sym = h.get("symbol", "")
-                if tid and tid not in trades_metadata:
-                    trades_metadata[tid] = {"trade_id": tid, "symbol": sym, "status": "history"}
-                for l in h.get("logs", []):
-                    _ingest(l, default_tid=tid, default_sym=sym, status="history")
+                if tid:
+                    short = tid.split("_")[-1] if "_" in tid else tid[-6:]
+                    canonical_map[short] = tid
+                    canonical_map[tid] = tid
+                    created_at = h.get("created_at")
+                    ts = 0.0
+                    if created_at:
+                        try:
+                            ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).timestamp()
+                        except Exception:
+                            pass
+                    if ts == 0.0:
+                        m = re.match(r"mm_(\d{10})_", tid)
+                        if m:
+                            ts = float(m.group(1))
+
+                    if tid not in trades_metadata or trades_metadata[tid]["status"] != "active":
+                        trades_metadata[tid] = {
+                            "trade_id": tid,
+                            "symbol": sym,
+                            "status": "history",
+                            "state": h.get("state", "HISTORICAL"),
+                            "realized_pnl": float(h.get("realized_pnl") or 0.0),
+                            "created_at": str(created_at) if created_at else None,
+                            "sort_timestamp": ts
+                        }
+                    for l in h.get("logs", []):
+                        _ingest(l, default_tid=tid, default_sym=sym, status="history")
     except Exception:
         pass
 
@@ -1652,26 +1730,50 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
 
     # Populate any discovered trades into trades_metadata
     for item in logs_map.values():
-        tid = item.get("trade_id")
+        raw_tid = item.get("trade_id")
+        if not raw_tid:
+            continue
+        tid = canonical_map.get(raw_tid, raw_tid)
         sym = item.get("symbol")
-        if tid and tid not in trades_metadata:
+        dt_str = item.get("timestamp")
+
+        ts = 0.0
+        if dt_str:
+            try:
+                ts = datetime.strptime(dt_str[:19], "%Y-%m-%d %H:%M:%S").timestamp()
+            except Exception:
+                pass
+
+        if tid not in trades_metadata:
             trades_metadata[tid] = {
                 "trade_id": tid,
                 "symbol": sym or "Option",
-                "status": item.get("status", "history")
+                "status": item.get("status", "history"),
+                "state": "HISTORICAL",
+                "realized_pnl": 0.0,
+                "created_at": dt_str,
+                "sort_timestamp": ts
             }
-        elif tid and sym and trades_metadata.get(tid, {}).get("symbol") in ["", "Option", None]:
-            trades_metadata[tid]["symbol"] = sym
+            short = tid.split("_")[-1] if "_" in tid else tid[-6:]
+            canonical_map[short] = tid
+        else:
+            if sym and trades_metadata[tid].get("symbol") in ["", "Option", None]:
+                trades_metadata[tid]["symbol"] = sym
+            if trades_metadata[tid].get("sort_timestamp", 0.0) == 0.0 and ts > 0.0:
+                trades_metadata[tid]["sort_timestamp"] = ts
+                trades_metadata[tid]["created_at"] = dt_str
 
     # Fill in symbol for items if missing but in metadata
     for item in logs_map.values():
-        tid = item.get("trade_id")
+        raw_tid = item.get("trade_id")
+        tid = canonical_map.get(raw_tid, raw_tid)
         if tid and not item.get("symbol") and tid in trades_metadata:
             item["symbol"] = trades_metadata[tid]["symbol"]
         sym = item.get("symbol")
         if sym and sym not in item["text"]:
-            if tid and f"[MM-{tid[-6:]}]" in item["text"]:
-                item["text"] = item["text"].replace(f"[MM-{tid[-6:]}]", f"[MM-{tid[-6:]}] [{sym}]")
+            short_tid = (tid or raw_tid or "")[-6:]
+            if short_tid and f"[MM-{short_tid}]" in item["text"]:
+                item["text"] = item["text"].replace(f"[MM-{short_tid}]", f"[MM-{short_tid}] [{sym}]")
             else:
                 item["text"] = f"[{sym}] " + item["text"]
 
@@ -1706,7 +1808,15 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
     if limit > 0 and len(all_items) > limit:
         all_items = all_items[-limit:]
 
+    # Deduplicate and sort trades_list: active first, then sort_timestamp descending (newest first)
     trades_list = list(trades_metadata.values())
+    trades_list.sort(
+        key=lambda x: (
+            1 if x.get("status") == "active" else 0,
+            float(x.get("sort_timestamp") or 0.0)
+        ),
+        reverse=True
+    )
     return all_items, trades_list, total_count
 
 
@@ -1807,7 +1917,11 @@ def get_system_logs():
             {
                 "trade_id": _safe_str(t.get("trade_id")),
                 "symbol": _safe_str(t.get("symbol")),
-                "status": _safe_str(t.get("status"))
+                "status": _safe_str(t.get("status")),
+                "state": _safe_str(t.get("state")),
+                "realized_pnl": float(t.get("realized_pnl") or 0.0),
+                "created_at": _safe_str(t.get("created_at")),
+                "sort_timestamp": float(t.get("sort_timestamp") or 0.0)
             }
             for t in trades_list
         ]

@@ -10,7 +10,12 @@ python-dotenv>=1.0.0
 # Delta Exchange Real-Time WebSocket Streaming
 websocket-client>=1.6.0
 
-# Local Delta Exchange REST Client SDK
--e ./python-rest-client
 # High-Performance Ultra-Low-Latency SIMD JSON Parser
 orjson>=3.9.0
+
+# Build Tools for Editable Local SDK (-e ./python-rest-client)
+setuptools>=65.0.0
+wheel>=0.40.0
+
+# Local Delta Exchange REST Client SDK
+-e ./python-rest-client

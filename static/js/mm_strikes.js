@@ -2496,28 +2496,151 @@ async function refreshCurrentLogs() {
 }
 window.refreshCurrentLogs = refreshCurrentLogs;
 
+function formatTradeTimestamp(createdAt, sortTimestamp) {
+  let d = null;
+  if (sortTimestamp && Number(sortTimestamp) > 0) {
+    d = new Date(Number(sortTimestamp) * 1000);
+  } else if (createdAt) {
+    const cleanStr = String(createdAt).replace(" ", "T");
+    d = new Date(cleanStr);
+  }
+  if (!d || isNaN(d.getTime())) return "";
+
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yday = new Date(now);
+  yday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yday.toDateString();
+
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const timeStr = `${hh}:${mm}`;
+
+  if (isToday) {
+    return `Today ${timeStr}`;
+  } else if (isYesterday) {
+    return `Yday ${timeStr}`;
+  } else {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mon = months[d.getMonth()];
+    const day = d.getDate();
+    return `${mon} ${day} ${timeStr}`;
+  }
+}
+window.formatTradeTimestamp = formatTradeTimestamp;
+
+function formatTradeDropdownLabel(item) {
+  const tid = item.trade_id || "";
+  const shortTid = tid.slice(-6) || tid;
+  const sym = item.symbol || "Option";
+  const isActive = item.status === "active" || ["ACTIVE", "BUY_OPEN", "BUY_PLACED", "SELL_OPEN", "SELL_PLACED"].includes(item.state);
+  const state = (item.state || "").toUpperCase();
+  const pnl = parseFloat(item.realized_pnl) || 0.0;
+  const timeLabel = formatTradeTimestamp(item.created_at, item.sort_timestamp);
+
+  let badge = "";
+  if (isActive) {
+    badge = "⚡ LIVE";
+  } else if (pnl > 0.00001 || state === "COMPLETED_PROFIT") {
+    const pnlStr = pnl > 0 ? `+$${pnl.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}` : "PROFIT";
+    badge = `🟢 [${pnlStr}]`;
+  } else if (state === "COMPLETED_COST" || (Math.abs(pnl) < 1e-6 && state.includes("COST"))) {
+    badge = "⚪ [C2C]";
+  } else if (state === "CANCELLED" || state.includes("CANCEL")) {
+    badge = pnl < -0.0001 ? `🔴 [CANCEL -$${Math.abs(pnl).toFixed(4).replace(/0+$/, "")}]` : "🔴 [CANCEL]";
+  } else if (state.includes("STOP") || state.includes("EXIT")) {
+    badge = "⚠️ [STOPPED]";
+  } else if (pnl < -0.00001) {
+    badge = `🔴 [-$${Math.abs(pnl).toFixed(4).replace(/0+$/, "")}]`;
+  } else {
+    badge = "⚪ [HIST]";
+  }
+
+  const parts = [badge, sym, `(${shortTid})`];
+  if (timeLabel) {
+    parts.push(`• ${timeLabel}`);
+  }
+  return parts.join(" ");
+}
+window.formatTradeDropdownLabel = formatTradeDropdownLabel;
+
 function updateTradeFilterDropdown(tradesList) {
-  const sel = document.getElementById('selLogTradeFilter');
+  const sel = document.getElementById("selLogTradeFilter");
   if (!sel) return;
   const currentVal = sel.value;
 
+  // Deduplicate by trade_id and short hex suffix
   const tradeMap = new Map();
-  tradesList.forEach(item => {
+  (tradesList || []).forEach(item => {
     const tid = item.trade_id || (item.text && item.text.match(/\[MM-([a-zA-Z0-9]+)\]/)?.[1]);
     if (!tid) return;
     const shortTid = tid.slice(-6);
-    const sym = item.symbol || 'Option';
-    const status = (item.status === 'active') ? '🟢 ACTIVE' : '⚪ HIST';
-    if (!tradeMap.has(tid)) {
-      tradeMap.set(tid, `${status}: ${sym} (${shortTid})`);
+    const existing = tradeMap.get(shortTid);
+    if (!existing || (tid.length > (existing.trade_id || "").length)) {
+      tradeMap.set(shortTid, item);
     }
   });
 
-  let html = '<option value="ALL">All MM Trades</option>';
-  tradeMap.forEach((label, tid) => {
-    html += `<option value="${tid}" ${currentVal === tid ? 'selected' : ''}>${label}</option>`;
+  const allTrades = Array.from(tradeMap.values());
+  // Sort: active trades first, then sort_timestamp / created_at descending (newest first)
+  allTrades.sort((a, b) => {
+    const aActive = (a.status === "active") ? 1 : 0;
+    const bActive = (b.status === "active") ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+
+    const parseTs = (t) => {
+      if (t.sort_timestamp && Number(t.sort_timestamp) > 0) return Number(t.sort_timestamp);
+      if (t.created_at) {
+        const d = new Date(String(t.created_at).replace(" ", "T"));
+        if (!isNaN(d.getTime())) return d.getTime() / 1000;
+      }
+      return 0;
+    };
+    return parseTs(b) - parseTs(a);
   });
+
+  const activeTrades = allTrades.filter(t => t.status === "active");
+  const historyTrades = allTrades.filter(t => t.status !== "active");
+
+  let html = `<option value="ALL">📋 All MM Trades (${allTrades.length})</option>`;
+
+  if (activeTrades.length > 0) {
+    html += `<optgroup label="⚡ Live Active Trades (${activeTrades.length})">`;
+    activeTrades.forEach(t => {
+      const val = t.trade_id;
+      const label = formatTradeDropdownLabel(t);
+      html += `<option value="${val}" ${currentVal === val ? 'selected' : ''}>${label}</option>`;
+    });
+    html += "</optgroup>";
+  }
+
+  if (historyTrades.length > 0) {
+    html += `<optgroup label="📊 Completed Trades (Newest First) (${historyTrades.length})">`;
+    historyTrades.forEach(t => {
+      const val = t.trade_id;
+      const label = formatTradeDropdownLabel(t);
+      html += `<option value="${val}" ${currentVal === val ? 'selected' : ''}>${label}</option>`;
+    });
+    html += "</optgroup>";
+  }
+
   sel.innerHTML = html;
+
+  // Preserve previous selection if it exists or matches by suffix
+  if (currentVal && currentVal !== "ALL") {
+    let matchFound = false;
+    for (let i = 0; i < sel.options.length; i++) {
+      const optVal = sel.options[i].value;
+      if (optVal === currentVal || optVal.endsWith(currentVal) || currentVal.endsWith(optVal)) {
+        sel.selectedIndex = i;
+        matchFound = true;
+        break;
+      }
+    }
+    if (!matchFound) {
+      sel.value = "ALL";
+    }
+  }
 }
 
 function renderLogsContent() {
