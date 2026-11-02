@@ -196,6 +196,7 @@ function setEntrySide(side, triggerRecalc = true) {
   }
 
   updateModalTitleAndBadge();
+  updateEstimatedOrderMargin();
   if (triggerRecalc) {
     recalculateLadder();
   }
@@ -258,10 +259,92 @@ function updateLegsCounter() {
 }
 
 /**
+ * Calculates and updates the live estimated margin/cost requirement in USD and INR
+ */
+function updateEstimatedOrderMargin() {
+  if (!oomCurrentContract) return;
+
+  const inpQty = document.getElementById('oomInpQty');
+  const inpPrice = document.getElementById('oomInpPrice');
+  const lblEl = document.getElementById('oomMarginLabel');
+  const valEl = document.getElementById('oomMarginValue');
+  if (!lblEl || !valEl) return;
+
+  const qty = parseInt(inpQty?.value, 10) || 0;
+  const price = parseFloat(inpPrice?.value) || 0;
+
+  // Resolve contract lot size: 0.001 for BTC, 0.01 for ETH
+  let contractVal = oomCurrentContract.contractValue;
+  if (!contractVal || contractVal <= 0) {
+    contractVal = (oomCurrentContract.symbol && oomCurrentContract.symbol.includes('BTC')) ? 0.001 : 0.01;
+  }
+  const cryptoQty = qty * contractVal;
+
+  // Official Delta Exchange INR rate (default 85.0)
+  const inrRate = (typeof usdToInrRate !== 'undefined' && Number(usdToInrRate) > 0) ? Number(usdToInrRate) : 85.0;
+  const isBuy = oomCurrentContract.side === 'buy';
+
+  if (isBuy) {
+    lblEl.textContent = 'Est. Cost:';
+    const costUSD = price * cryptoQty;
+    const costINR = costUSD * inrRate;
+
+    valEl.textContent = `$${costUSD.toFixed(2)} (₹${costINR.toFixed(2)})`;
+
+    // Wallet balance availability check
+    const availUSD = (typeof currentWallet !== 'undefined' && currentWallet.usd_available !== undefined)
+      ? Number(currentWallet.usd_available)
+      : 0;
+
+    if (availUSD > 0 && costUSD > availUSD) {
+      valEl.style.color = '#ef4444'; // Red warning: insufficient funds
+      valEl.title = `Insufficient funds: $${availUSD.toFixed(2)} available`;
+    } else {
+      valEl.style.color = '#38bdf8'; // Standard cyan
+      valEl.title = 'Order cost within available balance';
+    }
+  } else {
+    lblEl.textContent = 'Est. Margin:';
+    // Short option margin formula
+    const isBtc = oomCurrentContract.symbol && oomCurrentContract.symbol.includes('BTC');
+    const spot = (typeof currentUnderlyingInfo !== 'undefined' && currentUnderlyingInfo.spot_price)
+      ? Number(currentUnderlyingInfo.spot_price)
+      : (isBtc ? 70000 : 2500);
+
+    const strike = Number(oomCurrentContract.strike) || spot;
+    const isCall = oomCurrentContract.optionType === 'call';
+    const otmAmount = isCall ? Math.max(0, strike - spot) : Math.max(0, spot - strike);
+    const baseMargin = 0.05 * spot;
+    const minMarginFloor = 0.005 * (isCall ? spot : strike);
+    const otmAdjusted = Math.max(baseMargin - otmAmount, minMarginFloor);
+    const shortMarginPerUnit = price + otmAdjusted;
+
+    const marginUSD = shortMarginPerUnit * cryptoQty;
+    const marginINR = marginUSD * inrRate;
+
+    valEl.textContent = `$${marginUSD.toFixed(2)} (₹${marginINR.toFixed(2)})`;
+
+    const availUSD = (typeof currentWallet !== 'undefined' && currentWallet.usd_available !== undefined)
+      ? Number(currentWallet.usd_available)
+      : 0;
+
+    if (availUSD > 0 && marginUSD > availUSD) {
+      valEl.style.color = '#ef4444';
+      valEl.title = `Insufficient funds: $${availUSD.toFixed(2)} available`;
+    } else {
+      valEl.style.color = '#f59e0b'; // Amber for short margin
+      valEl.title = 'Estimated short margin requirement';
+    }
+  }
+}
+window.updateEstimatedOrderMargin = updateEstimatedOrderMargin;
+
+/**
  * Generates and recalculates the take-profit ladder
  */
 function recalculateLadder() {
   if (!oomCurrentContract) return;
+  updateEstimatedOrderMargin();
   const chk = document.getElementById('oomChkMultipleTargets');
   if (!chk || !chk.checked) {
     updateLegsCounter();
@@ -592,4 +675,5 @@ window.onTargetRowQtyChange = onTargetRowQtyChange;
 window.onTargetRowPriceChange = onTargetRowPriceChange;
 window.executeOptionOrder = executeOptionOrder;
 window.updateOptionOrderModalTick = updateOptionOrderModalTick;
+window.updateEstimatedOrderMargin = updateEstimatedOrderMargin;
 

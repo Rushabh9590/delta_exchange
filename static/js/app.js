@@ -689,10 +689,10 @@ async function fetchLiveTickerTick() {
  * Starts continuous live polling and tick streaming
  */
 function startLiveStreaming() {
-  // Sync account equity & positions every 5 seconds (non-price metric)
+  // Sync account equity & positions every 2.5 seconds for responsive live position tracking
   setInterval(() => {
     fetchDashboardData(false);
-  }, 5000);
+  }, 2500);
 
   // Live Exchange Clock 1-second precision ticking
   setInterval(() => {

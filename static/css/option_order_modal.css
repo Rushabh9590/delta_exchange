@@ -311,6 +311,22 @@
   border-color: #38bdf8;
 }
 
+/* Margin / Cost Requirement Display */
+.oom-margin-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+  background: #101927;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  min-height: 25px;
+  box-sizing: border-box;
+}
+
 /* Checkboxes */
 .oom-check-row {
   display: flex;

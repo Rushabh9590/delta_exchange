@@ -30,6 +30,7 @@ function renderPositionsTable() {
   const searchVal = (document.getElementById('searchInput')?.value || '').toLowerCase();
 
   const filtered = currentPositions.filter(pos => {
+    if (!pos || !pos.abs_size || Number(pos.abs_size) <= 0) return false;
     if (currentFilter === 'calls' && pos.type_badge !== 'CALL') return false;
     if (currentFilter === 'puts' && pos.type_badge !== 'PUT') return false;
     if (currentFilter === 'options' && pos.type_badge !== 'CALL' && pos.type_badge !== 'PUT') return false;
@@ -45,13 +46,24 @@ function renderPositionsTable() {
     return true;
   });
 
+  const tfoot = document.getElementById('positionsTfoot');
+  const tableWrapper = tbody.closest('.table-responsive');
+  const tablePosCount = document.getElementById('tablePosCount');
+
+  if (tablePosCount) {
+    tablePosCount.textContent = `${filtered.length} Active`;
+  }
+
   if (filtered.length === 0) {
     tbody.innerHTML = '';
+    if (tfoot) tfoot.innerHTML = '';
+    if (tableWrapper) tableWrapper.style.display = 'none';
     emptyState.style.display = 'flex';
     return;
   }
 
   emptyState.style.display = 'none';
+  if (tableWrapper) tableWrapper.style.display = '';
 
   let totalTableNotional = 0;
   let totalTableUPnl = 0;
@@ -191,7 +203,6 @@ function renderPositionsTable() {
 
   tbody.innerHTML = html;
 
-  const tfoot = document.getElementById('positionsTfoot');
   if (tfoot) {
     if (filtered.length > 0) {
       const totNotionalMain = formatMoney(totalTableNotional, selectedCurrency, 2, 2);
@@ -303,7 +314,12 @@ async function squareOffPosition(productId, symbol) {
     const data = await ApiService.squareOffPosition(productId, symbol);
     if (data.success) {
       showToast(`⚡ Squared off ${symbol} successfully!`, 'success');
-      fetchDashboardData(true);
+      // Optimistically remove squared off position immediately for instant UI response
+      currentPositions = currentPositions.filter(p => String(p.product_id) !== String(productId) && p.symbol !== symbol);
+      renderDashboardValues();
+      renderPositionsTable();
+      setTimeout(() => fetchDashboardData(false), 600);
+      setTimeout(() => fetchDashboardData(false), 2000);
     } else {
       showToast(`Failed to square off ${symbol}: ${data.error}`, 'error');
     }
