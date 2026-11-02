@@ -348,6 +348,18 @@ const ApiService = {
   },
 
   /**
+   * Stops only the BUY leg of an active MM trade and lets the SELL exit continue
+   */
+  async stopMMBuying(tradeId) {
+    const res = await fetch('/api/mm/trade/stop-buying', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trade_id: tradeId })
+    });
+    return await res.json();
+  },
+
+  /**
    * Cancels an active MM trade and closes open positions at market
    */
   async cancelMMTrade(tradeId, marketClose = true) {

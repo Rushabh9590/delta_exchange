@@ -1221,6 +1221,70 @@ class MMTradeCycle:
             "cancelled_orders": cancelled_orders
         }
 
+    def stop_buying(self) -> dict:
+        """
+        Stops only the BUY leg of the active MM trade:
+        1. Cancels the active BUY limit order on Delta Exchange.
+        2. Sets buy_unfilled_qty = 0 and updates total_size to buy_filled_qty.
+        3. Keeps the trade cycle alive (is_running = True) so the SELL exit order
+           continues pegging / managing the open held inventory until filled at profit.
+        4. If 0 lots were filled, marks cycle as CANCELLED cleanly.
+        """
+        if self.stop_requested or self.state in ("CANCELLED", "ERROR", "COMPLETED_PROFIT", "COMPLETED_COST"):
+            return {"success": False, "error": f"Trade is already finished or stopped ({self.state})"}
+
+        self.log("[STOP BUYING] User requested Stop Buying. Cancelling active BUY order...")
+        cancelled_buy_id = None
+
+        if self.buy_order_id:
+            try:
+                self.client.cancel_order(product_id=self.product_id, order_id=int(self.buy_order_id))
+                cancelled_buy_id = self.buy_order_id
+            except Exception as e:
+                self.log(f"Notice cancelling buy order {self.buy_order_id}: {e}")
+            if self.private_ws:
+                try:
+                    self.private_ws.remove_order_listener(self.buy_order_id, self._on_buy_order_update)
+                except Exception:
+                    pass
+            self.buy_order_id = None
+
+        self.buy_unfilled_qty = 0
+        open_inventory = max(0, self.buy_filled_qty - self.sell_filled_qty)
+
+        if self.buy_filled_qty == 0:
+            self.is_running = False
+            self.stop_requested = True
+            self.state = "CANCELLED"
+            self.status_message = "Stopped buying with 0 fills. Trade cancelled."
+            self.log("[STOP BUYING] 0 lots were filled. Stopped trade cycle cleanly.")
+        else:
+            self.total_size = self.buy_filled_qty
+            self.size = self.buy_filled_qty
+            if open_inventory == 0:
+                self.is_running = False
+                self.stop_requested = True
+                self.state = "COMPLETED_PROFIT"
+                self.status_message = f"Stopped buying. All {self.buy_filled_qty} lots already sold."
+                self.log(f"[STOP BUYING] All {self.buy_filled_qty} lots already sold. Trade cycle completed.")
+            else:
+                self.state = "SELL_OPEN" if self.sell_filled_qty == 0 else "SELL_PARTIAL"
+                self.status_message = f"Buy stopped ({self.buy_filled_qty} filled). Continuing to sell remaining {open_inventory} lots."
+                self.log(f"[STOP BUYING] Buy stopped. Holding {open_inventory} open lots. SELL exit order remains active until filled.")
+
+        self.buy_fill_event.set()
+        self._persist_state()
+
+        return {
+            "success": True,
+            "trade_id": self.trade_id,
+            "state": self.state,
+            "buy_filled_qty": self.buy_filled_qty,
+            "sell_filled_qty": self.sell_filled_qty,
+            "open_inventory": open_inventory,
+            "cancelled_buy_order_id": cancelled_buy_id
+        }
+
     def upload_limit_price(self, new_price: float, side: str = None, is_manual: bool = False) -> dict:
         """
         Allows uploading/updating the limit price of the active order (Buy or Sell).
@@ -3266,6 +3330,14 @@ class DeltaMMEngine:
         if not cycle:
             return {"success": False, "error": f"Trade {trade_id} not found."}
         res = cycle.resume_auto_peg(side=side)
+        save_all_trades_state(self.active_cycles, self.history_cycles)
+        return res
+
+    def stop_buying(self, trade_id: str) -> dict:
+        cycle = self.get_cycle(trade_id)
+        if not cycle:
+            return {"success": False, "error": f"Trade {trade_id} not found."}
+        res = cycle.stop_buying()
         save_all_trades_state(self.active_cycles, self.history_cycles)
         return res
 

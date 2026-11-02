@@ -1641,7 +1641,6 @@ function renderActiveMmTrades(trades) {
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
-          <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
         `;
       }
 
@@ -1672,25 +1671,30 @@ function renderActiveMmTrades(trades) {
         inp.step = t.tick_size || 0.1;
       }
 
-      // Update Auto button and Logs button
+      // Update Stop Buying and Logs buttons
       const actionsEl = cardEl.querySelector('.mm-strip-actions');
       if (actionsEl) {
-        let btnAuto = actionsEl.querySelector(`#btnAuto_${t.trade_id}`);
-        if (isManualLocked) {
-          if (!btnAuto) {
-            btnAuto = document.createElement('button');
-            btnAuto.type = 'button';
-            btnAuto.id = `btnAuto_${t.trade_id}`;
-            btnAuto.className = 'mm-btn-autopeg';
-            btnAuto.title = 'Clear manual price lock and resume dynamic floating peg';
-            btnAuto.innerText = 'Auto';
-            btnAuto.onclick = () => resumeActiveTradePeg(t.trade_id);
-            const cancelBtn = actionsEl.querySelector('.mm-btn-cancel');
-            actionsEl.insertBefore(btnAuto, cancelBtn);
+        const canStopBuy = (t.buy_unfilled_qty == null || t.buy_unfilled_qty > 0) && t.is_running;
+        let btnStopBuy = actionsEl.querySelector(`#btnStopBuy_${t.trade_id}`);
+        const cancelBtn = actionsEl.querySelector('.mm-btn-cancel');
+
+        if (canStopBuy) {
+          if (!btnStopBuy && cancelBtn) {
+            btnStopBuy = document.createElement('button');
+            btnStopBuy.type = 'button';
+            btnStopBuy.id = `btnStopBuy_${t.trade_id}`;
+            btnStopBuy.className = 'mm-btn-stop-buy';
+            btnStopBuy.title = 'Cancel BUY order and stop acquiring lots; continue selling held inventory';
+            btnStopBuy.innerText = 'Stop Buying';
+            btnStopBuy.onclick = () => stopBuyingActiveTrade(t.trade_id);
+            actionsEl.insertBefore(btnStopBuy, cancelBtn);
           }
-        } else if (btnAuto) {
-          btnAuto.remove();
+        } else if (btnStopBuy) {
+          btnStopBuy.remove();
         }
+
+        const staleAuto = actionsEl.querySelector(`#btnAuto_${t.trade_id}`);
+        if (staleAuto) staleAuto.remove();
 
         let btnLogs = actionsEl.querySelector(`#btnLogs_${t.trade_id}`);
         if (!btnLogs) {
@@ -1726,7 +1730,6 @@ function renderActiveMmTrades(trades) {
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Account:</span> <strong>${(t.account || 'main').toUpperCase()} (${t.size || 1} Lot${(t.size || 1) > 1 ? 's' : ''})</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">Cost:</span> <strong style="color: #38bdf8;">${costStr}</strong></span>
           <span class="mm-strip-chip"><span style="color: #94a3b8;">PnL:</span> <strong class="${t.realized_pnl >= 0 ? 'text-green' : 'text-red'}">$${t.realized_pnl.toFixed(4)}</strong></span>
-          <span class="mm-strip-chip mm-strip-status-chip" title="${t.status_message}"><span style="color: #94a3b8;">Status:</span> <span class="mm-status-text">${t.status_message}</span></span>
         </div>
 
         ${t.is_running ? `
@@ -1739,7 +1742,7 @@ function renderActiveMmTrades(trades) {
             ` : `<span style="font-size: 0.72rem; color: #94a3b8;">Price:</span>`}
             <input type="number" step="${t.tick_size || 0.1}" class="mm-upload-input" id="inpUpload_${t.trade_id}" value="${formattedVal}" placeholder="Price" oninput="this.dataset.dirty='true'" onkeydown="if(event.key==='Enter')uploadActiveTradePrice('${t.trade_id}')" />
             <button type="button" class="mm-btn-upload" id="btnUpload_${t.trade_id}" onclick="uploadActiveTradePrice('${t.trade_id}')">Update</button>
-            ${isManualLocked ? `<button type="button" class="mm-btn-autopeg" id="btnAuto_${t.trade_id}" title="Clear manual price lock and resume dynamic floating peg" onclick="resumeActiveTradePeg('${t.trade_id}')">Auto</button>` : ''}
+            ${(t.buy_unfilled_qty == null || t.buy_unfilled_qty > 0) ? `<button type="button" class="mm-btn-stop-buy" id="btnStopBuy_${t.trade_id}" title="Cancel BUY order and stop acquiring lots; continue selling held inventory" onclick="stopBuyingActiveTrade('${t.trade_id}')">Stop Buying</button>` : ''}
             <button type="button" class="mm-btn-cancel" onclick="cancelActiveTrade('${t.trade_id}')">Stop</button>
             <button type="button" class="mm-btn-logs-link" id="btnLogs_${t.trade_id}" title="View real-time execution logs for this trade" onclick="openLiveLogsForTrade('${t.trade_id}')">Logs</button>
           </div>
@@ -1827,6 +1830,35 @@ async function resumeActiveTradePeg(tradeId) {
   }
 }
 window.resumeActiveTradePeg = resumeActiveTradePeg;
+
+/**
+ * Stops only the BUY leg of an active MM trade, allowing SELL exit orders to continue
+ */
+async function stopBuyingActiveTrade(tradeId) {
+  if (!confirm('🛑 Stop Buying for this MM trade?\n\nThis will cancel the pending BUY order. Any filled/held open position will CONTINUE to be sold via the SELL exit order until exited.')) return;
+  const btn = document.getElementById(`btnStopBuy_${tradeId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Stopping...';
+  }
+  try {
+    const res = await ApiService.stopMMBuying(tradeId);
+    if (res && res.success) {
+      showToast(`Buy stopped! Managing exit for ${res.open_inventory || 0} open lot(s).`, 'success');
+      await pollActiveMmTrades();
+    } else {
+      showToast(`Stop buying failed: ${res?.error || 'Error'}`, 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = 'Stop Buying';
+    }
+  }
+}
+window.stopBuyingActiveTrade = stopBuyingActiveTrade;
 
 /**
  * Cancels an active trade and squares off any open position at market order

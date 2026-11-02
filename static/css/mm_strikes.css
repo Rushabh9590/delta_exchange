@@ -1049,6 +1049,24 @@ tr.row-max-oi:hover {
   color: #fff;
 }
 
+.mm-btn-stop-buy {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #f59e0b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.mm-btn-stop-buy:hover {
+  background: #f59e0b;
+  color: #000;
+}
+
 .mm-btn-autopeg {
   background: rgba(168, 85, 247, 0.15);
   border: 1px solid rgba(168, 85, 247, 0.4);

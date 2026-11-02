@@ -1492,6 +1492,24 @@ def resume_trade_peg():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/mm/trade/stop-buying", methods=["POST"])
+def stop_buying_market_making_trade():
+    """
+    Stops only the BUY leg of an active MM trade, allowing the SELL exit order
+    for open held inventory to continue running.
+    """
+    try:
+        data = request.get_json() or {}
+        trade_id = data.get("trade_id")
+        if not trade_id:
+            return jsonify({"success": False, "error": "'trade_id' is required."}), 400
+
+        res = mm_engine.stop_buying(trade_id)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/mm/trade/cancel", methods=["POST"])
 def cancel_market_making_trade():
     """
