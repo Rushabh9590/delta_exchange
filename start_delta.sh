@@ -115,3 +115,17 @@ echo "View Cloudflare:   tmux attach -t cloudflare"
 
 echo
 echo "Detach from tmux: Ctrl+B, then D"
+# Wait for Cloudflare URL
+for i in {1..30}; do
+    if [[ -s "$LATEST_URL" ]] && grep -q 'https://.*trycloudflare.com' "$LATEST_URL"; then
+        break
+    fi
+    sleep 2
+done
+
+# Send URL once and exit
+if [[ -s "$LATEST_URL" ]]; then
+    bash "$APP_DIR/telegram_url_monitor.sh"
+else
+    log "Cloudflare URL not generated. Telegram notification skipped."
+fi
