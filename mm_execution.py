@@ -3284,8 +3284,17 @@ class DeltaMMEngine:
             return cycle
 
     def get_cycle(self, trade_id: str) -> MMTradeCycle | None:
+        if not trade_id:
+            return None
+        tid_str = str(trade_id).strip()
         with self._lock:
-            return self.active_cycles.get(trade_id)
+            if tid_str in self.active_cycles:
+                return self.active_cycles[tid_str]
+            # Match by suffix (e.g. short 6-character trade ID) or contained trade_id
+            for k, c in self.active_cycles.items():
+                if k.endswith(tid_str) or tid_str.endswith(k) or tid_str in k:
+                    return c
+            return None
 
     def list_active(self) -> list[dict]:
         with self._lock:
@@ -3346,7 +3355,13 @@ class DeltaMMEngine:
         if not cycle:
             return {"success": False, "error": f"Trade {trade_id} not found."}
         res = cycle.stop(market_close=market_close)
-        save_all_trades_state(self.active_cycles, self.history_cycles)
+        with self._lock:
+            # Explicitly remove from active_cycles and record in history
+            self._add_history(cycle.to_dict(), max_items=50)
+            self.active_cycles.pop(cycle.trade_id, None)
+            if trade_id in self.active_cycles:
+                self.active_cycles.pop(trade_id, None)
+            save_all_trades_state(self.active_cycles, self.history_cycles)
         return res
 
     def cancel_all_trades(self, market_close: bool = True) -> dict:

@@ -311,7 +311,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
     :param leg: dict {symbol, side, size, order_type, limit_price, ...}
     :return: standardized result dictionary
     """
-    c = client or get_client()
+    c = client or get_client(account=leg.get("account"))
     leg_idx = leg.get("leg_index", 1)
     symbol = leg.get("symbol", "").strip()
     product_id = leg.get("product_id")
@@ -349,6 +349,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
 
         tick_size = prod.get("tick_size", "0.5")
 
+        account_name = leg.get("account") or getattr(c, "account_name", "main") or "main"
         if order_type_str == "limit":
             limit_price = leg.get("limit_price")
             if limit_price is None or float(limit_price) <= 0:
@@ -362,6 +363,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
             elif tif_val == "fok":
                 tif = TimeInForce.FOK
 
+            print(f"[OPTION-ORDER] [{account_name.upper()}] Submitting LIMIT {side.upper()} {size} contracts on {symbol} @ ${valid_price} (TIF: {tif_val.upper()}, PostOnly: {bool(leg.get('post_only'))})...", flush=True)
             res = c.place_order(
                 product_id=product_id,
                 size=size,
@@ -374,6 +376,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
             )
         else:
             # Market order
+            print(f"[OPTION-ORDER] [{account_name.upper()}] Submitting MARKET {side.upper()} {size} contracts on {symbol}...", flush=True)
             res = c.place_order(
                 product_id=product_id,
                 size=size,
@@ -383,6 +386,7 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
 
         order_id = res.get("id") if isinstance(res, dict) else None
         state = res.get("state") if isinstance(res, dict) else "placed"
+        print(f"[OPTION-ORDER SUCCESS] [{account_name.upper()}] Order #{order_id} placed! Status: {state.upper()} | {side.upper()} {size} {symbol} @ {valid_price if order_type_str == 'limit' else 'MARKET'}", flush=True)
 
         return {
             "leg_index": leg_idx,
@@ -440,6 +444,8 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
         except Exception:
             pass
 
+        account_name = leg.get("account") or getattr(c, "account_name", "main") or "main"
+        print(f"[OPTION-ORDER FAILED] [{account_name.upper()}] {side.upper()} {size} {symbol} failed: {clean_err}", flush=True)
         return {
             "leg_index": leg_idx,
             "symbol": symbol,
@@ -549,6 +555,8 @@ def square_off_single_position(product_id_or_symbol, client: DeltaRestClient = N
     opposing_side = "sell" if size > 0 else "buy"
     close_size = int(abs(size))
 
+    acct_name = getattr(c, "account_name", "main") or "main"
+    print(f"[SQUARE-OFF] [{acct_name.upper()}] Closing position on {symbol}: MARKET {opposing_side.upper()} {close_size} contracts...", flush=True)
     try:
         res = c.place_order(
             product_id=product_id,
@@ -556,6 +564,8 @@ def square_off_single_position(product_id_or_symbol, client: DeltaRestClient = N
             side=opposing_side,
             order_type=OrderType.MARKET
         )
+        order_id = res.get("id") if isinstance(res, dict) else None
+        print(f"[SQUARE-OFF SUCCESS] [{acct_name.upper()}] Successfully closed {close_size} contracts of {symbol} (Order #{order_id})!", flush=True)
         return {
             "success": True,
             "symbol": symbol,
@@ -565,6 +575,7 @@ def square_off_single_position(product_id_or_symbol, client: DeltaRestClient = N
             "response": res
         }
     except Exception as e:
+        print(f"[SQUARE-OFF ERROR] [{acct_name.upper()}] Failed to square off {symbol}: {e}", flush=True)
         return {
             "success": False,
             "symbol": symbol,

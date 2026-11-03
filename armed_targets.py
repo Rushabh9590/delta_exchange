@@ -138,6 +138,7 @@ class ArmedTargetManager:
                 raise ValueError("Limit price must be greater than 0.")
             valid_price = align_price(float(limit_price), tick_size)
 
+        print(f"[ARMED-LADDER] [{acct.upper()}] Submitting Entry {order_type_clean.upper()} {side_clean.upper()} {size} contracts on {symbol} @ {valid_price or 'MARKET'} (Targets armed: {len(targets)})...", flush=True)
         entry_res = client.place_order(
             product_id=product_id,
             size=int(size),
@@ -151,6 +152,10 @@ class ArmedTargetManager:
 
         entry_order_id = entry_res.get("id") if isinstance(entry_res, dict) else None
         entry_state = entry_res.get("state", "open") if isinstance(entry_res, dict) else "open"
+        print(f"[ARMED-LADDER SUCCESS] [{acct.upper()}] Entry Order #{entry_order_id} placed! Status: {entry_state.upper()} | {side_clean.upper()} {size} {symbol} @ {valid_price or 'MARKET'}", flush=True)
+
+        # Check immediate fill (Delta returns 'closed' with unfilled_size 0 when filled!)
+        is_filled_now = (entry_state in ("filled", "closed")) or (isinstance(entry_res, dict) and entry_res.get("unfilled_size") == 0)
 
         # 3. Check if Multiple Targets are armed
         valid_targets = []
@@ -195,13 +200,54 @@ class ArmedTargetManager:
             },
             "has_targets": len(valid_targets) > 0,
             "targets": valid_targets,
-            "status": "ENTRY_PLACED" if not valid_targets else ("TARGETS_SUBMITTED" if entry_state == "filled" else "ARMED_WAITING_FILL"),
-            "status_message": "Entry order placed." if not valid_targets else ("Entry filled immediately! Submitting ladder..." if entry_state == "filled" else "Entry order placed. Ladder armed, waiting for fill.")
+            "status": "ENTRY_PLACED" if not valid_targets else ("TARGETS_SUBMITTED" if is_filled_now else "ARMED_WAITING_FILL"),
+            "status_message": "Entry order placed." if not valid_targets else ("Entry filled immediately! Submitting ladder..." if is_filled_now else "Entry order placed. Ladder armed, waiting for fill.")
         }
 
         # If entry filled immediately (e.g. Market order or crossing Limit)
-        if valid_targets and entry_state == "filled":
+        if valid_targets and is_filled_now:
             self._submit_target_ladder(cycle, client)
+
+        # Register Sub-50ms WebSocket listener for instant fill trigger
+        if valid_targets and not is_filled_now and entry_order_id:
+            try:
+                from websocket import get_private_ws_manager
+                ws_mgr = get_private_ws_manager(account=acct)
+                if ws_mgr:
+                    def _on_entry_ws(order_data):
+                        st = str(order_data.get("state", "")).lower()
+                        unf = order_data.get("unfilled_size")
+                        tot = order_data.get("size")
+                        filled_qty = (float(tot) - float(unf)) if (tot is not None and unf is not None) else 0.0
+
+                        if st in ("filled", "closed") or (unf is not None and float(unf) == 0):
+                            with self._lock:
+                                if cycle_id in self.active_cycles and self.active_cycles[cycle_id]["status"] == "ARMED_WAITING_FILL":
+                                    print(f"[ARMED LADDER WS] Sub-50ms Entry Order #{entry_order_id} fill on {symbol}! Triggering target ladder...", flush=True)
+                                    self._submit_target_ladder(cycle, client)
+                                    self.active_cycles.pop(cycle_id, None)
+                                    self.history_cycles.append(cycle)
+                                    if len(self.history_cycles) > 50:
+                                        self.history_cycles = self.history_cycles[-50:]
+                                    self.save_persisted_cycles()
+                        elif st in ("cancelled", "rejected", "expired"):
+                            with self._lock:
+                                if cycle_id in self.active_cycles and self.active_cycles[cycle_id]["status"] == "ARMED_WAITING_FILL":
+                                    if filled_qty > 0:
+                                        print(f"[ARMED LADDER WS] Entry Order #{entry_order_id} on {symbol} cancelled with {int(filled_qty)} lots partially filled. Submitting targets for filled lots...", flush=True)
+                                        self._submit_target_ladder(cycle, client, max_qty=int(filled_qty))
+                                    else:
+                                        print(f"[ARMED LADDER WS] Entry Order #{entry_order_id} on {symbol} CANCELLED with 0 fills. Disarming ladder: NO sell orders placed.", flush=True)
+                                        cycle["status"] = "ENTRY_CANCELLED"
+                                        cycle["status_message"] = f"Entry order was {st} on exchange with 0 fills. Ladder disarmed (no targets placed)."
+                                    self.active_cycles.pop(cycle_id, None)
+                                    self.history_cycles.append(cycle)
+                                    if len(self.history_cycles) > 50:
+                                        self.history_cycles = self.history_cycles[-50:]
+                                    self.save_persisted_cycles()
+                    ws_mgr.add_order_listener(entry_order_id, _on_entry_ws)
+            except Exception as ws_err:
+                logger.warning(f"Failed to register WS listener for armed order: {ws_err}")
 
         with self._lock:
             if cycle["has_targets"] and cycle["status"] == "ARMED_WAITING_FILL":
@@ -222,20 +268,31 @@ class ArmedTargetManager:
             "cycle": cycle
         }
 
-    def _submit_target_ladder(self, cycle: dict, client=None):
-        """Submits all target take-profit limit orders with reduce_only=True."""
+    def _submit_target_ladder(self, cycle: dict, client=None, max_qty: int = None):
+        """Submits target take-profit limit orders with reduce_only=True."""
         acct = cycle.get("account", "main")
         c = client or get_delta_client(account=acct)
         product_id = cycle.get("product_id")
         targets = cycle.get("targets", [])
         symbol = cycle.get("symbol")
 
+        print(f"[ARMED LADDER TRIGGERED] Submitting reduce-only take-profit targets for {symbol} on [{acct.upper()}]...", flush=True)
         submitted_count = 0
+        allocated_qty = 0
         for t in targets:
+            target_sz = int(t["size"])
+            if max_qty is not None:
+                if allocated_qty >= max_qty:
+                    t["status"] = "CANCELLED_UNFILLED_ENTRY"
+                    continue
+                if allocated_qty + target_sz > max_qty:
+                    target_sz = max_qty - allocated_qty
+                allocated_qty += target_sz
+
             try:
                 res = c.place_order(
                     product_id=product_id,
-                    size=int(t["size"]),
+                    size=target_sz,
                     side=t["side"].lower(),
                     limit_price=str(t["price"]),
                     order_type=OrderType.LIMIT,
@@ -247,9 +304,11 @@ class ArmedTargetManager:
                 t["status"] = "PLACED"
                 t["response"] = res
                 submitted_count += 1
+                print(f"   ↳ [TARGET {t.get('target_index')}/{len(targets)} PLACED] Order #{t.get('order_id')} | {t['side'].upper()} {t['size']} {symbol} @ ${t['price']} (reduce-only)", flush=True)
             except Exception as e:
                 t["status"] = "ERROR"
                 t["error"] = str(e)
+                print(f"   ↳ [TARGET {t.get('target_index')}/{len(targets)} FAILED] {e}", flush=True)
                 logger.error(f"[ARMED LADDER] Error placing target {t.get('target_index')} for {symbol}: {e}")
 
         cycle["status"] = "TARGETS_SUBMITTED"
@@ -280,13 +339,17 @@ class ArmedTargetManager:
                         try:
                             client = get_delta_client(account=acct)
                             order_info = client.get_order(product_id=pid, order_id=entry_id)
-                            order_state = order_info.get("state") if isinstance(order_info, dict) else None
+                            order_state = str(order_info.get("state", "")).lower() if isinstance(order_info, dict) else ""
+                            unfilled = float(order_info.get("unfilled_size", -1)) if isinstance(order_info, dict) else -1
                             if not order_state:
                                 continue
 
                             cycle["entry"]["state"] = order_state
 
-                            if order_state == "filled":
+                            is_filled = (order_state in ("filled", "closed")) or (unfilled == 0)
+
+                            if is_filled:
+                                print(f"[ARMED LADDER WATCHER] Entry Order #{entry_id} for {cycle.get('symbol')} FILLED (State: {order_state})! Triggering multi-target take-profit ladder...", flush=True)
                                 self._submit_target_ladder(cycle, client)
                                 with self._lock:
                                     if cid in self.active_cycles:
@@ -297,15 +360,24 @@ class ArmedTargetManager:
                                     self.save_persisted_cycles()
 
                             elif order_state in ("cancelled", "rejected", "expired"):
-                                cycle["status"] = "ENTRY_CANCELLED"
-                                cycle["status_message"] = f"Entry order was {order_state}. Ladder disarmed."
+                                total_sz = float(order_info.get("size", 0) or 0)
+                                unfilled_sz = float(order_info.get("unfilled_size", 0) or 0)
+                                filled_sz = max(0.0, total_sz - unfilled_sz)
+
                                 with self._lock:
                                     if cid in self.active_cycles:
+                                        if filled_sz > 0:
+                                            print(f"[ARMED LADDER WATCHER] Entry Order #{entry_id} for {cycle.get('symbol')} was cancelled with {int(filled_sz)} lots filled. Submitting targets for filled lots...", flush=True)
+                                            self._submit_target_ladder(cycle, client, max_qty=int(filled_sz))
+                                        else:
+                                            print(f"[ARMED LADDER WATCHER] Entry Order #{entry_id} for {cycle.get('symbol')} was {order_state.upper()} with 0 fills. Ladder disarmed: NO sell orders placed.", flush=True)
+                                            cycle["status"] = "ENTRY_CANCELLED"
+                                            cycle["status_message"] = f"Entry order was {order_state} with 0 fills. Ladder disarmed."
                                         self.active_cycles.pop(cid, None)
                                         self.history_cycles.append(cycle)
                                         if len(self.history_cycles) > 50:
                                             self.history_cycles = self.history_cycles[-50:]
-                                    self.save_persisted_cycles()
+                                        self.save_persisted_cycles()
                         except Exception as check_err:
                             pass
                 except Exception:

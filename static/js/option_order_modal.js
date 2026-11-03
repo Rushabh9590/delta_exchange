@@ -159,6 +159,13 @@ function updateModalTitleAndBadge() {
     const expPretty = formatExpiryPretty(oomCurrentContract.expiry);
     badgeEl.textContent = `${isPut ? 'PUT' : 'CALL'} · ${strikeStr} · ${expPretty}`;
   }
+
+  const acctEl = document.getElementById('oomAccountBadge');
+  const activeAcct = (window.currentActiveAccount || 'sub').toUpperCase();
+  if (acctEl) {
+    acctEl.textContent = `ACCT: ${activeAcct}`;
+    acctEl.className = `oom-account-badge ${activeAcct.toLowerCase()}`;
+  }
 }
 
 function updateMarketBannerQuotes() {
@@ -552,7 +559,7 @@ async function executeOptionOrder() {
   }
 
   try {
-    const activeAcct = (typeof currentAccount !== 'undefined' ? currentAccount : 'main');
+    const activeAcct = (window.currentActiveAccount || (typeof currentAccount !== 'undefined' ? currentAccount : null) || 'sub').toLowerCase();
 
     const payload = {
       symbol: oomCurrentContract.symbol,
@@ -585,7 +592,7 @@ async function executeOptionOrder() {
         if (hasMultipleTargets) {
           showToast(`⚡ Entry order placed for ${oomCurrentContract.symbol}! ${oomTargetsData.length} Targets Armed on [${activeAcct.toUpperCase()}].`, 'success');
         } else {
-          showToast(`⚡ ${orderType.toUpperCase()} order placed successfully for ${oomCurrentContract.symbol}!`, 'success');
+          showToast(`⚡ ${orderType.toUpperCase()} order placed successfully for ${oomCurrentContract.symbol} on [${activeAcct.toUpperCase()}]!`, 'success');
         }
       }
     } else {

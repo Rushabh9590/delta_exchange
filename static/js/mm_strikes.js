@@ -1874,6 +1874,11 @@ async function cancelActiveTrade(tradeId) {
         showToast('Trade stopped and limit orders cancelled.', 'normal');
       }
       pollActiveMmTrades();
+      // If Live Logs modal is currently open, refresh logs immediately
+      const logsModal = document.getElementById('liveLogsModal');
+      if (logsModal && logsModal.style.display !== 'none' && typeof refreshCurrentLogs === 'function') {
+        refreshCurrentLogs();
+      }
     } else {
       showToast(`Cancel failed: ${res?.error || 'Error'}`, 'error');
     }
@@ -2418,6 +2423,30 @@ function appendLiveLogLine(item) {
   if (chkScroll && chkScroll.checked) {
     container.scrollTop = container.scrollHeight;
   }
+
+  // Live SSE update: If log indicates a trade cycle concluded or was cancelled, update dropdown immediately
+  const itemTxt = item.text || '';
+  if (itemTxt.includes('Final State:') || itemTxt.includes('MM cycle ended') || itemTxt.includes('Cancellation / Stop') || itemTxt.includes('COMPLETE!')) {
+    const rawTid = item.trade_id || (itemTxt.match(/\[MM-([a-zA-Z0-9]+)\]/)?.[1]);
+    if (rawTid && cachedLogsData && Array.isArray(cachedLogsData.trades_list)) {
+      const matchTrade = cachedLogsData.trades_list.find(t =>
+        t.trade_id === rawTid || (t.trade_id && (t.trade_id.endsWith(rawTid) || rawTid.endsWith(t.trade_id)))
+      );
+      if (matchTrade) {
+        matchTrade.status = 'history';
+        if (itemTxt.includes('CANCEL')) {
+          matchTrade.state = 'CANCELLED';
+        } else if (itemTxt.includes('PROFIT')) {
+          matchTrade.state = 'COMPLETED_PROFIT';
+        } else if (itemTxt.includes('COST')) {
+          matchTrade.state = 'COMPLETED_COST';
+        } else {
+          matchTrade.state = 'HISTORICAL';
+        }
+        updateTradeFilterDropdown(cachedLogsData.trades_list);
+      }
+    }
+  }
 }
 
 function toggleLogsAutoRefresh() {
@@ -2561,18 +2590,36 @@ function formatTradeTimestamp(createdAt, sortTimestamp) {
 }
 window.formatTradeTimestamp = formatTradeTimestamp;
 
+function isTradeActuallyActive(item) {
+  if (!item) return false;
+  const state = (item.state || "").toUpperCase();
+  if (["CANCELLED", "COMPLETED_PROFIT", "COMPLETED_COST", "STOPPED", "ERROR", "REJECTED_MAX_OI"].includes(state)) {
+    return false;
+  }
+  if (item.is_running === false) {
+    return false;
+  }
+  if (item.status === "history") {
+    return false;
+  }
+  return item.status === "active" || ["ACTIVE", "BUY_OPEN", "BUY_PLACED", "SELL_OPEN", "SELL_PLACED", "DUAL_ACTIVE"].includes(state);
+}
+window.isTradeActuallyActive = isTradeActuallyActive;
+
 function formatTradeDropdownLabel(item) {
   const tid = item.trade_id || "";
   const shortTid = tid.slice(-6) || tid;
   const sym = item.symbol || "Option";
-  const isActive = item.status === "active" || ["ACTIVE", "BUY_OPEN", "BUY_PLACED", "SELL_OPEN", "SELL_PLACED"].includes(item.state);
   const state = (item.state || "").toUpperCase();
+  const isActive = isTradeActuallyActive(item);
   const pnl = parseFloat(item.realized_pnl) || 0.0;
   const timeLabel = formatTradeTimestamp(item.created_at, item.sort_timestamp);
 
   let badge = "";
   if (isActive) {
     badge = "⚡ LIVE";
+  } else if (state === "CANCELLED" || state.includes("CANCEL")) {
+    badge = pnl < -0.0001 ? `🔴 [CANCEL -$${Math.abs(pnl).toFixed(4).replace(/0+$/, "")}]` : "🔴 [CANCEL]";
   } else if (pnl > 0.00001 || state === "COMPLETED_PROFIT") {
     const pnlStr = pnl > 0 ? `+$${pnl.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}` : "PROFIT";
     badge = `🟢 [${pnlStr}]`;
@@ -2616,8 +2663,8 @@ function updateTradeFilterDropdown(tradesList) {
   const allTrades = Array.from(tradeMap.values());
   // Sort: active trades first, then sort_timestamp / created_at descending (newest first)
   allTrades.sort((a, b) => {
-    const aActive = (a.status === "active") ? 1 : 0;
-    const bActive = (b.status === "active") ? 1 : 0;
+    const aActive = isTradeActuallyActive(a) ? 1 : 0;
+    const bActive = isTradeActuallyActive(b) ? 1 : 0;
     if (aActive !== bActive) return bActive - aActive;
 
     const parseTs = (t) => {
@@ -2631,8 +2678,8 @@ function updateTradeFilterDropdown(tradesList) {
     return parseTs(b) - parseTs(a);
   });
 
-  const activeTrades = allTrades.filter(t => t.status === "active");
-  const historyTrades = allTrades.filter(t => t.status !== "active");
+  const activeTrades = allTrades.filter(t => isTradeActuallyActive(t));
+  const historyTrades = allTrades.filter(t => !isTradeActuallyActive(t));
 
   let html = `<option value="ALL">📋 All MM Trades (${allTrades.length})</option>`;
 

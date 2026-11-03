@@ -1640,17 +1640,21 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
                     if m:
                         ts = float(m.group(1))
 
+                c_state = getattr(cycle, "state", "ACTIVE")
+                c_running = getattr(cycle, "is_running", True)
+                is_active = c_running and c_state not in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI")
+
                 trades_metadata[tid] = {
                     "trade_id": tid,
                     "symbol": cycle.symbol,
-                    "status": "active",
-                    "state": getattr(cycle, "state", "ACTIVE"),
+                    "status": "active" if is_active else "history",
+                    "state": c_state,
                     "realized_pnl": float(getattr(cycle, "realized_pnl", 0.0) or 0.0),
                     "created_at": str(created_at) if created_at else None,
                     "sort_timestamp": ts
                 }
                 for l in getattr(cycle, "logs", []):
-                    _ingest(l, default_tid=tid, default_sym=cycle.symbol, status="active")
+                    _ingest(l, default_tid=tid, default_sym=cycle.symbol, status="active" if is_active else "history")
 
             for h in mm_engine.history_cycles:
                 tid = h.get("trade_id", "")
@@ -1780,6 +1784,21 @@ def collect_all_mm_logs(trade_filter: str = "ALL", search_query: str = "", limit
             if trades_metadata[tid].get("sort_timestamp", 0.0) == 0.0 and ts > 0.0:
                 trades_metadata[tid]["sort_timestamp"] = ts
                 trades_metadata[tid]["created_at"] = dt_str
+
+        # If log content reveals terminal state, update metadata to historical state
+        txt = (item.get("text") or "")
+        if "Final State: CANCELLED" in txt or "Cancellation / Stop" in txt or "Cancelled by user" in txt:
+            if tid in trades_metadata:
+                trades_metadata[tid]["state"] = "CANCELLED"
+                trades_metadata[tid]["status"] = "history"
+        elif "COMPLETED_PROFIT" in txt:
+            if tid in trades_metadata:
+                trades_metadata[tid]["state"] = "COMPLETED_PROFIT"
+                trades_metadata[tid]["status"] = "history"
+        elif "COMPLETED_COST" in txt:
+            if tid in trades_metadata:
+                trades_metadata[tid]["state"] = "COMPLETED_COST"
+                trades_metadata[tid]["status"] = "history"
 
     # Fill in symbol for items if missing but in metadata
     for item in logs_map.values():
@@ -2120,10 +2139,12 @@ def place_single_order():
     """
     try:
         data = request.get_json() or {}
-        client = get_client()
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
         result = execute_single_leg_order(data, client=client)
         return jsonify(result)
     except Exception as e:
+        print(f"[API ERROR /api/orders/single] {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -2144,7 +2165,7 @@ def place_ladder_entry_order():
         limit_price = float(data.get("limit_price")) if data.get("limit_price") else None
         time_in_force = data.get("time_in_force", "gtc")
         post_only = bool(data.get("post_only", False))
-        account = data.get("account")
+        account = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
         targets = data.get("targets", [])
 
         res = armed_target_manager.create_order_with_ladder(
@@ -2201,10 +2222,12 @@ def square_off_pos():
         if not identifier:
             return jsonify({"success": False, "error": "Product ID or Symbol required."}), 400
 
-        client = get_client()
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
         res = square_off_single_position(identifier, client=client)
         return jsonify(res)
     except Exception as e:
+        print(f"[API ERROR /api/orders/square-off] {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -2214,7 +2237,9 @@ def square_off_all():
     Squares off ALL currently open positions at market in 1 click.
     """
     try:
-        client = get_client()
+        data = request.get_json(silent=True) or {}
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
         res = square_off_all_open_positions(client=client)
         return jsonify(res)
     except Exception as e:
@@ -2228,6 +2253,12 @@ if __name__ == "__main__":
     print(f" Local Web UI:    http://127.0.0.1:{port}", flush=True)
     print(f" Wi-Fi LAN UI:    http://10.90.1.60:{port}", flush=True)
     print(f"==================================================", flush=True)
-    # Start server WebSocket stream manager
+    # Start server WebSocket stream managers (Public + Private accounts)
     get_ws_manager()
+    try:
+        from websocket import get_private_ws_manager
+        get_private_ws_manager("main")
+        get_private_ws_manager("sub")
+    except Exception as ws_e:
+        print(f"[PRIVATE WS INIT NOTICE] {ws_e}", flush=True)
     app.run(host="0.0.0.0", port=port, debug=False)

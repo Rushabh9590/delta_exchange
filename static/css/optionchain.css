@@ -153,6 +153,7 @@
 /* Option Chain Main Table */
 .oc-table-wrapper {
   overflow-x: auto;
+  overflow-y: auto;
   border: 1px solid var(--border-card);
   border-radius: var(--radius-md);
   background: var(--bg-card);
@@ -167,16 +168,28 @@
 .oc-table {
   width: 100%;
   table-layout: fixed;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.76rem;
   white-space: nowrap;
+  --oc-super-h: 34px;
+}
+
+.oc-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 25;
 }
 
 /* Super Headers (CALLS vs STRIKE vs PUTS) */
 .oc-super-header th {
-  padding: 8px 10px;
+  height: var(--oc-super-h);
+  max-height: var(--oc-super-h);
+  line-height: var(--oc-super-h);
+  padding: 0 10px;
+  box-sizing: border-box;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -184,11 +197,13 @@
   text-align: center;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 26;
+  border-bottom: 1px solid var(--border-card);
 }
 
 .oc-super-call {
-  background: rgba(16, 185, 129, 0.18) !important;
+  background: #0e241d !important;
+  background: linear-gradient(rgba(16, 185, 129, 0.24), rgba(16, 185, 129, 0.24)), #0c1420 !important;
   color: var(--accent-green) !important;
   border-right: 2px solid var(--border-card);
 }
@@ -201,7 +216,8 @@
 }
 
 .oc-super-put {
-  background: rgba(168, 85, 247, 0.18) !important;
+  background: #1f142c !important;
+  background: linear-gradient(rgba(168, 85, 247, 0.24), rgba(168, 85, 247, 0.24)), #0c1420 !important;
   color: var(--accent-purple) !important;
   border-left: 2px solid var(--border-card);
 }
@@ -209,15 +225,15 @@
 /* Column Sub-Headers */
 .oc-sub-header th {
   position: sticky;
-  top: 35px;
-  z-index: 10;
-  background: #111722;
+  top: var(--oc-super-h);
+  z-index: 25;
+  background: #111722 !important;
   padding: 8px 6px;
   font-size: 0.68rem;
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  border-bottom: 1px solid var(--border-card);
+  border-bottom: 2px solid var(--border-card);
   box-sizing: border-box;
 }
 
@@ -331,6 +347,7 @@
   padding: 6px 5px;
   vertical-align: middle;
   box-sizing: border-box;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 /* Center Strike Column */
@@ -578,12 +595,18 @@
     min-width: 100% !important;
   }
 
+  .oc-table {
+    --oc-super-h: 28px;
+  }
+
   .oc-table td {
     padding: 5px 2px;
   }
 
   .oc-super-header th {
-    padding: 5px 4px;
+    height: var(--oc-super-h);
+    line-height: var(--oc-super-h);
+    padding: 0 4px;
     font-size: 0.70rem;
   }
 
@@ -601,13 +624,18 @@
 
 /* Large Displays (>= 1600px, 1440p, 4K) scaling for Option Chain */
 @media (min-width: 1600px) {
+  .oc-table {
+    --oc-super-h: 40px;
+  }
   .oc-table th, .oc-table td {
     padding: 8px 8px;
     font-size: 0.80rem;
   }
   .oc-super-header th {
+    height: var(--oc-super-h);
+    line-height: var(--oc-super-h);
     font-size: 0.86rem;
-    padding: 10px 12px;
+    padding: 0 12px;
   }
   .oc-sub-header th {
     font-size: 0.72rem;

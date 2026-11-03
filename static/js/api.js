@@ -213,11 +213,12 @@ const ApiService = {
    * @param {string|number} productId
    * @param {string} symbol
    */
-  async squareOffPosition(productId, symbol) {
+  async squareOffPosition(productId, symbol, account) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
     const res = await fetch('/api/orders/square-off', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_id: productId, symbol: symbol })
+      body: JSON.stringify({ product_id: productId, symbol: symbol, account: acct })
     });
     return await res.json();
   },
@@ -225,10 +226,12 @@ const ApiService = {
   /**
    * Squares off all open positions simultaneously at market
    */
-  async squareOffAllPositions() {
+  async squareOffAllPositions(account) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
     const res = await fetch('/api/orders/square-off-all', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: acct })
     });
     return await res.json();
   },

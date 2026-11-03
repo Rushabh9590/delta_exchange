@@ -571,6 +571,33 @@ class DeltaPrivateWSManager:
             except (ValueError, TypeError):
                 order_id = raw_id
 
+            state = str(o.get("state", "update")).lower()
+            sym = o.get("product_symbol") or o.get("symbol") or f"Product #{o.get('product_id', '')}"
+            side_str = str(o.get("side", "")).upper()
+            total_sz = o.get("size")
+            unfilled_sz = o.get("unfilled_size")
+            avg_p = o.get("average_fill_price") or o.get("limit_price") or "--"
+            acct_tag = f"[{self.account_name.upper()}]" if getattr(self, "account_name", None) else ""
+
+            # Check previous state to avoid duplicate spam on identical state
+            prev_order = self.latest_orders.get(order_id, {})
+            prev_state = str(prev_order.get("state", "")).lower() if prev_order else None
+            prev_unfilled = prev_order.get("unfilled_size")
+
+            if state != prev_state or unfilled_sz != prev_unfilled:
+                if state in ("filled", "closed"):
+                    print(f"[WS ORDER-FILL] {acct_tag} Order #{order_id} FULLY FILLED! {side_str} {total_sz} {sym} @ ${avg_p}", flush=True)
+                elif state == "open" and unfilled_sz is not None and total_sz is not None and float(unfilled_sz) < float(total_sz):
+                    filled_now = float(total_sz) - float(unfilled_sz)
+                    print(f"[WS PARTIAL-FILL] {acct_tag} Order #{order_id} {side_str} {filled_now}/{total_sz} {sym} filled @ ${avg_p} (Remaining: {unfilled_sz})", flush=True)
+                elif state == "open" and not prev_state:
+                    print(f"[WS ORDER-ACTIVE] {acct_tag} Order #{order_id} active on orderbook: {side_str} {total_sz} {sym} @ ${avg_p}", flush=True)
+                elif state == "cancelled":
+                    print(f"[WS ORDER-CANCELLED] {acct_tag} Order #{order_id} cancelled: {side_str} {sym}", flush=True)
+                elif state == "rejected":
+                    reason = o.get("cancellation_reason") or "Rejected"
+                    print(f"[WS ORDER-REJECTED] {acct_tag} Order #{order_id} REJECTED: {reason}", flush=True)
+
             listeners_to_call = []
             globals_to_call = []
 
