@@ -60,7 +60,7 @@ from websocket import get_private_ws_manager, get_public_ws_manager
 logger = logging.getLogger("delta_mm_engine")
 
 STATE_FILE_PATH = os.path.join(str(BASE_DIR), ".mm_trades_state.json")
-_STATE_LOCK = threading.Lock()
+_STATE_LOCK = threading.RLock()
 MM_LOG_FILE = BASE_DIR / "logs" / "mm_trades.log"
 MAX_LOG_FILE_BYTES = 10 * 1024 * 1024  # 10 MB per file limit
 LOG_BACKUP_COUNT = 3                   # Retain up to 3 rotated backups (.1, .2, .3)
@@ -3203,7 +3203,7 @@ class DeltaMMEngine:
     def __init__(self):
         self.active_cycles: dict[str, MMTradeCycle] = {}
         self.history_cycles: list[dict] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         # Auto-recover persisted trades on startup
         self.recover_persisted_cycles()
 
@@ -3297,6 +3297,7 @@ class DeltaMMEngine:
             return None
 
     def list_active(self) -> list[dict]:
+        finalized_logs = []
         with self._lock:
             # Move completed/cancelled cycles out of active into history
             active_list = []
@@ -3310,7 +3311,7 @@ class DeltaMMEngine:
                         c.state = "COMPLETED_PROFIT"
                     else:
                         c.state = "COMPLETED_COST"
-                    c.log(f"[DUAL-SIDE MM] COMPLETE! All {c.buy_filled_qty} executed lots bought and sold. Moving to history.")
+                    finalized_logs.append((c, f"[DUAL-SIDE MM] COMPLETE! All {c.buy_filled_qty} executed lots bought and sold. Moving to history."))
 
                 if not c.is_running or c.state in ("COMPLETED_PROFIT", "COMPLETED_COST", "CANCELLED", "ERROR", "REJECTED_MAX_OI"):
                     self._add_history(c.to_dict(), max_items=50)
@@ -3324,7 +3325,14 @@ class DeltaMMEngine:
             if to_remove:
                 save_all_trades_state(self.active_cycles, self.history_cycles)
 
-            return active_list
+        # Log completion outside the lock to prevent nested re-entrancy
+        for c, log_msg in finalized_logs:
+            try:
+                c.log(log_msg)
+            except Exception:
+                pass
+
+        return active_list
 
     def upload_price(self, trade_id: str, new_price: float, side: str = None) -> dict:
         cycle = self.get_cycle(trade_id)

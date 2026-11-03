@@ -1452,6 +1452,7 @@ def get_active_market_making_trades():
         trades = mm_engine.list_active()
         return jsonify({"success": True, "trades": trades})
     except Exception as e:
+        print(f"[API ERROR /api/mm/trade/active] {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -2261,4 +2262,4 @@ if __name__ == "__main__":
         get_private_ws_manager("sub")
     except Exception as ws_e:
         print(f"[PRIVATE WS INIT NOTICE] {ws_e}", flush=True)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

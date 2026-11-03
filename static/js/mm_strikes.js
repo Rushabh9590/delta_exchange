@@ -1493,9 +1493,13 @@ async function confirmAndLaunch1LotTrade() {
 }
 
 /**
- * Polls active MM trades from server every 2.5s
+ * Polls active MM trades from server every 2.5s with concurrency lock
  */
+let isPollingMmTrades = false;
+
 async function pollActiveMmTrades() {
+  if (isPollingMmTrades) return;
+  isPollingMmTrades = true;
   try {
     const res = await ApiService.getActiveMMTrades();
     if (res && res.success && Array.isArray(res.trades)) {
@@ -1504,6 +1508,8 @@ async function pollActiveMmTrades() {
     }
   } catch (e) {
     // Quietly ignore background poll error
+  } finally {
+    isPollingMmTrades = false;
   }
 }
 
