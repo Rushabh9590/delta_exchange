@@ -238,10 +238,11 @@ class MMTradeCycle:
         self.spread_guard_active = True
 
         try:
-            env_c2c_ticks = int(os.getenv("MM_COST_TO_COST_TICKS", "2"))
+            raw_c2c = str(os.getenv("MM_COST_TO_COST_TICKS", "2")).strip("'\" \t\r\n")
+            env_c2c_ticks = max(0, int(raw_c2c))
         except Exception:
             env_c2c_ticks = 2
-        self.cost_to_cost_ticks = int(cost_to_cost_ticks) if cost_to_cost_ticks is not None and int(cost_to_cost_ticks) >= 0 else env_c2c_ticks
+        self.cost_to_cost_ticks = max(0, int(str(cost_to_cost_ticks).strip("'\" \t\r\n"))) if cost_to_cost_ticks is not None and str(cost_to_cost_ticks).strip("'\" \t\r\n").isdigit() else env_c2c_ticks
         self.auto_reprice_buy = auto_reprice_buy
         self.two_way_peg_enabled = two_way_peg
         self.account_name = (account or os.getenv("ACTIVE_ACCOUNT") or "main").lower()

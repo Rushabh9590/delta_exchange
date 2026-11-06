@@ -1184,29 +1184,36 @@ def get_profile_settings():
         load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
         
         try:
-            lot_btc = max(1, int(os.getenv("MM_LOT_SIZE_BTC", "1")))
+            raw_btc = str(os.getenv("MM_LOT_SIZE_BTC", "1")).strip("'\" \t\r\n")
+            lot_btc = max(1, int(raw_btc))
         except (ValueError, TypeError):
             lot_btc = 1
 
         try:
-            lot_eth = max(1, int(os.getenv("MM_LOT_SIZE_ETH", "1")))
+            raw_eth = str(os.getenv("MM_LOT_SIZE_ETH", "1")).strip("'\" \t\r\n")
+            lot_eth = max(1, int(raw_eth))
         except (ValueError, TypeError):
             lot_eth = 1
 
         try:
-            c2c_ticks = max(0, int(os.getenv("MM_COST_TO_COST_TICKS", "2")))
+            raw_c2c = str(os.getenv("MM_COST_TO_COST_TICKS", "2")).strip("'\" \t\r\n")
+            c2c_ticks = max(0, int(raw_c2c))
         except (ValueError, TypeError):
             c2c_ticks = 2
 
         tg_cfg = get_telegram_config()
         
-        return jsonify({
+        resp = jsonify({
             "success": True,
             "lot_size_btc": lot_btc,
             "lot_size_eth": lot_eth,
             "cost_to_cost_ticks": c2c_ticks,
             "telegram": tg_cfg
         })
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1227,24 +1234,33 @@ def update_profile_settings():
         
         if lot_btc is not None:
             try:
-                val_btc = max(1, int(lot_btc))
-                set_key(env_file, "MM_LOT_SIZE_BTC", str(val_btc))
+                val_btc = max(1, int(str(lot_btc).strip("'\" \t\r\n")))
+                try:
+                    set_key(env_file, "MM_LOT_SIZE_BTC", str(val_btc), quote_mode="never")
+                except TypeError:
+                    set_key(env_file, "MM_LOT_SIZE_BTC", str(val_btc))
                 os.environ["MM_LOT_SIZE_BTC"] = str(val_btc)
             except (ValueError, TypeError):
                 pass
                 
         if lot_eth is not None:
             try:
-                val_eth = max(1, int(lot_eth))
-                set_key(env_file, "MM_LOT_SIZE_ETH", str(val_eth))
+                val_eth = max(1, int(str(lot_eth).strip("'\" \t\r\n")))
+                try:
+                    set_key(env_file, "MM_LOT_SIZE_ETH", str(val_eth), quote_mode="never")
+                except TypeError:
+                    set_key(env_file, "MM_LOT_SIZE_ETH", str(val_eth))
                 os.environ["MM_LOT_SIZE_ETH"] = str(val_eth)
             except (ValueError, TypeError):
                 pass
 
         if c2c_ticks is not None:
             try:
-                val_c2c = max(0, int(c2c_ticks))
-                set_key(env_file, "MM_COST_TO_COST_TICKS", str(val_c2c))
+                val_c2c = max(0, int(str(c2c_ticks).strip("'\" \t\r\n")))
+                try:
+                    set_key(env_file, "MM_COST_TO_COST_TICKS", str(val_c2c), quote_mode="never")
+                except TypeError:
+                    set_key(env_file, "MM_COST_TO_COST_TICKS", str(val_c2c))
                 os.environ["MM_COST_TO_COST_TICKS"] = str(val_c2c)
             except (ValueError, TypeError):
                 pass
@@ -1258,27 +1274,34 @@ def update_profile_settings():
         )
 
         try:
-            cur_btc = max(1, int(os.getenv("MM_LOT_SIZE_BTC", "1")))
+            raw_cur_btc = str(os.getenv("MM_LOT_SIZE_BTC", "1")).strip("'\" \t\r\n")
+            cur_btc = max(1, int(raw_cur_btc))
         except (ValueError, TypeError):
             cur_btc = 1
 
         try:
-            cur_eth = max(1, int(os.getenv("MM_LOT_SIZE_ETH", "1")))
+            raw_cur_eth = str(os.getenv("MM_LOT_SIZE_ETH", "1")).strip("'\" \t\r\n")
+            cur_eth = max(1, int(raw_cur_eth))
         except (ValueError, TypeError):
             cur_eth = 1
 
         try:
-            cur_c2c = max(0, int(os.getenv("MM_COST_TO_COST_TICKS", "2")))
+            raw_cur_c2c = str(os.getenv("MM_COST_TO_COST_TICKS", "2")).strip("'\" \t\r\n")
+            cur_c2c = max(0, int(raw_cur_c2c))
         except (ValueError, TypeError):
             cur_c2c = 2
 
-        return jsonify({
+        resp = jsonify({
             "success": True,
             "lot_size_btc": cur_btc,
             "lot_size_eth": cur_eth,
             "cost_to_cost_ticks": cur_c2c,
             "telegram": tg_updated
         })
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

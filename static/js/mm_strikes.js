@@ -84,6 +84,14 @@ async function initMarketMakingModule() {
         window.profileLotSizeBtc = profRes.lot_size_btc || 1;
         window.profileLotSizeEth = profRes.lot_size_eth || 1;
         window.profileCostToCostTicks = (profRes.cost_to_cost_ticks !== undefined && profRes.cost_to_cost_ticks !== null) ? profRes.cost_to_cost_ticks : 2;
+
+        const inpBtc = document.getElementById('profileLotSizeBtc');
+        const inpEth = document.getElementById('profileLotSizeEth');
+        const inpC2c = document.getElementById('profileCostToCostTicks');
+        if (inpBtc) inpBtc.value = window.profileLotSizeBtc;
+        if (inpEth) inpEth.value = window.profileLotSizeEth;
+        if (inpC2c) inpC2c.value = window.profileCostToCostTicks;
+
         if (typeof renderMmTableRows === 'function') {
           renderMmTableRows();
         }

@@ -419,10 +419,16 @@ const ApiService = {
   },
 
   /**
-   * Fetches User Profile settings (BTC/ETH lot sizes + Telegram settings)
+   * Fetches User Profile settings (BTC/ETH lot sizes + Cost-to-cost ticks + Telegram settings)
    */
   async getProfileSettings() {
-    const res = await fetch('/api/settings/profile');
+    const res = await fetch(`/api/settings/profile?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     return await res.json();
   },
 
