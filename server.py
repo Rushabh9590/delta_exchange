@@ -1177,7 +1177,7 @@ def test_telegram_settings():
 @app.route("/api/settings/profile", methods=["GET"])
 def get_profile_settings():
     """
-    Returns user profile trading settings: BTC & ETH auto-trade lot sizes and Telegram settings.
+    Returns user profile trading settings: BTC & ETH auto-trade lot sizes, cost-to-cost tick cushion, and Telegram settings.
     """
     try:
         from dotenv import load_dotenv
@@ -1193,12 +1193,18 @@ def get_profile_settings():
         except (ValueError, TypeError):
             lot_eth = 1
 
+        try:
+            c2c_ticks = max(0, int(os.getenv("MM_COST_TO_COST_TICKS", "2")))
+        except (ValueError, TypeError):
+            c2c_ticks = 2
+
         tg_cfg = get_telegram_config()
         
         return jsonify({
             "success": True,
             "lot_size_btc": lot_btc,
             "lot_size_eth": lot_eth,
+            "cost_to_cost_ticks": c2c_ticks,
             "telegram": tg_cfg
         })
     except Exception as e:
@@ -1208,7 +1214,7 @@ def get_profile_settings():
 @app.route("/api/settings/profile", methods=["POST"])
 def update_profile_settings():
     """
-    Updates user profile: saves BTC & ETH lot sizes and Telegram settings to .env.
+    Updates user profile: saves BTC & ETH lot sizes, cost-to-cost ticks, and Telegram settings to .env.
     """
     try:
         from dotenv import set_key
@@ -1217,6 +1223,7 @@ def update_profile_settings():
         
         lot_btc = data.get("lot_size_btc")
         lot_eth = data.get("lot_size_eth")
+        c2c_ticks = data.get("cost_to_cost_ticks")
         
         if lot_btc is not None:
             try:
@@ -1231,6 +1238,14 @@ def update_profile_settings():
                 val_eth = max(1, int(lot_eth))
                 set_key(env_file, "MM_LOT_SIZE_ETH", str(val_eth))
                 os.environ["MM_LOT_SIZE_ETH"] = str(val_eth)
+            except (ValueError, TypeError):
+                pass
+
+        if c2c_ticks is not None:
+            try:
+                val_c2c = max(0, int(c2c_ticks))
+                set_key(env_file, "MM_COST_TO_COST_TICKS", str(val_c2c))
+                os.environ["MM_COST_TO_COST_TICKS"] = str(val_c2c)
             except (ValueError, TypeError):
                 pass
 
@@ -1252,10 +1267,16 @@ def update_profile_settings():
         except (ValueError, TypeError):
             cur_eth = 1
 
+        try:
+            cur_c2c = max(0, int(os.getenv("MM_COST_TO_COST_TICKS", "2")))
+        except (ValueError, TypeError):
+            cur_c2c = 2
+
         return jsonify({
             "success": True,
             "lot_size_btc": cur_btc,
             "lot_size_eth": cur_eth,
+            "cost_to_cost_ticks": cur_c2c,
             "telegram": tg_updated
         })
     except Exception as e:
@@ -1422,12 +1443,19 @@ def start_market_making_trade():
         min_spread = float(data.get("min_spread")) if data.get("min_spread") is not None and float(data.get("min_spread")) > 0 else None
         max_chase_ticks = int(data.get("max_chase_ticks")) if data.get("max_chase_ticks") is not None and int(data.get("max_chase_ticks")) >= 0 else None
         account = data.get("account")
+        cost_to_cost_ticks = data.get("cost_to_cost_ticks")
+        if cost_to_cost_ticks is not None:
+            try:
+                cost_to_cost_ticks = max(0, int(cost_to_cost_ticks))
+            except (ValueError, TypeError):
+                cost_to_cost_ticks = None
 
         cycle = mm_engine.start_trade(
             symbol=symbol,
             size=size,
             entry_price=entry_price,
             target_exit_price=target_exit_price,
+            cost_to_cost_ticks=cost_to_cost_ticks,
             two_way_peg=two_way_peg,
             max_entry_price=max_entry_price,
             min_spread_pct=min_spread_pct,

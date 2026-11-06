@@ -22,20 +22,21 @@ let activeNavTab = 'positions';
 let lastSpotPrice = 0;
 let serverTimeOffset = 0;
 
+var VALID_APP_TABS = ['positions', 'studio', 'chain', 'mm', 'settings'];
+
 /**
  * Gets the active tab to restore on page reload from URL hash or localStorage
  */
 function getInitialNavTab() {
-  const validTabs = ['positions', 'studio', 'chain', 'mm'];
-  // 1. Prioritize URL hash (e.g. #positions, #studio, #chain, #mm)
+  // 1. Prioritize URL hash (e.g. #positions, #studio, #chain, #mm, #settings)
   const hash = (window.location.hash || '').replace('#', '').toLowerCase();
-  if (validTabs.includes(hash)) {
+  if (VALID_APP_TABS.includes(hash)) {
     return hash;
   }
   // 2. Check localStorage
   try {
     const saved = localStorage.getItem('delta_active_nav_tab');
-    if (saved && validTabs.includes(saved)) {
+    if (saved && VALID_APP_TABS.includes(saved)) {
       return saved;
     }
   } catch (e) { }
@@ -133,20 +134,27 @@ function switchNavTab(tabName, updateUrl = true) {
   document.getElementById('tabNavStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('tabNavChain')?.classList.toggle('active', tabName === 'chain');
   document.getElementById('tabNavMM')?.classList.toggle('active', tabName === 'mm');
+  document.getElementById('tabNavSettings')?.classList.toggle('active', tabName === 'settings');
 
   // Sidebar drawer menu items
   document.getElementById('drawerNavPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('drawerNavStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('drawerNavChain')?.classList.toggle('active', tabName === 'chain');
   document.getElementById('drawerNavMM')?.classList.toggle('active', tabName === 'mm');
+  document.getElementById('drawerNavSettings')?.classList.toggle('active', tabName === 'settings');
 
   // Content views
   document.getElementById('viewPositions')?.classList.toggle('active', tabName === 'positions');
   document.getElementById('viewStudio')?.classList.toggle('active', tabName === 'studio');
   document.getElementById('viewOptionChain')?.classList.toggle('active', tabName === 'chain');
   document.getElementById('viewMmStrikes')?.classList.toggle('active', tabName === 'mm');
+  document.getElementById('viewSettings')?.classList.toggle('active', tabName === 'settings');
 
-  if (tabName === 'chain' && typeof loadOptionChain === 'function') {
+  if (tabName === 'settings') {
+    if (typeof loadProfileSettingsForView === 'function') {
+      loadProfileSettingsForView();
+    }
+  } else if (tabName === 'chain' && typeof loadOptionChain === 'function') {
     const curAsset = (typeof ocCurrentUnderlying !== 'undefined' && ocCurrentUnderlying) ? ocCurrentUnderlying : (localStorage.getItem('delta_oc_underlying') || 'BTC');
     const curExp = (typeof ocSelectedExpiry !== 'undefined') ? ocSelectedExpiry : '';
     loadOptionChain(curAsset, curExp);
@@ -755,8 +763,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // Sync active tab seamlessly on browser Back/Forward or manual hash navigation
 window.addEventListener('hashchange', () => {
   const hash = (window.location.hash || '').replace('#', '').toLowerCase();
-  const validTabs = ['positions', 'studio', 'chain', 'mm'];
-  if (validTabs.includes(hash) && hash !== activeNavTab) {
+  if (VALID_APP_TABS.includes(hash) && hash !== activeNavTab) {
     switchNavTab(hash, false);
   }
 });

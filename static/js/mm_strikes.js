@@ -83,6 +83,7 @@ async function initMarketMakingModule() {
       if (profRes && profRes.success) {
         window.profileLotSizeBtc = profRes.lot_size_btc || 1;
         window.profileLotSizeEth = profRes.lot_size_eth || 1;
+        window.profileCostToCostTicks = (profRes.cost_to_cost_ticks !== undefined && profRes.cost_to_cost_ticks !== null) ? profRes.cost_to_cost_ticks : 2;
         if (typeof renderMmTableRows === 'function') {
           renderMmTableRows();
         }
@@ -1463,6 +1464,7 @@ async function confirmAndLaunch1LotTrade() {
       size: tradeSize,
       entry_price: buyPrice,
       target_exit_price: sellPrice,
+      cost_to_cost_ticks: window.profileCostToCostTicks !== undefined ? window.profileCostToCostTicks : undefined,
       min_spread_pct: 0.60,
       account: activeAcct
     };
@@ -1993,27 +1995,39 @@ async function onMmTgConfigChange() {
 }
 
 /**
- * Opens User Profile & Settings modal (Lot Sizes & Telegram configuration)
+ * Opens User Profile & Settings full page view (or loads settings)
  */
 async function openProfileModal() {
-  const modal = document.getElementById('telegramModal');
-  if (!modal) return;
-  modal.style.display = 'flex';
+  if (typeof navigateToTab === 'function') {
+    navigateToTab('settings');
+  } else {
+    await loadProfileSettingsForView();
+  }
+}
 
+// Backwards-compatibility alias
+window.openTelegramModal = openProfileModal;
+
+/**
+ * Loads User Profile & Trading Settings for the dedicated settings page
+ */
+async function loadProfileSettingsForView() {
   const fb = document.getElementById('tgModalFeedback');
   if (fb) fb.style.display = 'none';
 
-  // Fetch & populate User Profile & Telegram configuration
   try {
     const res = await ApiService.getProfileSettings();
     if (res && res.success) {
       window.profileLotSizeBtc = res.lot_size_btc || 1;
       window.profileLotSizeEth = res.lot_size_eth || 1;
+      window.profileCostToCostTicks = (res.cost_to_cost_ticks !== undefined && res.cost_to_cost_ticks !== null) ? res.cost_to_cost_ticks : 2;
 
       const inpBtc = document.getElementById('profileLotSizeBtc');
       const inpEth = document.getElementById('profileLotSizeEth');
+      const inpC2c = document.getElementById('profileCostToCostTicks');
       if (inpBtc) inpBtc.value = window.profileLotSizeBtc;
       if (inpEth) inpEth.value = window.profileLotSizeEth;
+      if (inpC2c) inpC2c.value = window.profileCostToCostTicks;
 
       const cfg = res.telegram || {};
       const tokenInp = document.getElementById('tgModalBotToken');
@@ -2032,15 +2046,12 @@ async function openProfileModal() {
       updateTgStatusBadges(cfg);
     }
   } catch (e) {
-    console.error('Error opening Profile & Settings modal:', e);
+    console.error('Error loading Profile & Settings:', e);
   }
 }
 
-// Backwards-compatibility alias
-const openTelegramModal = openProfileModal;
-
 /**
- * Toggles visibility of the bot token in the modal
+ * Toggles visibility of the bot token in the settings view
  */
 function toggleTgTokenVisibility() {
   const tokenInp = document.getElementById('tgModalBotToken');
@@ -2049,7 +2060,7 @@ function toggleTgTokenVisibility() {
 }
 
 /**
- * Closes User Profile & Settings modal
+ * Closes User Profile & Settings modal (kept for compatibility)
  */
 function closeProfileModal() {
   const modal = document.getElementById('telegramModal');
@@ -2057,14 +2068,15 @@ function closeProfileModal() {
 }
 
 // Backwards-compatibility alias
-const closeTelegramModal = closeProfileModal;
+window.closeTelegramModal = closeProfileModal;
 
 /**
- * Saves User Profile (Traded Lot Sizes) & Telegram settings to .env
+ * Saves User Profile (Traded Lot Sizes, Cost-to-Cost ticks) & Telegram settings to .env
  */
 async function saveProfileSettingsFromModal() {
   const lotBtc = Math.max(1, parseInt(document.getElementById('profileLotSizeBtc')?.value || '1'));
   const lotEth = Math.max(1, parseInt(document.getElementById('profileLotSizeEth')?.value || '1'));
+  const c2cTicks = Math.max(0, parseInt(document.getElementById('profileCostToCostTicks')?.value || '2'));
 
   const token = document.getElementById('tgModalBotToken')?.value.trim();
   const chatId = document.getElementById('tgModalChatId')?.value.trim();
@@ -2077,6 +2089,7 @@ async function saveProfileSettingsFromModal() {
     const res = await ApiService.saveProfileSettings({
       lot_size_btc: lotBtc,
       lot_size_eth: lotEth,
+      cost_to_cost_ticks: c2cTicks,
       bot_token: token,
       chat_id: chatId,
       notify_secs: sec,
@@ -2086,6 +2099,7 @@ async function saveProfileSettingsFromModal() {
     if (res && res.success) {
       window.profileLotSizeBtc = res.lot_size_btc || lotBtc;
       window.profileLotSizeEth = res.lot_size_eth || lotEth;
+      window.profileCostToCostTicks = res.cost_to_cost_ticks !== undefined ? res.cost_to_cost_ticks : c2cTicks;
       if (typeof renderMmTableRows === 'function') {
         renderMmTableRows();
       }
@@ -2105,12 +2119,11 @@ async function saveProfileSettingsFromModal() {
         fb.style.background = 'rgba(16, 185, 129, 0.15)';
         fb.style.border = '1px solid rgba(16, 185, 129, 0.4)';
         fb.style.color = '#10b981';
-        fb.innerHTML = `✅ Profile &amp; Settings saved to .env! (BTC: <strong>${window.profileLotSizeBtc} lot</strong>, ETH: <strong>${window.profileLotSizeEth} lot</strong>)`;
+        fb.innerHTML = `✅ Profile &amp; Settings saved to .env! (BTC: <strong>${window.profileLotSizeBtc} lot</strong>, ETH: <strong>${window.profileLotSizeEth} lot</strong>, Cost-to-Cost Buffer: <strong>${window.profileCostToCostTicks} ticks</strong>)`;
       }
       if (typeof showToast === 'function') {
-        showToast(`Profile & Settings saved! BTC: ${window.profileLotSizeBtc} lot, ETH: ${window.profileLotSizeEth} lot`, 'success');
+        showToast(`Profile & Settings saved! BTC: ${window.profileLotSizeBtc} lot, ETH: ${window.profileLotSizeEth} lot, C2C Cushion: ${window.profileCostToCostTicks} ticks`, 'success');
       }
-      setTimeout(closeProfileModal, 1200);
     } else {
       if (fb) {
         fb.style.display = 'block';
@@ -2132,7 +2145,7 @@ async function saveProfileSettingsFromModal() {
 }
 
 // Backwards-compatibility alias
-const saveTelegramSettingsFromModal = saveProfileSettingsFromModal;
+window.saveTelegramSettingsFromModal = saveProfileSettingsFromModal;
 
 /**
  * Sends a test verification message to Telegram
