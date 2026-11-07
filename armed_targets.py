@@ -205,7 +205,16 @@ class ArmedTargetManager:
         # If entry filled immediately (e.g. Market order or crossing Limit)
         if valid_targets and is_filled_now:
             try:
-                self._submit_target_ladder(cycle, client)
+                cycle["status"] = "SUBMITTING_TARGETS"
+                cycle["status_message"] = "Entry filled immediately! Submitting target ladder..."
+                # Run target submission in background thread so HTTP response returns in <300ms
+                t = threading.Thread(
+                    target=self._submit_target_ladder,
+                    args=(cycle, client),
+                    daemon=True,
+                    name=f"ArmedLadderSubmit-{cycle_id}"
+                )
+                t.start()
             except Exception as ladder_err:
                 logger.error(f"[ARMED LADDER] Immediate target submission error: {ladder_err}")
                 cycle["status"] = "TARGETS_ERROR"
@@ -318,6 +327,11 @@ class ArmedTargetManager:
         cycle["status_message"] = f"Entry filled! {submitted_count}/{len(targets)} reduce-only target orders placed."
         cycle["updated_at"] = datetime.now(timezone.utc).isoformat()
         print(f"[ARMED LADDER] Entry filled for {symbol}! Successfully placed {submitted_count} reduce-only take-profit targets.", flush=True)
+        try:
+            with self._lock:
+                self.save_persisted_cycles()
+        except Exception as save_err:
+            logger.warning(f"[ARMED LADDER] Failed to save state after target ladder: {save_err}")
 
     def start_watcher(self):
         """Starts background daemon to poll in-flight entry orders for fills."""

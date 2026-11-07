@@ -125,7 +125,7 @@ function openOptionOrderModal(contract) {
     const overlay = document.getElementById('optionOrderModal');
     if (overlay) {
       overlay.classList.add('active');
-      overlay.style.display = 'flex';
+      overlay.style.setProperty('display', 'flex', 'important');
     } else {
       console.error('[openOptionOrderModal] Could not find #optionOrderModal in DOM');
     }
@@ -137,7 +137,7 @@ function openOptionOrderModal(contract) {
     const overlay = document.getElementById('optionOrderModal');
     if (overlay) {
       overlay.classList.add('active');
-      overlay.style.display = 'flex';
+      overlay.style.setProperty('display', 'flex', 'important');
     }
   }
 }
@@ -146,10 +146,11 @@ function closeOptionOrderModal() {
   const overlay = document.getElementById('optionOrderModal');
   if (overlay) {
     overlay.classList.remove('active');
-    overlay.style.display = 'none';
+    overlay.style.setProperty('display', 'none', 'important');
   }
+  oomCurrentContract = null;
   if (oomWsTickUnsub) {
-    oomWsTickUnsub();
+    try { oomWsTickUnsub(); } catch (_) {}
     oomWsTickUnsub = null;
   }
 }
@@ -735,27 +736,44 @@ async function executeOptionOrder() {
       body: JSON.stringify(payload)
     });
 
-    const data = await res.json();
-    // If order was placed on exchange (success flag OR order id returned)
-    if (data && (data.success || data.entry_order_id || data.order_id)) {
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      console.warn('[executeOptionOrder] Response was not JSON:', parseErr);
+    }
+
+    const orderSymbol = oomCurrentContract?.symbol || payload.symbol;
+
+    // If order was placed on exchange (success flag OR order id or cycle id returned)
+    if (res.ok && (data?.success || data?.entry_order_id || data?.order_id || data?.cycle_id)) {
       closeOptionOrderModal();
       if (typeof showToast === 'function') {
         const orderIdStr = data.entry_order_id || data.order_id || '';
         const orderIdTag = orderIdStr ? ` #${orderIdStr}` : '';
         if (hasMultipleTargets) {
           const tCount = (data.targets_count || data.cycle?.targets?.length || oomTargetsData.length);
-          showToast(`⚡ Entry order${orderIdTag} placed for ${oomCurrentContract.symbol}! ${tCount} Targets Armed on [${activeAcct.toUpperCase()}].`, 'success');
+          showToast(`⚡ Entry order${orderIdTag} placed for ${orderSymbol}! ${tCount} Targets Armed on [${activeAcct.toUpperCase()}].`, 'success');
         } else {
-          showToast(`⚡ ${orderType.toUpperCase()} order${orderIdTag} placed successfully for ${oomCurrentContract.symbol} on [${activeAcct.toUpperCase()}]!`, 'success');
+          showToast(`⚡ ${orderType.toUpperCase()} order${orderIdTag} placed successfully for ${orderSymbol} on [${activeAcct.toUpperCase()}]!`, 'success');
         }
       }
       // Instantly trigger dashboard refresh to update positions and active orders
       if (typeof fetchDashboardData === 'function') {
         setTimeout(() => fetchDashboardData(true), 350);
       }
+    } else if (data && (data.entry_order_id || data.order_id)) {
+      // Entry order was placed even if secondary warnings occurred
+      closeOptionOrderModal();
+      if (typeof showToast === 'function') {
+        showToast(`⚡ Order placed #${data.entry_order_id || data.order_id} on [${activeAcct.toUpperCase()}]!`, 'success');
+      }
+      if (typeof fetchDashboardData === 'function') {
+        setTimeout(() => fetchDashboardData(true), 350);
+      }
     } else {
       if (typeof showToast === 'function') {
-        showToast(`Order failed: ${data?.error || 'Unknown error'}`, 'error');
+        showToast(`Order failed: ${data?.error || `HTTP ${res.status}`}`, 'error');
       }
     }
   } catch (err) {
