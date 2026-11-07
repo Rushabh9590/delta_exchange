@@ -86,9 +86,7 @@ class ArmedTargetManager:
             }
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
-            if STATE_FILE.exists():
-                STATE_FILE.unlink()
-            temp_file.rename(STATE_FILE)
+            os.replace(temp_file, STATE_FILE)
         except Exception as e:
             logger.warning(f"Failed to persist armed targets state: {e}")
 
@@ -206,7 +204,12 @@ class ArmedTargetManager:
 
         # If entry filled immediately (e.g. Market order or crossing Limit)
         if valid_targets and is_filled_now:
-            self._submit_target_ladder(cycle, client)
+            try:
+                self._submit_target_ladder(cycle, client)
+            except Exception as ladder_err:
+                logger.error(f"[ARMED LADDER] Immediate target submission error: {ladder_err}")
+                cycle["status"] = "TARGETS_ERROR"
+                cycle["status_message"] = f"Entry order placed & filled, but target ladder failed: {ladder_err}"
 
         # Register Sub-50ms WebSocket listener for instant fill trigger
         if valid_targets and not is_filled_now and entry_order_id:

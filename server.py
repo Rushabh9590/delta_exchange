@@ -2233,8 +2233,10 @@ def place_ladder_entry_order():
         )
         return jsonify(res)
     except ValueError as ve:
+        print(f"[API VAL-ERROR /api/orders/ladder-entry] {ve}", flush=True)
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
+        print(f"[API ERROR /api/orders/ladder-entry] {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

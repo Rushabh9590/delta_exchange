@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="/static/css/multileg.css?v=2.9.0" />
   <link rel="stylesheet" href="/static/css/optionchain.css?v=2.9.0" />
   <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.9.0" />
-  <link rel="stylesheet" href="/static/css/option_order_modal.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/option_order_modal.css?v=3.5.0" />
 </head>
 
 <body>
@@ -1550,7 +1550,11 @@
       <div class="oom-header">
         <div class="oom-title" id="oomModalTitle">Buy P-BTC-76800-271026</div>
         <div class="oom-badge-container">
-          <span class="oom-account-badge sub" id="oomAccountBadge">ACCT: SUB</span>
+          <div class="oom-account-switcher" id="oomAccountSwitcher" title="Switch active account">
+            <button type="button" class="oom-acct-pill sub active" id="oomPillSub" onclick="setModalActiveAccount('sub')">SUB</button>
+            <button type="button" class="oom-acct-pill main" id="oomPillMain" onclick="setModalActiveAccount('main')">MAIN</button>
+          </div>
+          <span class="oom-account-badge sub" id="oomAccountBadge" style="display: none;">ACCT: SUB</span>
           <span class="oom-contract-badge put" id="oomContractBadge">PUT · 76,800 · 27 Oct 26</span>
           <button type="button" class="oom-close-btn" onclick="closeOptionOrderModal()" title="Close">&times;</button>
         </div>
@@ -1600,7 +1604,7 @@
             <div class="oom-field">
               <label class="oom-field-label">QUANTITY (CONTRACTS)</label>
               <input type="number" min="1" step="1" id="oomInpQty" class="oom-input" value="10"
-                oninput="recalculateLadder()" />
+                oninput="onQuantityInputChange()" onkeydown="filterIntegerInput(event)" onblur="validateQuantityInputOnBlur()" />
             </div>
 
             <!-- ORDER TYPE -->
@@ -1673,7 +1677,7 @@
               <div class="oom-field">
                 <label class="oom-field-label">NUMBER OF TARGETS</label>
                 <input type="number" min="1" max="20" step="1" id="oomNumTargets" class="oom-input" value="10"
-                  oninput="recalculateLadder()" />
+                  oninput="onNumTargetsChange()" onkeydown="filterIntegerInput(event)" onblur="validateNumTargetsOnBlur()" />
               </div>
               <div class="oom-field">
                 <label class="oom-field-label">GAP BETWEEN TARGETS (%)</label>
@@ -1745,7 +1749,7 @@
   <script src="/static/js/api.js?v=3.4.1"></script>
   <script src="/static/js/positions.js?v=3.4.1"></script>
   <script src="/static/js/multileg.js?v=3.4.1"></script>
-  <script src="/static/js/option_order_modal.js?v=3.4.1"></script>
+  <script src="/static/js/option_order_modal.js?v=3.5.0"></script>
   <script src="/static/js/optionchain.js?v=3.4.1"></script>
   <script src="/static/js/mm_strikes.js?v=3.4.1"></script>
   <script src="/static/js/app.js?v=3.4.1"></script>

@@ -81,8 +81,19 @@ function openOptionOrderModal(contract) {
     // 3. Set Entry Form Defaults
     setEntrySide(oomCurrentContract.side, false);
     const inpQty = document.getElementById('oomInpQty');
-    if (inpQty && (!inpQty.value || inpQty.value === '1')) {
-      inpQty.value = 10;
+    const inpTargets = document.getElementById('oomNumTargets');
+
+    // Default lot size from user profile (default 10)
+    const isBtc = oomCurrentContract.symbol && oomCurrentContract.symbol.includes('BTC');
+    const configuredLot = isBtc ? (window.profileLotSizeBtc || 10) : (window.profileLotSizeEth || 10);
+    const initialQty = Math.max(1, parseInt(configuredLot, 10) || 10);
+
+    if (inpQty) {
+      inpQty.value = initialQty;
+    }
+    if (inpTargets) {
+      // Default number of targets matches the quantity we are buying (clamped 1-20)
+      inpTargets.value = Math.max(1, Math.min(20, initialQty));
     }
 
     const selOrderType = document.getElementById('oomOrderType');
@@ -160,12 +171,54 @@ function updateModalTitleAndBadge() {
     badgeEl.textContent = `${isPut ? 'PUT' : 'CALL'} · ${strikeStr} · ${expPretty}`;
   }
 
+  const activeAcct = (window.currentActiveAccount || 'sub').toLowerCase();
   const acctEl = document.getElementById('oomAccountBadge');
-  const activeAcct = (window.currentActiveAccount || 'sub').toUpperCase();
   if (acctEl) {
-    acctEl.textContent = `ACCT: ${activeAcct}`;
-    acctEl.className = `oom-account-badge ${activeAcct.toLowerCase()}`;
+    acctEl.textContent = `ACCT: ${activeAcct.toUpperCase()}`;
+    acctEl.className = `oom-account-badge ${activeAcct}`;
   }
+
+  const pillSub = document.getElementById('oomPillSub');
+  const pillMain = document.getElementById('oomPillMain');
+  if (pillSub && pillMain) {
+    if (activeAcct === 'sub') {
+      pillSub.classList.add('active');
+      pillMain.classList.remove('active');
+    } else {
+      pillMain.classList.add('active');
+      pillSub.classList.remove('active');
+    }
+  }
+}
+
+function setModalActiveAccount(targetAccount) {
+  const acct = (targetAccount || 'sub').toLowerCase();
+  window.currentActiveAccount = acct;
+
+  const pillSub = document.getElementById('oomPillSub');
+  const pillMain = document.getElementById('oomPillMain');
+  if (pillSub && pillMain) {
+    if (acct === 'sub') {
+      pillSub.classList.add('active');
+      pillMain.classList.remove('active');
+    } else {
+      pillMain.classList.add('active');
+      pillSub.classList.remove('active');
+    }
+  }
+
+  const acctBadge = document.getElementById('oomAccountBadge');
+  if (acctBadge) {
+    acctBadge.textContent = `ACCT: ${acct.toUpperCase()}`;
+    acctBadge.className = `oom-account-badge ${acct}`;
+  }
+
+  // Also switch top navbar switcher so whole app is in sync
+  if (typeof switchActiveAccount === 'function') {
+    switchActiveAccount(acct);
+  }
+
+  updateEstimatedOrderMargin();
 }
 
 function updateMarketBannerQuotes() {
@@ -266,6 +319,95 @@ function updateLegsCounter() {
 }
 
 /**
+ * Filters keyboard events to only allow non-negative integers >= 1 (no decimals, no e, no minus)
+ */
+function filterIntegerInput(e) {
+  if (['.', ',', '-', '+', 'e', 'E'].includes(e.key)) {
+    e.preventDefault();
+  }
+}
+
+/**
+ * Handles quantity input changes:
+ * - Sanitizes to strict integer starting from 1 (no decimals like 0.1, 0.2)
+ * - Automatically changes NUMBER OF TARGETS to match quantity by default (clamped 1 to 20)
+ */
+function onQuantityInputChange(syncTargets = true) {
+  const inpQty = document.getElementById('oomInpQty');
+  if (!inpQty) return;
+
+  const raw = String(inpQty.value || '').trim();
+  const cleaned = raw.replace(/[^0-9]/g, '');
+
+  if (cleaned === '') {
+    return;
+  }
+
+  let val = parseInt(cleaned, 10);
+  if (isNaN(val) || val < 1) val = 1;
+  inpQty.value = val;
+
+  // Auto-sync Number of Targets with Quantity (default is quantity to buy, user can edit)
+  if (syncTargets) {
+    const inpTargets = document.getElementById('oomNumTargets');
+    if (inpTargets) {
+      inpTargets.value = Math.max(1, Math.min(20, val));
+    }
+  }
+
+  recalculateLadder();
+}
+
+function validateQuantityInputOnBlur() {
+  const inpQty = document.getElementById('oomInpQty');
+  if (!inpQty) return;
+  const cleaned = String(inpQty.value || '').replace(/[^0-9]/g, '');
+  let val = parseInt(cleaned, 10);
+  if (isNaN(val) || val < 1) {
+    val = 1;
+    inpQty.value = 1;
+    const inpTargets = document.getElementById('oomNumTargets');
+    if (inpTargets) {
+      inpTargets.value = 1;
+    }
+  }
+  recalculateLadder();
+}
+
+/**
+ * Handles explicit manual edits to NUMBER OF TARGETS:
+ * Allows user to set fewer/more targets without being overwritten by quantity.
+ */
+function onNumTargetsChange() {
+  const inpTargets = document.getElementById('oomNumTargets');
+  if (!inpTargets) return;
+  const raw = String(inpTargets.value || '').trim();
+  const cleaned = raw.replace(/[^0-9]/g, '');
+  if (cleaned === '') return;
+
+  let val = parseInt(cleaned, 10);
+  if (isNaN(val) || val < 1) val = 1;
+  if (val > 20) val = 20;
+  inpTargets.value = val;
+
+  recalculateLadder();
+}
+
+function validateNumTargetsOnBlur() {
+  const inpTargets = document.getElementById('oomNumTargets');
+  if (!inpTargets) return;
+  const cleaned = String(inpTargets.value || '').replace(/[^0-9]/g, '');
+  let val = parseInt(cleaned, 10);
+  if (isNaN(val) || val < 1) {
+    val = 1;
+  } else if (val > 20) {
+    val = 20;
+  }
+  inpTargets.value = val;
+  recalculateLadder();
+}
+
+/**
  * Calculates and updates the live estimated margin/cost requirement in USD and INR
  */
 function updateEstimatedOrderMargin() {
@@ -277,7 +419,8 @@ function updateEstimatedOrderMargin() {
   const valEl = document.getElementById('oomMarginValue');
   if (!lblEl || !valEl) return;
 
-  const qty = parseInt(inpQty?.value, 10) || 0;
+  const rawQty = String(inpQty?.value || '').replace(/[^0-9]/g, '');
+  const qty = Math.max(1, parseInt(rawQty, 10) || 1);
   const price = parseFloat(inpPrice?.value) || 0;
 
   // Resolve contract lot size: 0.001 for BTC, 0.01 for ETH
@@ -365,8 +508,10 @@ function recalculateLadder() {
   const selLadder = document.getElementById('oomLadderType');
 
   const entryPrice = parseFloat(inpEntryPrice?.value) || oomCurrentContract.mid || 9.0;
-  const totalQty = parseInt(inpTotalQty?.value, 10) || 10;
-  const numTargets = Math.max(1, Math.min(20, parseInt(inpNumTargets?.value, 10) || 10));
+  const rawQty = String(inpTotalQty?.value || '').replace(/[^0-9]/g, '');
+  const totalQty = Math.max(1, parseInt(rawQty, 10) || 1);
+  const rawTargets = String(inpNumTargets?.value || '').replace(/[^0-9]/g, '');
+  const numTargets = Math.max(1, Math.min(20, parseInt(rawTargets, 10) || totalQty));
   const gapPct = parseFloat(inpGap?.value) || 100.0;
   const ladderType = selLadder ? selLadder.value : 'compounding';
 
@@ -525,7 +670,11 @@ async function executeOptionOrder() {
   const chkPostOnly = document.getElementById('oomChkPostOnly');
   const chkTargets = document.getElementById('oomChkMultipleTargets');
 
-  const size = parseInt(inpQty?.value, 10) || 1;
+  // Enforce positive integer quantity starting from 1
+  const rawQty = String(inpQty?.value || '').replace(/[^0-9]/g, '');
+  const size = Math.max(1, parseInt(rawQty, 10) || 1);
+  if (inpQty) inpQty.value = size;
+
   const orderType = (selOrderType?.value || 'limit').toLowerCase();
   const limitPrice = orderType === 'limit' ? parseFloat(inpPrice?.value) : null;
   const tif = selTif?.value || 'gtc';
@@ -533,7 +682,7 @@ async function executeOptionOrder() {
   const hasMultipleTargets = chkTargets ? chkTargets.checked : false;
 
   if (size <= 0) {
-    if (typeof showToast === 'function') showToast('Please enter a valid quantity > 0', 'error');
+    if (typeof showToast === 'function') showToast('Please enter a valid quantity >= 1', 'error');
     return;
   }
 
@@ -547,8 +696,9 @@ async function executeOptionOrder() {
     const sumQty = oomTargetsData.reduce((acc, t) => acc + (t.qty || 0), 0);
     if (sumQty !== size) {
       if (typeof showToast === 'function') {
-        showToast(`Targets Qty (${sumQty}) does not match Total Quantity (${size}). Click Recalculate or adjust rows.`, 'error');
+        showToast(`Targets Qty (${sumQty}) does not match Total Quantity (${size}). Auto-syncing ladder...`, 'warning');
       }
+      recalculateLadder();
       return;
     }
   }
@@ -586,14 +736,22 @@ async function executeOptionOrder() {
     });
 
     const data = await res.json();
-    if (data && data.success) {
+    // If order was placed on exchange (success flag OR order id returned)
+    if (data && (data.success || data.entry_order_id || data.order_id)) {
       closeOptionOrderModal();
       if (typeof showToast === 'function') {
+        const orderIdStr = data.entry_order_id || data.order_id || '';
+        const orderIdTag = orderIdStr ? ` #${orderIdStr}` : '';
         if (hasMultipleTargets) {
-          showToast(`⚡ Entry order placed for ${oomCurrentContract.symbol}! ${oomTargetsData.length} Targets Armed on [${activeAcct.toUpperCase()}].`, 'success');
+          const tCount = (data.targets_count || data.cycle?.targets?.length || oomTargetsData.length);
+          showToast(`⚡ Entry order${orderIdTag} placed for ${oomCurrentContract.symbol}! ${tCount} Targets Armed on [${activeAcct.toUpperCase()}].`, 'success');
         } else {
-          showToast(`⚡ ${orderType.toUpperCase()} order placed successfully for ${oomCurrentContract.symbol} on [${activeAcct.toUpperCase()}]!`, 'success');
+          showToast(`⚡ ${orderType.toUpperCase()} order${orderIdTag} placed successfully for ${oomCurrentContract.symbol} on [${activeAcct.toUpperCase()}]!`, 'success');
         }
+      }
+      // Instantly trigger dashboard refresh to update positions and active orders
+      if (typeof fetchDashboardData === 'function') {
+        setTimeout(() => fetchDashboardData(true), 350);
       }
     } else {
       if (typeof showToast === 'function') {
@@ -683,4 +841,10 @@ window.onTargetRowPriceChange = onTargetRowPriceChange;
 window.executeOptionOrder = executeOptionOrder;
 window.updateOptionOrderModalTick = updateOptionOrderModalTick;
 window.updateEstimatedOrderMargin = updateEstimatedOrderMargin;
+window.filterIntegerInput = filterIntegerInput;
+window.onQuantityInputChange = onQuantityInputChange;
+window.validateQuantityInputOnBlur = validateQuantityInputOnBlur;
+window.onNumTargetsChange = onNumTargetsChange;
+window.validateNumTargetsOnBlur = validateNumTargetsOnBlur;
+window.setModalActiveAccount = setModalActiveAccount;
 
