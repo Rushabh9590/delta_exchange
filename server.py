@@ -14,6 +14,7 @@ import logging
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify, request, send_from_directory, make_response, send_file, Response
 
 # Suppress Werkzeug / Flask HTTP request access logging
@@ -554,26 +555,172 @@ def get_wallet():
         }), 500
 
 
+def fetch_formatted_live_orders(client, acct="sub"):
+    """
+    Fetches all live/open orders from Delta Exchange with page_size=500
+    and formats them with symbol, sizes, prices, and timestamps.
+    """
+    try:
+        raw_orders = client.get_live_orders(query={"page_size": 500})
+        orders_list = raw_orders if isinstance(raw_orders, list) else (
+            raw_orders.get("result", []) if isinstance(raw_orders, dict) else []
+        )
+        formatted_orders = []
+        for o in orders_list:
+            if not isinstance(o, dict):
+                continue
+            prod = o.get("product") or {}
+            sym = o.get("product_symbol") or o.get("symbol") or prod.get("symbol") or f"Product #{o.get('product_id', '')}"
+            formatted_orders.append({
+                "id": o.get("id"),
+                "product_id": o.get("product_id") or prod.get("id"),
+                "symbol": sym,
+                "side": str(o.get("side", "")).lower(),
+                "order_type": str(o.get("order_type", "")).lower(),
+                "limit_price": float(o.get("limit_price")) if o.get("limit_price") is not None else None,
+                "stop_price": float(o.get("stop_price")) if o.get("stop_price") is not None else None,
+                "size": int(o.get("size") or 0),
+                "unfilled_size": int(o.get("unfilled_size") or 0),
+                "reduce_only": bool(o.get("reduce_only", False)),
+                "time_in_force": o.get("time_in_force", "gtc"),
+                "state": o.get("state", "open"),
+                "created_at": o.get("created_at"),
+                "account": acct
+            })
+        formatted_orders.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return formatted_orders
+    except Exception as e:
+        print(f"[FETCH LIVE ORDERS ERROR] {e}", flush=True)
+        return []
+
+
 @app.route("/api/dashboard", methods=["GET"])
 def get_dashboard():
     """
-    Consolidated endpoint for positions and wallet data in a single request.
+    Consolidated, ultra-low-latency endpoint for positions, wallet data, and open orders
+    fetched concurrently in a single round-trip.
     """
     try:
-        client = get_client(require_auth=False)
+        acct = (request.args.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct, require_auth=True)
 
-        # Positions
-        raw_positions = []
-        try:
-            pos_res = client.request("GET", "/v2/positions/margined", auth=True).json()
-            raw_positions = pos_res.get("result", [])
-            if isinstance(raw_positions, dict):
-                raw_positions = [raw_positions]
-            elif not isinstance(raw_positions, list):
-                raw_positions = []
-        except Exception:
-            raw_positions = []
+        def _fetch_positions():
+            try:
+                pos_res = client.request("GET", "/v2/positions/margined", auth=True).json()
+                res = pos_res.get("result", [])
+                if isinstance(res, dict):
+                    return [res]
+                elif isinstance(res, list):
+                    return res
+                return []
+            except Exception:
+                return []
 
+        def _fetch_wallet():
+            try:
+                balances = client.get_all_wallet_balances()
+                usd_wallet = next((b for b in balances if b.get("asset_symbol") == "USD"), None)
+                return {
+                    "usd_balance": float(usd_wallet.get("balance", 0)) if usd_wallet else 0.0,
+                    "usd_available": float(usd_wallet.get("available_balance", 0)) if usd_wallet else 0.0,
+                    "inr_balance": float(usd_wallet.get("balance_inr", 0)) if (usd_wallet and usd_wallet.get("balance_inr")) else 0.0,
+                    "inr_available": float(usd_wallet.get("available_balance_inr", 0)) if (usd_wallet and usd_wallet.get("available_balance_inr")) else 0.0,
+                    "portfolio_margin": float(usd_wallet.get("portfolio_margin", 0)) if usd_wallet else 0.0,
+                    "blocked_margin": float(usd_wallet.get("blocked_margin", 0)) if usd_wallet else 0.0
+                }
+            except Exception:
+                return {
+                    "usd_balance": 0.0, "usd_available": 0.0, "inr_balance": 0.0, "inr_available": 0.0,
+                    "portfolio_margin": 0.0, "blocked_margin": 0.0
+                }
+
+        def _fetch_orders():
+            return fetch_formatted_live_orders(client, acct=acct)
+
+        ws_mgr = get_ws_manager()
+
+        # Concurrent Phase 1: Fetch Positions, Wallet, and Orders in parallel
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            fut_pos = executor.submit(_fetch_positions)
+            fut_wal = executor.submit(_fetch_wallet)
+            fut_ord = executor.submit(_fetch_orders)
+
+            raw_positions = fut_pos.result()
+            wallet_summary = fut_wal.result()
+            formatted_orders = fut_ord.result()
+
+        # Server timestamp: from live WebSocket BTC quote or high-res system clock
+        delta_server_ts = time.time()
+        if ws_mgr:
+            btc_q = ws_mgr.get_latest_quote("BTCUSD")
+            if btc_q and btc_q.get("timestamp"):
+                delta_server_ts = float(btc_q.get("timestamp"))
+
+        # Extract active positions (size != 0) and detect margin mode
+        active_positions = []
+        margin_mode_detected = None
+        for pos in raw_positions:
+            if not margin_mode_detected and pos.get("margin_mode"):
+                margin_mode_detected = str(pos.get("margin_mode")).upper()
+            try:
+                if float(pos.get("size", 0)) != 0:
+                    active_positions.append(pos)
+            except (ValueError, TypeError):
+                pass
+
+        if margin_mode_detected:
+            global _MARGIN_MODE_CACHE
+            _MARGIN_MODE_CACHE = {"mode": margin_mode_detected, "account": acct, "ts": time.time()}
+
+        # Phase 2: High-speed ticker resolution using WebSocket cache first, parallel REST fallback
+        needed_symbols = []
+        for pos in active_positions:
+            sym = pos.get("product_symbol") or (pos.get("product") or {}).get("symbol")
+            if sym and sym not in needed_symbols:
+                needed_symbols.append(sym)
+
+        # Proactively subscribe WebSocket stream to these active position symbols
+        if ws_mgr and hasattr(ws_mgr, "subscribe_symbols") and needed_symbols:
+            try:
+                ws_mgr.subscribe_symbols(needed_symbols)
+            except Exception:
+                pass
+
+        tickers_map = {}
+        missing_symbols = []
+
+        for sym in needed_symbols:
+            found = False
+            if ws_mgr:
+                q = ws_mgr.get_latest_quote(sym)
+                if q and (q.get("ltp") is not None or q.get("mark_price") is not None):
+                    tickers_map[sym] = {
+                        "close": q.get("ltp") or q.get("close"),
+                        "mark_price": q.get("mark_price"),
+                        "spot_price": q.get("spot_price"),
+                        "quotes": {
+                            "best_bid": q.get("bid"),
+                            "best_ask": q.get("ask")
+                        }
+                    }
+                    found = True
+            if not found:
+                missing_symbols.append(sym)
+
+        # Fetch missing tickers concurrently
+        if missing_symbols:
+            def _fetch_single_ticker(s):
+                try:
+                    return s, client.get_ticker(s)
+                except Exception:
+                    return s, None
+
+            with ThreadPoolExecutor(max_workers=min(len(missing_symbols), 8)) as t_exec:
+                for s, t_obj in t_exec.map(_fetch_single_ticker, missing_symbols):
+                    if t_obj:
+                        tickers_map[s] = t_obj
+
+        # Enrich active positions with metrics
         enriched_positions = []
         total_unrealized_pnl = 0.0
         total_realized_pnl = 0.0
@@ -581,47 +728,18 @@ def get_dashboard():
         longs_count = 0
         shorts_count = 0
 
-        for pos in raw_positions:
-            try:
-                size_val = float(pos.get("size", 0))
-            except (ValueError, TypeError):
-                size_val = 0
-
-            if size_val != 0:
-                sym = pos.get("product_symbol") or (pos.get("product") or {}).get("symbol")
-                ticker = None
-                if sym:
-                    try:
-                        ticker = client.get_ticker(sym)
-                    except Exception:
-                        ticker = None
-                metrics = calculate_position_metrics(pos, ticker=ticker)
-                enriched_positions.append(metrics)
-                total_unrealized_pnl += metrics["unrealized_pnl"]
-                total_realized_pnl += metrics["realized_pnl"]
-                total_notional += metrics["notional_usd"]
-                if metrics["side"] == "LONG":
-                    longs_count += 1
-                elif metrics["side"] == "SHORT":
-                    shorts_count += 1
-
-        # Wallet
-        try:
-            balances = client.get_all_wallet_balances()
-            usd_wallet = next((b for b in balances if b.get("asset_symbol") == "USD"), None)
-            wallet_summary = {
-                "usd_balance": float(usd_wallet.get("balance", 0)) if usd_wallet else 0.0,
-                "usd_available": float(usd_wallet.get("available_balance", 0)) if usd_wallet else 0.0,
-                "inr_balance": float(usd_wallet.get("balance_inr", 0)) if (usd_wallet and usd_wallet.get("balance_inr")) else 0.0,
-                "inr_available": float(usd_wallet.get("available_balance_inr", 0)) if (usd_wallet and usd_wallet.get("available_balance_inr")) else 0.0,
-                "portfolio_margin": float(usd_wallet.get("portfolio_margin", 0)) if usd_wallet else 0.0,
-                "blocked_margin": float(usd_wallet.get("blocked_margin", 0)) if usd_wallet else 0.0
-            }
-        except Exception:
-            wallet_summary = {
-                "usd_balance": 0.0, "usd_available": 0.0, "inr_balance": 0.0, "inr_available": 0.0,
-                "portfolio_margin": 0.0, "blocked_margin": 0.0
-            }
+        for pos in active_positions:
+            sym = pos.get("product_symbol") or (pos.get("product") or {}).get("symbol")
+            ticker = tickers_map.get(sym)
+            metrics = calculate_position_metrics(pos, ticker=ticker)
+            enriched_positions.append(metrics)
+            total_unrealized_pnl += metrics["unrealized_pnl"]
+            total_realized_pnl += metrics["realized_pnl"]
+            total_notional += metrics["notional_usd"]
+            if metrics["side"] == "LONG":
+                longs_count += 1
+            elif metrics["side"] == "SHORT":
+                shorts_count += 1
 
         creds = load_credentials()
         base_url = creds.get("base_url", "https://api.india.delta.exchange")
@@ -632,22 +750,15 @@ def get_dashboard():
         inr_bal = wallet_summary.get("inr_balance", 0)
         usd_to_inr_rate = round(inr_bal / usd_bal, 2) if (usd_bal > 0 and inr_bal > 0) else 85.0
 
-        # Delta Exchange official server timestamp
-        delta_server_ts = None
-        try:
-            btc_ticker = client.get_ticker("BTCUSD")
-            if btc_ticker and btc_ticker.get("timestamp"):
-                delta_server_ts = float(btc_ticker.get("timestamp")) / 1e6
-        except Exception:
-            delta_server_ts = None
+        resolved_margin_mode = margin_mode_detected or get_current_margin_mode(account=acct)
 
         return jsonify({
             "success": True,
-            "server_timestamp": delta_server_ts if delta_server_ts else time.time(),
+            "server_timestamp": delta_server_ts,
             "environment": env_label,
             "base_url": base_url,
             "usd_to_inr_rate": usd_to_inr_rate,
-            "margin_mode": get_current_margin_mode(),
+            "margin_mode": resolved_margin_mode,
             "summary": {
                 "total_open_positions": len(enriched_positions),
                 "longs_count": longs_count,
@@ -658,7 +769,9 @@ def get_dashboard():
                 "all_positions_count": len(raw_positions)
             },
             "wallet": wallet_summary,
-            "positions": enriched_positions
+            "positions": enriched_positions,
+            "orders": formatted_orders,
+            "orders_count": len(formatted_orders)
         })
 
     except Exception as e:
@@ -2262,6 +2375,162 @@ def cancel_armed_ladder_order():
         res = armed_target_manager.cancel_armed_cycle(cycle_id)
         return jsonify(res)
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/live", methods=["GET"])
+def get_live_open_orders():
+    """
+    Returns all currently live/open working limit, stop, and take-profit orders
+    from Delta Exchange for the active account.
+    """
+    try:
+        acct = (request.args.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
+        formatted_orders = fetch_formatted_live_orders(client, acct=acct)
+
+        return jsonify({
+            "success": True,
+            "account": acct,
+            "count": len(formatted_orders),
+            "orders": formatted_orders
+        })
+    except Exception as e:
+        print(f"[API ERROR /api/orders/live] {e}", flush=True)
+        return jsonify({"success": False, "error": str(e), "orders": []}), 500
+
+
+@app.route("/api/orders/cancel", methods=["POST"])
+def cancel_live_order():
+    """
+    Cancels a single live open order on Delta Exchange.
+    """
+    try:
+        data = request.get_json() or {}
+        order_id = data.get("order_id")
+        product_id = data.get("product_id")
+        if not order_id:
+            return jsonify({"success": False, "error": "'order_id' is required."}), 400
+
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
+
+        # Auto-resolve product_id if not supplied by frontend
+        if not product_id:
+            try:
+                ord_info = client.get_order_by_id(int(order_id))
+                if isinstance(ord_info, dict):
+                    product_id = ord_info.get("product_id")
+            except Exception:
+                pass
+
+        if not product_id:
+            return jsonify({"success": False, "error": f"Could not resolve product_id for order #{order_id}."}), 400
+
+        res = client.cancel_order(product_id=int(product_id), order_id=int(order_id))
+        return jsonify({
+            "success": True,
+            "message": f"Order #{order_id} cancelled.",
+            "result": res
+        })
+    except Exception as e:
+        print(f"[API ERROR /api/orders/cancel] {e}", flush=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/edit", methods=["POST"])
+def edit_live_order():
+    """
+    Modifies an open order's limit price or quantity on Delta Exchange.
+    Expects JSON:
+    {
+        "order_id": int | str,
+        "product_id": int | str (optional),
+        "limit_price": float | str (optional),
+        "size": int (optional),
+        "account": str (optional)
+    }
+    """
+    try:
+        data = request.get_json() or {}
+        order_id = data.get("order_id") or data.get("id")
+        product_id = data.get("product_id")
+        limit_price = data.get("limit_price")
+        size = data.get("size")
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+
+        if not order_id:
+            return jsonify({"success": False, "error": "'order_id' is required."}), 400
+
+        client = get_client(account=acct)
+
+        # Auto-resolve product_id if not supplied by frontend
+        if not product_id:
+            try:
+                ord_info = client.get_order_by_id(int(order_id))
+                if isinstance(ord_info, dict):
+                    product_id = ord_info.get("product_id")
+            except Exception:
+                pass
+
+        if not product_id:
+            return jsonify({"success": False, "error": f"Could not resolve product_id for order #{order_id}."}), 400
+
+        payload = {
+            "id": int(order_id),
+            "product_id": int(product_id)
+        }
+
+        if limit_price is not None:
+            try:
+                px = float(limit_price)
+                if px <= 0:
+                    return jsonify({"success": False, "error": "Price must be greater than 0."}), 400
+                payload["limit_price"] = str(px)
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "Invalid price value."}), 400
+
+        if size is not None:
+            try:
+                sz = int(size)
+                if sz <= 0:
+                    return jsonify({"success": False, "error": "Quantity must be at least 1."}), 400
+                payload["size"] = sz
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "Invalid quantity value."}), 400
+
+        if len(payload) <= 2:
+            return jsonify({"success": False, "error": "Provide either limit_price or size to modify."}), 400
+
+        res = client.edit_order(payload)
+        return jsonify({
+            "success": True,
+            "message": f"Order #{order_id} updated.",
+            "result": res
+        })
+    except Exception as e:
+        print(f"[API ERROR /api/orders/edit] {e}", flush=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/orders/cancel-all", methods=["POST"])
+def cancel_all_live_orders():
+    """
+    Cancels all open orders on Delta Exchange for the specified account in 1 click.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        acct = (data.get("account") or os.getenv("ACTIVE_ACCOUNT") or "sub").strip().lower()
+        client = get_client(account=acct)
+        res = client.cancel_all_orders()
+        return jsonify({
+            "success": True,
+            "account": acct,
+            "message": f"All open orders cancelled on [{acct.upper()}].",
+            "result": res
+        })
+    except Exception as e:
+        print(f"[API ERROR /api/orders/cancel-all] {e}", flush=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
 

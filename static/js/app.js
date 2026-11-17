@@ -346,6 +346,20 @@ async function fetchDashboardData(manual = false) {
     renderDashboardValues();
     renderPositionsTable();
 
+    // Instantly hydrate and render Open Orders from consolidated dashboard payload
+    if (data.orders && Array.isArray(data.orders)) {
+      currentLiveOrders = data.orders;
+      const lmOrdersBadge = document.getElementById('lmOrdersCountBadge');
+      if (lmOrdersBadge) lmOrdersBadge.textContent = currentLiveOrders.length;
+      const tableOrdersCount = document.getElementById('tableOrdersCount');
+      if (tableOrdersCount) tableOrdersCount.textContent = `${currentLiveOrders.length} Open`;
+      if (typeof renderOpenOrdersTable === 'function') {
+        renderOpenOrdersTable();
+      }
+    } else if (typeof fetchLiveOrders === 'function') {
+      fetchLiveOrders(true);
+    }
+
     const now = new Date();
     const lastSync = document.getElementById('lastUpdatedTime');
     if (lastSync) lastSync.textContent = `Last sync: ${now.toLocaleTimeString()}`;
@@ -754,6 +768,9 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   fetchDashboardData(false);
+  if (typeof fetchLiveOrders === 'function') {
+    fetchLiveOrders(true);
+  }
   loadExpiriesForUnderlying(studioUnderlying);
   loadActiveAccountStatus();
   startLiveStreaming();

@@ -385,3 +385,247 @@ tfoot td {
     font-size: 0.98rem;
   }
 }
+
+/* ==============================================================================
+   LIVE MANAGER SUB-NAVIGATION (POSITIONS vs OPEN ORDERS)
+   ============================================================================== */
+.lm-subnav-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 16px 0;
+  border-bottom: 1px solid var(--border-card, #272a37);
+  padding-bottom: 12px;
+}
+
+.lm-subnav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--text-secondary, #8b949e);
+  border: 1px solid transparent;
+  padding: 8px 16px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.lm-subnav-btn:hover {
+  color: var(--text-primary, #ffffff);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.lm-subnav-btn.active {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+}
+
+.lm-subnav-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-secondary, #8b949e);
+  min-width: 14px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.lm-subnav-btn.active .lm-subnav-badge {
+  background: rgba(16, 185, 129, 0.25);
+  color: #10b981;
+}
+
+.lm-subpanel {
+  width: 100%;
+}
+
+/* Order Table Badges */
+.badge-order-buy {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: inline-block;
+}
+
+.badge-order-sell {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: inline-block;
+}
+
+.badge-order-type {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-secondary, #94a3b8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.72rem;
+  display: inline-block;
+}
+
+.badge-order-ro {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.7rem;
+  display: inline-block;
+}
+
+.btn-cancel-order {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.btn-cancel-order:hover {
+  background: rgba(239, 68, 68, 0.22);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.btn-edit-order {
+  background: rgba(59, 130, 246, 0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  margin-right: 6px;
+}
+
+.btn-edit-order:hover {
+  background: rgba(59, 130, 246, 0.22);
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+/* Inline Editable Order Cells */
+.editable-order-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.editable-order-cell:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.editable-order-cell .edit-icon-hint {
+  opacity: 0.25;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  color: var(--text-muted, #94a3b8);
+}
+
+.editable-order-cell:hover .edit-icon-hint {
+  opacity: 1;
+  color: #f59e0b;
+}
+
+/* Inline Edit Widget (matching Delta Exchange screenshot) */
+.inline-edit-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inline-edit-input {
+  background: #0f141c;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #10b981;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 4px 6px;
+  border-radius: 4px;
+  width: 60px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.inline-edit-input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.35);
+}
+
+.inline-edit-input.price-input {
+  width: 82px;
+}
+
+.btn-inline-action {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 800;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-inline-cancel {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.btn-inline-cancel:hover {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: #ef4444;
+}
+
+.btn-inline-save {
+  background: rgba(16, 185, 129, 0.14);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.btn-inline-save:hover {
+  background: rgba(16, 185, 129, 0.28);
+  border-color: #10b981;
+}
+
+.btn-inline-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

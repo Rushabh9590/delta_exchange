@@ -30,10 +30,12 @@
 
 const ApiService = {
   /**
-   * Fetches consolidated dashboard data (wallet + positions + summary)
+   * Fetches consolidated dashboard data (wallet + positions + orders + summary)
    */
-  async getDashboard() {
-    const res = await fetch('/api/dashboard');
+  async getDashboard(account = null) {
+    const acct = (account || window.currentActiveAccount || '').toLowerCase();
+    const url = acct ? `/api/dashboard?account=${encodeURIComponent(acct)}` : '/api/dashboard';
+    const res = await fetch(url);
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try {
@@ -229,6 +231,62 @@ const ApiService = {
   async squareOffAllPositions(account) {
     const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
     const res = await fetch('/api/orders/square-off-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: acct })
+    });
+    return await res.json();
+  },
+
+  /**
+   * Fetches all live/open working orders on Delta Exchange
+   */
+  async getLiveOrders(account) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
+    const res = await fetch(`/api/orders/live?account=${encodeURIComponent(acct)}`);
+    return await res.json();
+  },
+
+  /**
+   * Cancels a single live open order
+   */
+  async cancelLiveOrder(orderId, productId, account) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
+    const res = await fetch('/api/orders/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, product_id: productId, account: acct })
+    });
+    return await res.json();
+  },
+
+  /**
+   * Modifies an existing open order's limit price or quantity on Delta Exchange
+   */
+  async editLiveOrder(orderId, productId, { limitPrice, size, account } = {}) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
+    const payload = {
+      order_id: orderId,
+      product_id: productId,
+      account: acct
+    };
+    if (limitPrice !== undefined && limitPrice !== null) payload.limit_price = limitPrice;
+    if (size !== undefined && size !== null) payload.size = size;
+
+    const res = await fetch('/api/orders/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  /**
+   * Cancels all live open orders in 1 click
+   */
+  async cancelAllLiveOrders(account) {
+    const acct = (account || window.currentActiveAccount || 'sub').toLowerCase();
+    const res = await fetch('/api/orders/cancel-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ account: acct })

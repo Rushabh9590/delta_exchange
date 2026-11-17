@@ -15,7 +15,7 @@
 
   <!-- Modular Stylesheets -->
   <link rel="stylesheet" href="/static/css/style.css?v=2.9.0" />
-  <link rel="stylesheet" href="/static/css/positions.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/positions.css?v=3.6.0" />
   <link rel="stylesheet" href="/static/css/multileg.css?v=2.9.0" />
   <link rel="stylesheet" href="/static/css/optionchain.css?v=2.9.0" />
   <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.9.0" />
@@ -369,74 +369,174 @@
           </div>
         </div>
       </div>
-      <div class="section-container">
-        <!-- Table Toolbar Header -->
-        <div class="section-header">
-          <div class="section-title-group">
-            <span class="section-title">Open Margined Positions</span>
-            <span class="count-pill" id="tablePosCount">Live Stream</span>
+
+      <!-- SUB-NAVIGATION: POSITIONS vs OPEN ORDERS -->
+      <div class="lm-subnav-bar">
+        <button class="lm-subnav-btn active" id="btnSubnavPositions" onclick="switchLiveManagerSubTab('positions')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+            <path d="M7 15h0M2 9.5h20"></path>
+          </svg>
+          <span>Open Positions</span>
+          <span class="lm-subnav-badge" id="lmPosCountBadge">0</span>
+        </button>
+        <button class="lm-subnav-btn" id="btnSubnavOrders" onclick="switchLiveManagerSubTab('orders')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+          <span>Open Orders</span>
+          <span class="lm-subnav-badge" id="lmOrdersCountBadge">0</span>
+        </button>
+      </div>
+
+      <!-- PANEL 1: OPEN POSITIONS (ACTIVE BY DEFAULT) -->
+      <div id="panelPositions" class="lm-subpanel active">
+        <div class="section-container">
+          <!-- Table Toolbar Header -->
+          <div class="section-header">
+            <div class="section-title-group">
+              <span class="section-title">Open Margined Positions</span>
+              <span class="count-pill" id="tablePosCount">Live Stream</span>
+            </div>
+
+            <div class="filter-toolbar">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search contract or strike..."
+                  oninput="filterPositions()" />
+              </div>
+
+              <div class="filter-tabs">
+                <button class="tab-btn active" onclick="setFilter('all', this)">All</button>
+                <button class="tab-btn" onclick="setFilter('options', this)">Options Only</button>
+                <button class="tab-btn" onclick="setFilter('calls', this)">Calls</button>
+                <button class="tab-btn" onclick="setFilter('puts', this)">Puts</button>
+                <button class="tab-btn" onclick="setFilter('longs', this)">Longs</button>
+                <button class="tab-btn" onclick="setFilter('shorts', this)">Shorts</button>
+              </div>
+            </div>
           </div>
 
-          <div class="filter-toolbar">
-            <div class="search-box">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          <!-- Responsive Positions Table -->
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Contract / Symbol</th>
+                  <th>Side</th>
+                  <th>Size / Qty</th>
+                  <th id="thEntryPrice">Entry Price (₹)</th>
+                  <th id="thLtp">LTP / Market (₹)</th>
+                  <th id="thMarkPrice">Mark Price (₹)</th>
+                  <th id="thUnrealizedPnl">Unrealized PnL (₹)</th>
+                  <th id="thRealizedPnl">Realized PnL (₹)</th>
+                  <th id="thNotional">Notional (₹)</th>
+                  <th>Margin Mode</th>
+                  <th>Exit</th>
+                  <th>Inspect</th>
+                </tr>
+              </thead>
+              <tbody id="positionsTbody">
+                <!-- Dynamically rendered via positions.js -->
+              </tbody>
+              <tfoot id="positionsTfoot">
+                <!-- Dynamically rendered summary via positions.js -->
+              </tfoot>
+            </table>
+          </div>
+
+          <!-- Empty State -->
+          <div class="empty-state" id="emptyState" style="display: none;">
+            <div class="empty-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                <path d="M8 10h8M8 14h4"></path>
               </svg>
-              <input type="text" id="searchInput" class="search-input" placeholder="Search contract or strike..."
-                oninput="filterPositions()" />
             </div>
-
-            <div class="filter-tabs">
-              <button class="tab-btn active" onclick="setFilter('all', this)">All</button>
-              <button class="tab-btn" onclick="setFilter('options', this)">Options Only</button>
-              <button class="tab-btn" onclick="setFilter('calls', this)">Calls</button>
-              <button class="tab-btn" onclick="setFilter('puts', this)">Puts</button>
-              <button class="tab-btn" onclick="setFilter('longs', this)">Longs</button>
-              <button class="tab-btn" onclick="setFilter('shorts', this)">Shorts</button>
-            </div>
+            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">No Open Positions Found</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);">You do not have any open positions matching the
+              active filter.</div>
           </div>
         </div>
+      </div>
 
-        <!-- Responsive Positions Table -->
-        <div class="table-responsive">
-          <table>
-            <thead>
-              <tr>
-                <th>Contract / Symbol</th>
-                <th>Side</th>
-                <th>Size / Qty</th>
-                <th id="thEntryPrice">Entry Price (₹)</th>
-                <th id="thLtp">LTP / Market (₹)</th>
-                <th id="thMarkPrice">Mark Price (₹)</th>
-                <th id="thUnrealizedPnl">Unrealized PnL (₹)</th>
-                <th id="thRealizedPnl">Realized PnL (₹)</th>
-                <th id="thNotional">Notional (₹)</th>
-                <th>Margin Mode</th>
-                <th>Exit</th>
-                <th>Inspect</th>
-              </tr>
-            </thead>
-            <tbody id="positionsTbody">
-              <!-- Dynamically rendered via positions.js -->
-            </tbody>
-            <tfoot id="positionsTfoot">
-              <!-- Dynamically rendered summary via positions.js -->
-            </tfoot>
-          </table>
-        </div>
+      <!-- PANEL 2: OPEN ORDERS -->
+      <div id="panelOpenOrders" class="lm-subpanel" style="display: none;">
+        <div class="section-container">
+          <!-- Orders Toolbar Header -->
+          <div class="section-header">
+            <div class="section-title-group">
+              <span class="section-title">Active Working Orders</span>
+              <span class="count-pill" id="tableOrdersCount">0 Open</span>
+            </div>
 
-        <!-- Empty State -->
-        <div class="empty-state" id="emptyState" style="display: none;">
-          <div class="empty-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-              <path d="M8 10h8M8 14h4"></path>
-            </svg>
+            <div class="filter-toolbar">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="orderSearchInput" class="search-input" placeholder="Search order symbol or ID..."
+                  oninput="filterOpenOrders()" />
+              </div>
+
+              <div class="filter-tabs">
+                <button class="tab-btn active" onclick="setOrderFilter('all', this)">All</button>
+                <button class="tab-btn" onclick="setOrderFilter('buy', this)">Buy Orders</button>
+                <button class="tab-btn" onclick="setOrderFilter('sell', this)">Sell Orders</button>
+                <button class="tab-btn" onclick="setOrderFilter('reduce_only', this)">Reduce-Only</button>
+              </div>
+
+              <button class="btn btn-danger-soft" id="btnCancelAllOrders" onclick="cancelAllOpenOrders()"
+                style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 0.78rem; font-weight: 700; border-radius: 6px;"
+                title="Cancel all open limit and stop orders on this account">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="15" y1="9" x2="9" y2="15"></line>
+                  <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+                <span>Cancel All Orders</span>
+              </button>
+            </div>
           </div>
-          <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">No Open Positions Found</div>
-          <div style="font-size: 0.82rem; color: var(--text-muted);">You do not have any open positions matching the
-            active filter.</div>
+
+          <!-- Responsive Open Orders Table -->
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order ID</th>
+                  <th>Contract / Symbol</th>
+                  <th>Side</th>
+                  <th>Type</th>
+                  <th id="thOrderPrice">Price ($)</th>
+                  <th id="thOrderTrigger">Trigger Price ($)</th>
+                  <th>Qty / Filled</th>
+                  <th>Reduce-Only</th>
+                  <th>Time (Placed)</th>
+                  <th style="text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTbody">
+                <!-- Dynamically rendered via positions.js -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty State for Orders -->
+          <div class="empty-state" id="emptyOrdersState" style="display: none;">
+            <div class="empty-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 14 14"></polyline>
+              </svg>
+            </div>
+            <div style="font-weight: 700; color: var(--text-primary); font-size: 1.05rem;">No Active Open Orders</div>
+            <div style="font-size: 0.82rem; color: var(--text-muted);">You do not have any open limit or stop orders on this account.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1746,13 +1846,13 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Modular Scripts Execution in Dependency Order -->
-  <script src="/static/js/api.js?v=3.4.1"></script>
-  <script src="/static/js/positions.js?v=3.4.1"></script>
+  <script src="/static/js/api.js?v=3.6.0"></script>
+  <script src="/static/js/positions.js?v=3.6.0"></script>
   <script src="/static/js/multileg.js?v=3.4.1"></script>
   <script src="/static/js/option_order_modal.js?v=3.5.1"></script>
   <script src="/static/js/optionchain.js?v=3.4.1"></script>
   <script src="/static/js/mm_strikes.js?v=3.4.1"></script>
-  <script src="/static/js/app.js?v=3.4.1"></script>
+  <script src="/static/js/app.js?v=3.6.0"></script>
 </body>
 
 </html>

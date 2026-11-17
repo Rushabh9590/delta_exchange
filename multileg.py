@@ -698,16 +698,36 @@ def get_options_expiries_and_strikes(underlying="BTC", client: DeltaRestClient =
     ltp = 0.0
     contract_value = 0.001 if underlying == "BTC" else (0.01 if underlying == "ETH" else 1.0)
 
-    try:
-        ticker = c.get_ticker(f"{underlying}USD")
-        if ticker:
-            spot_price = float(ticker.get("spot_price") or 0.0)
-            mark_price = float(ticker.get("mark_price") or 0.0)
-            ltp = float(ticker.get("close") or 0.0)
-            if ticker.get("contract_value"):
-                contract_value = float(ticker.get("contract_value"))
-    except Exception as e:
-        print(f"[WARN] Failed to fetch ticker for {underlying}USD: {e}")
+    for attempt in range(2):
+        try:
+            ticker = c.get_ticker(f"{underlying}USD")
+            if ticker:
+                spot_price = float(ticker.get("spot_price") or 0.0)
+                mark_price = float(ticker.get("mark_price") or 0.0)
+                ltp = float(ticker.get("close") or 0.0)
+                if ticker.get("contract_value"):
+                    contract_value = float(ticker.get("contract_value"))
+            break
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(0.3)
+            else:
+                # Fallback: check if bulk options cache has spot_price
+                cached_spot = None
+                if _BULK_TICKERS_CACHE:
+                    for sym_key, t_item in _BULK_TICKERS_CACHE.items():
+                        if f"-{underlying}-" in sym_key and t_item.get("spot_price"):
+                            try:
+                                cached_spot = float(t_item["spot_price"])
+                                if cached_spot > 0:
+                                    spot_price = cached_spot
+                                    mark_price = cached_spot
+                                    ltp = cached_spot
+                                    break
+                            except Exception:
+                                pass
+                if not cached_spot:
+                    print(f"[WARN] Failed to fetch ticker for {underlying}USD: {e}")
 
     now_utc = datetime.now(timezone.utc)
     expiries_set = set()

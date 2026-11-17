@@ -464,28 +464,27 @@ class DeltaPrivateWSManager:
         self.latest_positions = {}       # {product_id_or_symbol: position_dict}
         self._reconnect_delay = 3.0
 
-    def _on_open(self, ws):
-        self.is_connected = True
-        # TCP_NODELAY: Disable Nagle's algorithm for sub-50ms execution fill events
-        try:
-            s = getattr(ws, "sock", None)
-            raw_s = getattr(s, "sock", s)
-            if hasattr(raw_s, "setsockopt"):
-                raw_s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            elif hasattr(s, "setsockopt"):
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except Exception:
-            pass
-
-        if self.verbose:
-            print(f"[PRIVATE WS] Connected to {self.ws_url} for account [{self.account_name.upper()}]. Authenticating...", flush=True)
-
+    def _send_key_auth(self, ws, retry_count=0):
         if not self.api_key or not self.api_secret:
             print(f"[PRIVATE WS ERROR] Missing API credentials for account [{self.account_name.upper()}]. Cannot authenticate.", flush=True)
             return
 
         try:
-            timestamp = str(int(time.time()))
+            time_offset = 0
+            try:
+                from login import get_delta_client
+                cli = get_delta_client(account=self.account_name)
+                time_offset = getattr(cli, "time_offset", 0)
+                if time_offset == 0:
+                    cli.sync_server_time()
+                    time_offset = getattr(cli, "time_offset", 0)
+            except Exception:
+                pass
+
+            # Conservative safety bias: Delta rejects ANY future timestamp (even +1s)
+            # but allows up to 5-10s in the past. If uncalibrated, bias by -2 seconds.
+            eff_offset = time_offset if time_offset != 0 else -2
+            timestamp = str(int(time.time() + eff_offset))
             sig_data = "GET" + timestamp + "/live"
             signature = hmac.new(
                 bytes(self.api_secret, "utf-8"),
@@ -503,9 +502,28 @@ class DeltaPrivateWSManager:
             }
             ws.send(fast_json_dumps(auth_msg))
             if self.verbose:
-                print(f"[PRIVATE WS AUTH SENT] Sent key-auth for [{self.account_name.upper()}]", flush=True)
+                print(f"[PRIVATE WS AUTH SENT] Sent key-auth for [{self.account_name.upper()}] (ts: {timestamp}, offset: {eff_offset})", flush=True)
         except Exception as e:
             print(f"[PRIVATE WS AUTH ERROR] {e}", flush=True)
+
+    def _on_open(self, ws):
+        self.is_connected = True
+        self._auth_retry_count = 0
+        # TCP_NODELAY: Disable Nagle's algorithm for sub-50ms execution fill events
+        try:
+            s = getattr(ws, "sock", None)
+            raw_s = getattr(s, "sock", s)
+            if hasattr(raw_s, "setsockopt"):
+                raw_s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            elif hasattr(s, "setsockopt"):
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
+
+        if self.verbose:
+            print(f"[PRIVATE WS] Connected to {self.ws_url} for account [{self.account_name.upper()}]. Authenticating...", flush=True)
+
+        self._send_key_auth(ws)
 
     def _on_message(self, ws, message):
         try:
@@ -515,8 +533,8 @@ class DeltaPrivateWSManager:
             if msg_type == "key-auth":
                 if data.get("status") == "authenticated" or data.get("success") is True:
                     self.is_authenticated = True
-                    if self.verbose:
-                        print(f"[PRIVATE WS AUTH OK] Authenticated on [{self.account_name.upper()}]. Subscribing to private channels...", flush=True)
+                    self._auth_retry_count = 0
+                    print(f"[PRIVATE WS AUTH OK] Authenticated on [{self.account_name.upper()}]. Subscribing to private channels...", flush=True)
                     sub_payload = {
                         "type": "subscribe",
                         "payload": {
@@ -529,7 +547,24 @@ class DeltaPrivateWSManager:
                     ws.send(json.dumps(sub_payload))
                 else:
                     self.is_authenticated = False
-                    print(f"[PRIVATE WS AUTH FAILED] {data}", flush=True)
+                    print(f"[PRIVATE WS AUTH FAILED] [{self.account_name.upper()}] {data}", flush=True)
+                    self._auth_retry_count = getattr(self, "_auth_retry_count", 0) + 1
+                    if self._auth_retry_count <= 3:
+                        def _retry_auth():
+                            time.sleep(1.0)
+                            try:
+                                from login import get_delta_client
+                                cli = get_delta_client(account=self.account_name)
+                                cli.sync_server_time()
+                            except Exception:
+                                pass
+                            self._send_key_auth(ws, retry_count=self._auth_retry_count)
+                        threading.Thread(target=_retry_auth, daemon=True).start()
+                    else:
+                        try:
+                            ws.close()
+                        except Exception:
+                            pass
 
             elif msg_type == "subscriptions":
                 if self.verbose:
