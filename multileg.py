@@ -439,6 +439,8 @@ def execute_single_leg_order(leg: dict, client: DeltaRestClient = None) -> dict:
                     avail = float(ctx.get("available_balance", 0))
                     req = float(ctx.get("required_additional_balance", 0))
                     clean_err = f"Insufficient Margin: Available ${avail:.2f} USD, required additional ${req:.2f} USD. Please reduce size to match available margin."
+                elif "reduce_only" in str(code).lower() or "reduce_only" in clean_err.lower():
+                    clean_err = f"Exchange Lock: Contract {symbol} is in Reduce-Only mode on Delta Exchange (Max OI breached). Opening new positions is not allowed."
                 elif code:
                     clean_err = f"{code}: {ctx}" if ctx else str(code)
         except Exception:
@@ -915,7 +917,10 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
             "strike": s,
             "is_atm": (s == expiry_atm),
             "call": None,
-            "put": None
+            "put": None,
+            "call_locked": False,
+            "put_locked": False,
+            "is_strike_locked": False
         }
 
     for p in all_prods:
@@ -945,7 +950,16 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
         best_ask = quotes.get("best_ask")
         vol_val = t.get("volume")
         oi_val = t.get("oi") or t.get("oi_contracts") or t.get("oi_value") or t.get("open_interest")
-        oi_reduce_only_mode = bool(t.get("oi_reduce_only_mode", False))
+
+        # Delta Exchange Lock Detection (OI Reduce-Only Mode & Operational Status)
+        p_specs = p.get("product_specs") or {}
+        specs_ro = bool(p_specs.get("oi_reduce_only_mode") or p_specs.get("only_reduce_only_orders_allowed"))
+        oi_reduce_only_mode = bool(t.get("oi_reduce_only_mode", False) or specs_ro)
+        prod_trading_status = str(p.get("trading_status") or t.get("product_trading_status") or "operational").lower()
+        prod_state = str(p.get("state") or "live").lower()
+        is_operational = (prod_trading_status == "operational") and (prod_state == "live")
+        is_locked = bool(oi_reduce_only_mode or (not is_operational))
+        lock_reason = "Reduce-Only Mode (Max OI Breached)" if oi_reduce_only_mode else (f"Trading {prod_trading_status.capitalize()}" if not is_operational else "")
 
         ltp = float(close_val) if close_val is not None else None
         mark_price = float(mark_val) if mark_val is not None else 0.0
@@ -980,13 +994,21 @@ def get_option_chain_data(underlying="BTC", expiry=None, client: DeltaRestClient
             "open_interest": oi,
             "open_interest_usd": oi_usd,
             "oi_reduce_only_mode": oi_reduce_only_mode,
+            "is_locked": is_locked,
+            "lock_reason": lock_reason,
             "greeks": greeks
         }
 
         if is_call:
             chain_map[strike]["call"] = prod_data
+            if is_locked:
+                chain_map[strike]["call_locked"] = True
+                chain_map[strike]["is_strike_locked"] = True
         else:
             chain_map[strike]["put"] = prod_data
+            if is_locked:
+                chain_map[strike]["put_locked"] = True
+                chain_map[strike]["is_strike_locked"] = True
 
     rows = [chain_map[s] for s in sorted(strikes)]
 

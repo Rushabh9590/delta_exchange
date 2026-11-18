@@ -17,9 +17,9 @@
   <link rel="stylesheet" href="/static/css/style.css?v=2.9.0" />
   <link rel="stylesheet" href="/static/css/positions.css?v=3.6.0" />
   <link rel="stylesheet" href="/static/css/multileg.css?v=2.9.0" />
-  <link rel="stylesheet" href="/static/css/optionchain.css?v=2.9.0" />
+  <link rel="stylesheet" href="/static/css/optionchain.css?v=3.7.0" />
   <link rel="stylesheet" href="/static/css/mm_strikes.css?v=2.9.0" />
-  <link rel="stylesheet" href="/static/css/option_order_modal.css?v=3.5.0" />
+  <link rel="stylesheet" href="/static/css/option_order_modal.css?v=3.7.0" />
 </head>
 
 <body>
@@ -828,6 +828,10 @@
 
           <div class="oc-info-pill oc-lot-pill" id="ocLotSpec">
             💡 1 Lot = 0.001 BTC
+          </div>
+
+          <div class="oc-info-pill oc-lock-legend-pill" title="Locked Strikes: When open interest reaches exchange limit, Delta Exchange locks contract in Reduce-Only mode. Opening new positions is blocked.">
+            🔒 Lock = Reduce-Only
           </div>
 
           <div style="margin-left: auto; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);"
@@ -1662,6 +1666,15 @@
 
       <!-- Modal Body -->
       <div class="oom-body">
+        <!-- Locked Strike Notice Banner -->
+        <div id="oomLockWarningBanner" class="oom-lock-warning-banner" style="display: none;">
+          <span class="oom-lock-icon">🔒</span>
+          <div class="oom-lock-text">
+            <strong class="oom-lock-title">STRIKE LOCKED ON EXCHANGE (REDUCE-ONLY)</strong>
+            <span id="oomLockReasonText" class="oom-lock-desc">This contract has reached max Open Interest limit on Delta Exchange. Opening new positions is blocked. Only closing/reduce-only orders are permitted.</span>
+          </div>
+        </div>
+
         <!-- Live Market KPI Banner -->
         <div class="oom-market-banner">
           <div class="oom-kpi-block">
@@ -1849,8 +1862,8 @@
   <script src="/static/js/api.js?v=3.6.0"></script>
   <script src="/static/js/positions.js?v=3.6.0"></script>
   <script src="/static/js/multileg.js?v=3.4.1"></script>
-  <script src="/static/js/option_order_modal.js?v=3.5.1"></script>
-  <script src="/static/js/optionchain.js?v=3.4.1"></script>
+  <script src="/static/js/option_order_modal.js?v=3.7.0"></script>
+  <script src="/static/js/optionchain.js?v=3.7.0"></script>
   <script src="/static/js/mm_strikes.js?v=3.4.1"></script>
   <script src="/static/js/app.js?v=3.6.0"></script>
 </body>

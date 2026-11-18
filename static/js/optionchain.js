@@ -90,7 +90,13 @@ function applyOptionChainCellUpdate(symUpper, u) {
     const elLtp = document.getElementById(`ocLtp_${symUpper}`);
     if (elLtp) {
       const numLtp = Number(u.ltp);
-      elLtp.textContent = `$${formatNumber(numLtp, numLtp >= 100 ? 1 : (numLtp >= 1 ? 2 : 4))}`;
+      const isLocked = elLtp.classList.contains('oc-ltp-locked') || !!book.isLocked || !!u.isLocked;
+      const formatted = `$${formatNumber(numLtp, numLtp >= 100 ? 1 : (numLtp >= 1 ? 2 : 4))}`;
+      if (isLocked) {
+        elLtp.innerHTML = `<span class="oc-lock-tag" title="🔒 Strike Locked (Reduce-Only on Exchange)">🔒</span> ${formatted}`;
+      } else {
+        elLtp.textContent = formatted;
+      }
       if (u.flash && book.lastLtp > 0 && numLtp !== book.lastLtp) {
         const flashCls = numLtp > book.lastLtp ? 'oc-flash-up' : 'oc-flash-down';
         elLtp.classList.add(flashCls);
@@ -100,7 +106,15 @@ function applyOptionChainCellUpdate(symUpper, u) {
     }
   } else if (u.markPrice && (!document.getElementById(`ocLtp_${symUpper}`)?.textContent || document.getElementById(`ocLtp_${symUpper}`)?.textContent === '--')) {
     const elLtp = document.getElementById(`ocLtp_${symUpper}`);
-    if (elLtp) elLtp.textContent = `~$${formatNumber(Number(u.markPrice), 2)}`;
+    if (elLtp) {
+      const isLocked = elLtp.classList.contains('oc-ltp-locked') || !!book.isLocked || !!u.isLocked;
+      const formatted = `~$${formatNumber(Number(u.markPrice), 2)}`;
+      if (isLocked) {
+        elLtp.innerHTML = `<span class="oc-lock-tag" title="🔒 Strike Locked (Reduce-Only on Exchange)">🔒</span> ${formatted}`;
+      } else {
+        elLtp.textContent = formatted;
+      }
+    }
   }
 
   // 2. Mark Price
@@ -317,7 +331,9 @@ function updateAllChainCellsFromData(chainRows) {
   if (!chainRows || !Array.isArray(chainRows)) return;
   chainRows.forEach(row => {
     if (row.call && row.call.symbol) {
+      const isCallLocked = !!(row.call.is_locked || row.call.oi_reduce_only_mode || row.call_locked);
       const b = ocOrderBooks.get(row.call.symbol.toUpperCase());
+      if (b) b.isLocked = isCallLocked;
       // Preserve live WebSocket best bid/ask if already active in memory
       const bid = (b && b.lastBid > 0) ? b.lastBid : row.call.best_bid;
       const ask = (b && b.lastAsk > 0) ? b.lastAsk : row.call.best_ask;
@@ -329,11 +345,14 @@ function updateAllChainCellsFromData(chainRows) {
         ask,
         row.call.volume,
         row.call.open_interest,
-        false
+        false,
+        isCallLocked
       );
     }
     if (row.put && row.put.symbol) {
+      const isPutLocked = !!(row.put.is_locked || row.put.oi_reduce_only_mode || row.put_locked);
       const b = ocOrderBooks.get(row.put.symbol.toUpperCase());
+      if (b) b.isLocked = isPutLocked;
       const bid = (b && b.lastBid > 0) ? b.lastBid : row.put.best_bid;
       const ask = (b && b.lastAsk > 0) ? b.lastAsk : row.put.best_ask;
       updateOptionChainRowQuote(
@@ -344,7 +363,8 @@ function updateAllChainCellsFromData(chainRows) {
         ask,
         row.put.volume,
         row.put.open_interest,
-        false
+        false,
+        isPutLocked
       );
     }
   });
@@ -372,7 +392,8 @@ async function fetchOptionChainBatchQuotes(symbols) {
             ask,
             tick.volume,
             tick.oi,
-            false
+            false,
+            b?.isLocked || false
           );
         }
       });
@@ -383,9 +404,9 @@ async function fetchOptionChainBatchQuotes(symbols) {
 /**
  * In-place DOM updater for an individual contract row quote
  */
-function updateOptionChainRowQuote(sym, ltp, markPrice, bid, ask, vol, oi, flash = false) {
+function updateOptionChainRowQuote(sym, ltp, markPrice, bid, ask, vol, oi, flash = false, isLocked = false) {
   if (!sym) return;
-  queueOptionChainCellUpdate(sym, { ltp, markPrice, bid, ask, vol, oi, flash });
+  queueOptionChainCellUpdate(sym, { ltp, markPrice, bid, ask, vol, oi, flash, isLocked });
 }
 
 /**
@@ -445,6 +466,10 @@ function renderOptionChainTable() {
     const callCv = Number(call.contract_value) || (ocCurrentUnderlying === 'BTC' ? 0.001 : 0.01);
     const safeCallSym = callSym || (ocSelectedExpiry ? `C-${ocCurrentUnderlying}-${strike}-${ocSelectedExpiry}` : '');
 
+    // Call Lock status (Delta Exchange Reduce-Only Mode)
+    const isCallLocked = !!(call.is_locked || call.oi_reduce_only_mode || row.call_locked);
+    const callLockReason = call.lock_reason || (isCallLocked ? 'Reduce-Only Mode (Exchange Max OI Breached)' : '');
+
     // PUT Side Data
     const put = row.put || {};
     const putSym = (put.symbol || '').toUpperCase();
@@ -462,71 +487,92 @@ function renderOptionChainTable() {
     const putCv = Number(put.contract_value) || (ocCurrentUnderlying === 'BTC' ? 0.001 : 0.01);
     const safePutSym = putSym || (ocSelectedExpiry ? `P-${ocCurrentUnderlying}-${strike}-${ocSelectedExpiry}` : '');
 
+    // Put Lock status (Delta Exchange Reduce-Only Mode)
+    const isPutLocked = !!(put.is_locked || put.oi_reduce_only_mode || row.put_locked);
+    const putLockReason = put.lock_reason || (isPutLocked ? 'Reduce-Only Mode (Exchange Max OI Breached)' : '');
+    const isStrikeLocked = isCallLocked || isPutLocked || !!row.is_strike_locked;
+
     const callLtpDisplay = callLtp !== null ? `$${formatNumber(callLtp, callLtp >= 100 ? 1 : (callLtp >= 1 ? 2 : 4))}` : (callMark > 0 ? `~$${formatNumber(callMark, 2)}` : '--');
     const putLtpDisplay = putLtp !== null ? `$${formatNumber(putLtp, putLtp >= 100 ? 1 : (putLtp >= 1 ? 2 : 4))}` : (putMark > 0 ? `~$${formatNumber(putMark, 2)}` : '--');
 
     const callKey = callSym || `C_${strike}`;
     const putKey = putSym || `P_${strike}`;
 
+    // Cache lock states in orderbook cache
+    if (callSym) {
+      let b = ocOrderBooks.get(callSym);
+      if (!b) { b = { lastBid: 0, lastAsk: 0, lastLtp: 0, bidQty: 0, askQty: 0 }; ocOrderBooks.set(callSym, b); }
+      b.isLocked = isCallLocked;
+    }
+    if (putSym) {
+      let b = ocOrderBooks.get(putSym);
+      if (!b) { b = { lastBid: 0, lastAsk: 0, lastLtp: 0, bidQty: 0, askQty: 0 }; ocOrderBooks.set(putSym, b); }
+      b.isLocked = isPutLocked;
+    }
+
     html += `
-      <tr class="${rowClass}">
+      <tr class="${rowClass} ${isStrikeLocked ? 'oc-row-has-locked' : ''}">
         <!-- CALLS: OI & Volume -->
-        <td class="col-call-side col-oi ${isCallItm ? 'oc-itm-call' : ''}" id="ocOi_${callKey}" style="color: var(--text-muted); font-size: 0.72rem;">${callOi}</td>
-        <td class="col-call-side col-vol ${isCallItm ? 'oc-itm-call' : ''}" id="ocVol_${callKey}" style="color: var(--text-secondary);">${callVol}</td>
+        <td class="col-call-side col-oi ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}" id="ocOi_${callKey}" style="color: var(--text-muted); font-size: 0.72rem;">${callOi}</td>
+        <td class="col-call-side col-vol ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}" id="ocVol_${callKey}" style="color: var(--text-secondary);">${callVol}</td>
 
         <!-- CALLS: Bid / Ask -->
-        <td class="col-call-side col-bid ${isCallItm ? 'oc-itm-call' : ''}" id="ocBid_${callKey}" style="color: var(--accent-green); font-size: 0.74rem; cursor: pointer;" title="Sell Call @ Bid" onclick="triggerOptionOrder('${safeCallSym}', 'sell', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv})">${callBid}</td>
-        <td class="col-call-side col-ask ${isCallItm ? 'oc-itm-call' : ''}" id="ocAsk_${callKey}" style="color: var(--accent-red); font-size: 0.74rem; cursor: pointer;" title="Buy Call @ Ask" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv})">${callAsk}</td>
+        <td class="col-call-side col-bid ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}" id="ocBid_${callKey}" style="color: var(--accent-green); font-size: 0.74rem; cursor: pointer;" title="Sell Call @ Bid" onclick="triggerOptionOrder('${safeCallSym}', 'sell', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv}, ${isCallLocked}, '${callLockReason}')">${callBid}</td>
+        <td class="col-call-side col-ask ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}" id="ocAsk_${callKey}" style="color: var(--accent-red); font-size: 0.74rem; cursor: pointer;" title="Buy Call @ Ask" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv}, ${isCallLocked}, '${callLockReason}')">${callAsk}</td>
 
         <!-- CALLS: Mark Price -->
-        <td class="col-call-side col-mark ${isCallItm ? 'oc-itm-call' : ''}" id="ocMark_${callKey}" style="color: var(--text-secondary); font-size: 0.75rem;">$${formatNumber(callMark, 2)}</td>
+        <td class="col-call-side col-mark ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}" id="ocMark_${callKey}" style="color: var(--text-secondary); font-size: 0.75rem;">$${formatNumber(callMark, 2)}</td>
 
         <!-- CALLS: Live Traded LTP -->
-        <td class="col-call-side col-ltp ${isCallItm ? 'oc-itm-call' : ''}">
-          <span class="oc-ltp-val oc-call-ltp" id="ocLtp_${callKey}" title="Buy Call (Open Order Window)" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv})">
-            ${callLtpDisplay}
+        <td class="col-call-side col-ltp ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}">
+          <span class="oc-ltp-val oc-call-ltp ${isCallLocked ? 'oc-ltp-locked' : ''}" id="ocLtp_${callKey}" title="${isCallLocked ? '🔒 Strike Locked on Delta Exchange: ' + callLockReason : 'Buy Call (Open Order Window)'}" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv}, ${isCallLocked}, '${callLockReason}')">
+            ${isCallLocked ? '<span class="oc-lock-tag" title="🔒 Strike Locked (Reduce-Only on Exchange)">🔒</span> ' : ''}${callLtpDisplay}
           </span>
         </td>
 
         <!-- CALLS: 1-Click Action Buttons -->
-        <td class="col-call-side col-trade ${isCallItm ? 'oc-itm-call' : ''}">
+        <td class="col-call-side col-trade ${isCallItm ? 'oc-itm-call' : ''} ${isCallLocked ? 'oc-side-locked' : ''}">
           <div class="oc-actions-cell">
-            <button type="button" class="oc-btn-buy" title="Buy Call" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv})">B</button>
-            <button type="button" class="oc-btn-sell" title="Sell Call" onclick="triggerOptionOrder('${safeCallSym}', 'sell', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv})">S</button>
+            <button type="button" class="oc-btn-buy ${isCallLocked ? 'oc-btn-locked' : ''}" title="${isCallLocked ? '🔒 Strike Locked on Exchange: ' + callLockReason + ' (New opening orders blocked)' : 'Buy Call'}" onclick="triggerOptionOrder('${safeCallSym}', 'buy', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv}, ${isCallLocked}, '${callLockReason}')">${isCallLocked ? '🔒' : 'B'}</button>
+            <button type="button" class="oc-btn-sell" title="Sell Call (Reduce-Only / Closing allowed)" onclick="triggerOptionOrder('${safeCallSym}', 'sell', 'call', ${strike}, ${callBidNum}, ${callAskNum}, ${callTick}, ${callCv}, ${isCallLocked}, '${callLockReason}')">S</button>
           </div>
         </td>
 
         <!-- CENTER: STRIKE PRICE -->
-        <td class="col-strike oc-strike-cell">
-          <span>${formatNumber(strike, 0)}</span>
-          ${isAtm ? '<span class="oc-atm-tag">ATM</span>' : ''}
+        <td class="col-strike oc-strike-cell ${isStrikeLocked ? 'oc-strike-locked' : ''}">
+          <div class="oc-strike-wrap">
+            ${isCallLocked ? `<span class="oc-strike-lock-icon call" title="🔒 Call Strike Locked on Exchange: ${callLockReason}">🔒</span>` : ''}
+            <span class="oc-strike-num">${formatNumber(strike, 0)}</span>
+            ${isPutLocked ? `<span class="oc-strike-lock-icon put" title="🔒 Put Strike Locked on Exchange: ${putLockReason}">🔒</span>` : ''}
+            ${isAtm ? '<span class="oc-atm-tag">ATM</span>' : ''}
+          </div>
         </td>
 
         <!-- PUTS: 1-Click Action Buttons -->
-        <td class="col-put-side col-trade ${isPutItm ? 'oc-itm-put' : ''}">
+        <td class="col-put-side col-trade ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}">
           <div class="oc-actions-cell">
-            <button type="button" class="oc-btn-buy" title="Buy Put" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv})">B</button>
-            <button type="button" class="oc-btn-sell" title="Sell Put" onclick="triggerOptionOrder('${safePutSym}', 'sell', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv})">S</button>
+            <button type="button" class="oc-btn-buy ${isPutLocked ? 'oc-btn-locked' : ''}" title="${isPutLocked ? '🔒 Strike Locked on Exchange: ' + putLockReason + ' (New opening orders blocked)' : 'Buy Put'}" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv}, ${isPutLocked}, '${putLockReason}')">${isPutLocked ? '🔒' : 'B'}</button>
+            <button type="button" class="oc-btn-sell" title="Sell Put (Reduce-Only / Closing allowed)" onclick="triggerOptionOrder('${safePutSym}', 'sell', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv}, ${isPutLocked}, '${putLockReason}')">S</button>
           </div>
         </td>
 
         <!-- PUTS: Live Traded LTP -->
-        <td class="col-put-side col-ltp ${isPutItm ? 'oc-itm-put' : ''}">
-          <span class="oc-ltp-val oc-put-ltp" id="ocLtp_${putKey}" title="Buy Put (Open Order Window)" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv})">
-            ${putLtpDisplay}
+        <td class="col-put-side col-ltp ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}">
+          <span class="oc-ltp-val oc-put-ltp ${isPutLocked ? 'oc-ltp-locked' : ''}" id="ocLtp_${putKey}" title="${isPutLocked ? '🔒 Strike Locked on Delta Exchange: ' + putLockReason : 'Buy Put (Open Order Window)'}" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv}, ${isPutLocked}, '${putLockReason}')">
+            ${isPutLocked ? '<span class="oc-lock-tag" title="🔒 Strike Locked (Reduce-Only on Exchange)">🔒</span> ' : ''}${putLtpDisplay}
           </span>
         </td>
 
         <!-- PUTS: Mark Price -->
-        <td class="col-put-side col-mark ${isPutItm ? 'oc-itm-put' : ''}" id="ocMark_${putKey}" style="color: var(--text-secondary); font-size: 0.75rem;">$${formatNumber(putMark, 2)}</td>
+        <td class="col-put-side col-mark ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}" id="ocMark_${putKey}" style="color: var(--text-secondary); font-size: 0.75rem;">$${formatNumber(putMark, 2)}</td>
 
         <!-- PUTS: Bid / Ask -->
-        <td class="col-put-side col-bid ${isPutItm ? 'oc-itm-put' : ''}" id="ocBid_${putKey}" style="color: var(--accent-green); font-size: 0.74rem; cursor: pointer;" title="Sell Put @ Bid" onclick="triggerOptionOrder('${safePutSym}', 'sell', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv})">${putBid}</td>
-        <td class="col-put-side col-ask ${isPutItm ? 'oc-itm-put' : ''}" id="ocAsk_${putKey}" style="color: var(--accent-red); font-size: 0.74rem; cursor: pointer;" title="Buy Put @ Ask" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv})">${putAsk}</td>
+        <td class="col-put-side col-bid ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}" id="ocBid_${putKey}" style="color: var(--accent-green); font-size: 0.74rem; cursor: pointer;" title="Sell Put @ Bid" onclick="triggerOptionOrder('${safePutSym}', 'sell', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv}, ${isPutLocked}, '${putLockReason}')">${putBid}</td>
+        <td class="col-put-side col-ask ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}" id="ocAsk_${putKey}" style="color: var(--accent-red); font-size: 0.74rem; cursor: pointer;" title="Buy Put @ Ask" onclick="triggerOptionOrder('${safePutSym}', 'buy', 'put', ${strike}, ${putBidNum}, ${putAskNum}, ${putTick}, ${putCv}, ${isPutLocked}, '${putLockReason}')">${putAsk}</td>
 
         <!-- PUTS: Volume & OI -->
-        <td class="col-put-side col-vol ${isPutItm ? 'oc-itm-put' : ''}" id="ocVol_${putKey}" style="color: var(--text-secondary);">${putVol}</td>
-        <td class="col-put-side col-oi ${isPutItm ? 'oc-itm-put' : ''}" id="ocOi_${putKey}" style="color: var(--text-muted); font-size: 0.72rem;">${putOi}</td>
+        <td class="col-put-side col-vol ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}" id="ocVol_${putKey}" style="color: var(--text-secondary);">${putVol}</td>
+        <td class="col-put-side col-oi ${isPutItm ? 'oc-itm-put' : ''} ${isPutLocked ? 'oc-side-locked' : ''}" id="ocOi_${putKey}" style="color: var(--text-muted); font-size: 0.72rem;">${putOi}</td>
       </tr>
     `;
   });
@@ -555,7 +601,7 @@ function renderOptionChainTable() {
 /**
  * Seamless Option Order Window: Opens the modern Buying / Selling & Armed Target Ladder Modal
  */
-function triggerOptionOrder(symbol, side = 'buy', optionType = 'call', strike = 0, quoteDataOrBid = 0, askParam = 0, tickParam = 0.1, cvParam = 0.001) {
+function triggerOptionOrder(symbol, side = 'buy', optionType = 'call', strike = 0, quoteDataOrBid = 0, askParam = 0, tickParam = 0.1, cvParam = 0.001, isLocked = false, lockReason = '') {
   try {
     const activeExpiry = ocSelectedExpiry || (typeof ocCurrentExpiry !== 'undefined' ? ocCurrentExpiry : '') || '';
     const activeUnderlying = ocCurrentUnderlying || 'BTC';
@@ -603,6 +649,10 @@ function triggerOptionOrder(symbol, side = 'buy', optionType = 'call', strike = 
       if (quoteDataOrBid.contractValue) contractValue = parseFloat(quoteDataOrBid.contractValue);
       if (quoteDataOrBid.bidQty) bidQty = quoteDataOrBid.bidQty;
       if (quoteDataOrBid.askQty) askQty = quoteDataOrBid.askQty;
+      if (quoteDataOrBid.is_locked !== undefined) isLocked = Boolean(quoteDataOrBid.is_locked);
+      if (quoteDataOrBid.isLocked !== undefined) isLocked = Boolean(quoteDataOrBid.isLocked);
+      if (quoteDataOrBid.lock_reason) lockReason = quoteDataOrBid.lock_reason;
+      if (quoteDataOrBid.lockReason) lockReason = quoteDataOrBid.lockReason;
     } else {
       bid = parseFloat(quoteDataOrBid || 0) || 0;
       ask = parseFloat(askParam || 0) || 0;
@@ -617,6 +667,14 @@ function triggerOptionOrder(symbol, side = 'buy', optionType = 'call', strike = 
       if (liveBook.lastAsk > 0) ask = liveBook.lastAsk;
       if (liveBook.bidQty > 0) bidQty = liveBook.bidQty;
       if (liveBook.askQty > 0) askQty = liveBook.askQty;
+      if (liveBook.isLocked !== undefined) isLocked = isLocked || Boolean(liveBook.isLocked);
+    }
+
+    // Warning toast on attempting to open a Buy order on a locked contract
+    if (isLocked && optSide === 'buy') {
+      if (typeof showToast === 'function') {
+        showToast(`🔒 ${sym} is LOCKED on Delta Exchange (${lockReason || 'Reduce-Only Mode'}). Opening new trades will be rejected by exchange.`, 'warning');
+      }
     }
 
     const payload = {
@@ -631,7 +689,11 @@ function triggerOptionOrder(symbol, side = 'buy', optionType = 'call', strike = 
       bid: bid,
       ask: ask,
       bidQty: bidQty,
-      askQty: askQty
+      askQty: askQty,
+      is_locked: Boolean(isLocked),
+      isLocked: Boolean(isLocked),
+      lock_reason: lockReason || '',
+      lockReason: lockReason || ''
     };
 
     console.log('[triggerOptionOrder] Opening order modal with payload:', payload);

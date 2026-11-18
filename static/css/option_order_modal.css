@@ -192,6 +192,55 @@
   gap: 18px;
 }
 
+/* Locked Strike Notice Banner */
+.oom-lock-warning-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: #fca5a5;
+  animation: oomSlideUp 0.2s ease;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.1);
+}
+
+.oom-lock-warning-banner.sell-allowed {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.45);
+  border-left: 4px solid #f59e0b;
+  color: #fde68a;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.1);
+}
+
+.oom-lock-warning-banner .oom-lock-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.5));
+}
+
+.oom-lock-warning-banner .oom-lock-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.76rem;
+}
+
+.oom-lock-warning-banner .oom-lock-title {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffffff;
+  font-size: 0.78rem;
+}
+
+.oom-lock-warning-banner .oom-lock-desc {
+  line-height: 1.4;
+  color: #cbd5e1;
+}
+
 /* Live Market KPI Banner */
 .oom-market-banner {
   display: grid;

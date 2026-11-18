@@ -464,6 +464,87 @@
   box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
 }
 
+/* Locked Strike & Contract Styles (Delta Exchange Reduce-Only Mode) */
+.oc-strike-locked {
+  background: rgba(239, 68, 68, 0.08) !important;
+}
+
+.oc-strike-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  position: relative;
+}
+
+.oc-strike-lock-icon {
+  font-size: 0.76rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.7));
+  cursor: help;
+  animation: ocPulseLock 2s infinite ease-in-out;
+}
+
+.oc-strike-lock-icon.call {
+  color: #f87171;
+}
+
+.oc-strike-lock-icon.put {
+  color: #f87171;
+}
+
+@keyframes ocPulseLock {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.oc-side-locked {
+  background: rgba(239, 68, 68, 0.06) !important;
+}
+
+.oc-row-has-locked:hover {
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.oc-ltp-locked {
+  color: #fca5a5 !important;
+}
+
+.oc-lock-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  margin-right: 2px;
+  vertical-align: middle;
+  filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.6));
+}
+
+.oc-btn-locked {
+  background: rgba(239, 68, 68, 0.22) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.5) !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+}
+
+.oc-btn-locked:hover {
+  background: rgba(239, 68, 68, 0.45) !important;
+  color: #fff !important;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6) !important;
+}
+
+.oc-info-pill.oc-lock-legend-pill {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-weight: 700;
+  font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* Flash Animations */
 .oc-flash-up {
   background: rgba(0, 220, 130, 0.45) !important;

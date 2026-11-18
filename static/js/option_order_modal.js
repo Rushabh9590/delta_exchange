@@ -51,6 +51,9 @@ function openOptionOrderModal(contract) {
       return;
     }
 
+    const isLocked = Boolean(contract.is_locked || contract.isLocked || contract.oi_reduce_only_mode);
+    const lockReason = contract.lock_reason || contract.lockReason || (isLocked ? 'Reduce-Only Mode (Exchange Max OI Breached)' : '');
+
     oomCurrentContract = {
       symbol: contract.symbol.toUpperCase(),
       underlying: contract.underlying || (contract.symbol.includes('BTC') ? 'BTC' : 'ETH'),
@@ -63,7 +66,9 @@ function openOptionOrderModal(contract) {
       ask: parseFloat(contract.ask || contract.best_ask || 0),
       bidQty: contract.bidQty || contract.best_bid_size || 1850,
       askQty: contract.askQty || contract.best_ask_size || 5365,
-      side: (contract.side || 'buy').toLowerCase()
+      side: (contract.side || 'buy').toLowerCase(),
+      is_locked: isLocked,
+      lock_reason: lockReason
     };
 
     if (oomCurrentContract.bid > 0 && oomCurrentContract.ask > 0) {
@@ -75,7 +80,22 @@ function openOptionOrderModal(contract) {
     // 1. Populate Header
     updateModalTitleAndBadge();
 
-    // 2. Populate Market Banner
+    // 2. Populate Lock Warning Banner
+    const lockBanner = document.getElementById('oomLockWarningBanner');
+    const lockReasonText = document.getElementById('oomLockReasonText');
+    if (lockBanner) {
+      if (isLocked) {
+        lockBanner.style.display = 'flex';
+        lockBanner.className = oomCurrentContract.side === 'buy' ? 'oom-lock-warning-banner buy-blocked' : 'oom-lock-warning-banner sell-allowed';
+        if (lockReasonText) {
+          lockReasonText.textContent = `${lockReason}. Delta Exchange has locked this strike in Reduce-Only mode. Opening new positions is rejected by the exchange. Only closing / reduce-only orders are permitted.`;
+        }
+      } else {
+        lockBanner.style.display = 'none';
+      }
+    }
+
+    // 3. Populate Market Banner
     updateMarketBannerQuotes();
 
     // 3. Set Entry Form Defaults
@@ -148,9 +168,11 @@ function closeOptionOrderModal() {
     overlay.classList.remove('active');
     overlay.style.setProperty('display', 'none', 'important');
   }
+  const lockBanner = document.getElementById('oomLockWarningBanner');
+  if (lockBanner) lockBanner.style.display = 'none';
   oomCurrentContract = null;
   if (oomWsTickUnsub) {
-    try { oomWsTickUnsub(); } catch (_) {}
+    try { oomWsTickUnsub(); } catch (_) { }
     oomWsTickUnsub = null;
   }
 }
@@ -258,6 +280,13 @@ function setEntrySide(side, triggerRecalc = true) {
 
   updateModalTitleAndBadge();
   updateEstimatedOrderMargin();
+
+  // Dynamic lock banner state based on side
+  const lockBanner = document.getElementById('oomLockWarningBanner');
+  if (lockBanner && oomCurrentContract?.is_locked) {
+    lockBanner.className = oomCurrentContract.side === 'buy' ? 'oom-lock-warning-banner buy-blocked' : 'oom-lock-warning-banner sell-allowed';
+  }
+
   if (triggerRecalc) {
     recalculateLadder();
   }
@@ -684,6 +713,17 @@ async function executeOptionOrder() {
 
   if (size <= 0) {
     if (typeof showToast === 'function') showToast('Please enter a valid quantity >= 1', 'error');
+    return;
+  }
+
+  // Prevent executing BUY on a locked strike (Exchange rejects opening positions)
+  if (oomCurrentContract.is_locked && oomCurrentContract.side === 'buy') {
+    const msg = `🔒 Strike Locked: Cannot place BUY order on ${oomCurrentContract.symbol}. Contract is in Reduce-Only Mode on Delta Exchange (${oomCurrentContract.lock_reason || 'Max OI Limit Breached'}). Opening new positions is blocked.`;
+    if (typeof showToast === 'function') {
+      showToast(msg, 'error');
+    } else {
+      alert(msg);
+    }
     return;
   }
 
