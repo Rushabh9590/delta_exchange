@@ -47,4 +47,4 @@ jobs:
             -o BatchMode=yes \
             -o ConnectTimeout=15 \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            'set -e; cd "$HOME/delta_exchange"; bash ./deploy.sh'
+            'set -e; cd "$HOME/delta_exchange"; git fetch origin master; git reset --hard origin/master; if tmux has-session -t pyserver 2>/dev/null; then tmux kill-session -t pyserver; sleep 1; fi; bash ./start_delta.sh'
